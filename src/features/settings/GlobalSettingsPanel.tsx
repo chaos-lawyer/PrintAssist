@@ -1,7 +1,22 @@
-import { Alert, InputNumber, Segmented, Select, Typography } from 'antd';
+import { Alert, InputNumber, Segmented, Typography } from 'antd';
+import { ChevronDown } from 'lucide-react';
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { SystemPrinter } from '../../shared/contracts/printer';
 import type { ColorMode, FlipMode, PrintSettings, SidesMode } from '../../domain/printSettings';
 import { evaluateSettingAvailability } from '../../domain/printSettings';
+
+interface PrinterMenuPosition {
+  top: number;
+  left: number;
+  width: number;
+  maxHeight: number;
+  placement: 'bottom' | 'top';
+}
+
+const PRINTER_MENU_GAP_PIXELS = 6;
+const PRINTER_MENU_VIEWPORT_PADDING_PIXELS = 8;
+const PRINTER_MENU_PREFERRED_MAX_HEIGHT_PIXELS = 280;
 
 interface GlobalSettingsPanelProps {
   printers: SystemPrinter[];
@@ -40,6 +55,153 @@ export function GlobalSettingsPanel({
       reason.includes('错误') ||
       reason.includes('尚未选择'),
   );
+  const [printerSelectOpen, setPrinterSelectOpen] = useState(false);
+  const printerTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const printerMenuRef = useRef<HTMLDivElement | null>(null);
+  const [printerMenuPosition, setPrinterMenuPosition] = useState<PrinterMenuPosition | null>(null);
+  const printerListboxId = useId();
+  const selectedPrinterLabel = selectedPrinter
+    ? `${selectedPrinter.name}${selectedPrinter.isDefault ? '（默认）' : ''}`
+    : loadingPrinters
+      ? '正在读取系统打印机…'
+      : '选择系统打印机';
+
+  const updatePrinterMenuPosition = useCallback(() => {
+    const triggerElement = printerTriggerRef.current;
+    if (!triggerElement) {
+      return;
+    }
+
+    const triggerRect = triggerElement.getBoundingClientRect();
+    const viewportHeight = window.innerHeight;
+    const viewportWidth = window.innerWidth;
+    const spaceBelow =
+      viewportHeight - triggerRect.bottom - PRINTER_MENU_GAP_PIXELS - PRINTER_MENU_VIEWPORT_PADDING_PIXELS;
+    const spaceAbove =
+      triggerRect.top - PRINTER_MENU_GAP_PIXELS - PRINTER_MENU_VIEWPORT_PADDING_PIXELS;
+    const preferBottom =
+      spaceBelow >= Math.min(PRINTER_MENU_PREFERRED_MAX_HEIGHT_PIXELS, 160) || spaceBelow >= spaceAbove;
+    const availableHeight = Math.max(120, preferBottom ? spaceBelow : spaceAbove);
+    const maxHeight = Math.min(PRINTER_MENU_PREFERRED_MAX_HEIGHT_PIXELS, availableHeight);
+    const width = Math.min(Math.max(triggerRect.width, 220), viewportWidth - PRINTER_MENU_VIEWPORT_PADDING_PIXELS * 2);
+    const rawLeft = triggerRect.left;
+    const left = Math.min(
+      Math.max(PRINTER_MENU_VIEWPORT_PADDING_PIXELS, rawLeft),
+      viewportWidth - width - PRINTER_MENU_VIEWPORT_PADDING_PIXELS,
+    );
+    const top = preferBottom
+      ? triggerRect.bottom + PRINTER_MENU_GAP_PIXELS
+      : Math.max(
+          PRINTER_MENU_VIEWPORT_PADDING_PIXELS,
+          triggerRect.top - PRINTER_MENU_GAP_PIXELS - maxHeight,
+        );
+
+    setPrinterMenuPosition({
+      top,
+      left,
+      width,
+      maxHeight,
+      placement: preferBottom ? 'bottom' : 'top',
+    });
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!printerSelectOpen) {
+      setPrinterMenuPosition(null);
+      return;
+    }
+    updatePrinterMenuPosition();
+  }, [printerSelectOpen, printers.length, updatePrinterMenuPosition]);
+
+  useEffect(() => {
+    if (!printerSelectOpen) {
+      return;
+    }
+
+    const handlePointerDownOutside = (event: MouseEvent) => {
+      const targetNode = event.target;
+      if (!(targetNode instanceof Node)) {
+        return;
+      }
+      const clickedInsideTrigger = printerTriggerRef.current?.contains(targetNode);
+      const clickedInsideMenu = printerMenuRef.current?.contains(targetNode);
+      if (!clickedInsideTrigger && !clickedInsideMenu) {
+        setPrinterSelectOpen(false);
+      }
+    };
+
+    const handleEscapeKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setPrinterSelectOpen(false);
+      }
+    };
+
+    const handleViewportChange = () => {
+      updatePrinterMenuPosition();
+    };
+
+    document.addEventListener('mousedown', handlePointerDownOutside);
+    document.addEventListener('keydown', handleEscapeKey);
+    window.addEventListener('resize', handleViewportChange);
+    // Capture scroll from nested sider so floating menu stays under the trigger.
+    window.addEventListener('scroll', handleViewportChange, true);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDownOutside);
+      document.removeEventListener('keydown', handleEscapeKey);
+      window.removeEventListener('resize', handleViewportChange);
+      window.removeEventListener('scroll', handleViewportChange, true);
+    };
+  }, [printerSelectOpen, updatePrinterMenuPosition]);
+
+  const printerMenu =
+    printerSelectOpen && printerMenuPosition
+      ? createPortal(
+          <div
+            ref={printerMenuRef}
+            id={printerListboxId}
+            className={`printer-picker-menu printer-picker-menu--${printerMenuPosition.placement}`}
+            role="listbox"
+            aria-labelledby="printer-select-label"
+            style={{
+              top: printerMenuPosition.top,
+              left: printerMenuPosition.left,
+              width: printerMenuPosition.width,
+              maxHeight: printerMenuPosition.maxHeight,
+            }}
+          >
+            {printers.length === 0 ? (
+              <div className="printer-picker-empty">
+                {loadingPrinters ? '正在读取系统打印机…' : '未找到系统打印机'}
+              </div>
+            ) : (
+              printers.map((printer) => {
+                const optionLabel = `${printer.name}${printer.isDefault ? '（默认）' : ''}`;
+                const isSelected = printer.name === settings.printerName;
+                return (
+                  <button
+                    key={printer.name}
+                    type="button"
+                    role="option"
+                    aria-selected={isSelected}
+                    className={`printer-picker-option${isSelected ? ' is-selected' : ''}`}
+                    onClick={() => {
+                      onChange({ ...settings, printerName: printer.name });
+                      setPrinterSelectOpen(false);
+                    }}
+                  >
+                    <span className="printer-picker-option-name">{optionLabel}</span>
+                    <span className="printer-picker-option-meta">
+                      {describePrinterState(printer)}
+                      {printer.portName ? ` · ${printer.portName}` : ''}
+                    </span>
+                  </button>
+                );
+              })
+            )}
+          </div>,
+          document.body,
+        )
+      : null;
 
   return (
     <div className="settings-block">
@@ -49,22 +211,32 @@ export function GlobalSettingsPanel({
       </div>
 
       <div className="setting-field">
-        <label className="field-label" htmlFor="printer-select">
+        <span className="field-label" id="printer-select-label">
           打印机
-        </label>
-        <Select
-          id="printer-select"
-          className="full-width"
-          size="middle"
-          loading={loadingPrinters}
-          value={settings.printerName || undefined}
-          placeholder={loadingPrinters ? '正在读取系统打印机…' : '选择系统打印机'}
-          options={printers.map((printer) => ({
-            value: printer.name,
-            label: `${printer.name}${printer.isDefault ? '（默认）' : ''}`,
-          }))}
-          onChange={(printerName) => onChange({ ...settings, printerName })}
-        />
+        </span>
+        {/*
+          Custom floating menu (fixed + manual rect), not antd Select portal.
+          Keeps page flow intact while avoiding the invisible-dropdown bug in WebView2.
+        */}
+        <div className="printer-picker">
+          <button
+            ref={printerTriggerRef}
+            type="button"
+            className={`printer-picker-trigger${printerSelectOpen ? ' is-open' : ''}${
+              loadingPrinters ? ' is-loading' : ''
+            }`}
+            aria-labelledby="printer-select-label"
+            aria-haspopup="listbox"
+            aria-expanded={printerSelectOpen}
+            aria-controls={printerListboxId}
+            disabled={loadingPrinters && printers.length === 0}
+            onClick={() => setPrinterSelectOpen((currentOpen) => !currentOpen)}
+          >
+            <span className="printer-picker-value">{selectedPrinterLabel}</span>
+            <ChevronDown size={16} className="printer-picker-caret" aria-hidden />
+          </button>
+          {printerMenu}
+        </div>
       </div>
 
       {selectedPrinter && (
