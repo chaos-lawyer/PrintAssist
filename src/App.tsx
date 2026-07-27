@@ -46,7 +46,7 @@ import {
 import type { SystemPrinter } from './shared/contracts/printer';
 import type { PrintQueueItemPayload } from './shared/contracts/printJob';
 
-const { Header, Content, Sider } = Layout;
+const { Header, Content, Sider, Footer } = Layout;
 
 export function App() {
   const [queueState, dispatch] = useReducer(queueReducer, undefined, createEmptyQueueState);
@@ -537,6 +537,11 @@ export function App() {
             </div>
           </Content>
         </Layout>
+        <Footer className="app-footer">
+          <Typography.Text className="app-version" type="secondary">
+            v{__APP_VERSION__}
+          </Typography.Text>
+        </Footer>
       </Layout>
       <FileSettingsDrawer
         open={Boolean(settingsItem)}
