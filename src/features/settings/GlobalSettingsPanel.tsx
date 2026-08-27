@@ -1,8 +1,8 @@
-import { Alert, Button, InputNumber, Segmented, Typography } from 'antd';
+import { Alert, Button, InputNumber, Segmented, Select, Space, Typography } from 'antd';
 import { ChevronDown, SlidersHorizontal } from 'lucide-react';
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import type { SystemPrinter } from '../../shared/contracts/printer';
+import type { SavedPrinterProfileSummary, SystemPrinter } from '../../shared/contracts/printer';
 import type { ColorMode, FlipMode, PrintSettings, SidesMode } from '../../domain/printSettings';
 import { evaluateSettingAvailability } from '../../domain/printSettings';
 
@@ -23,7 +23,12 @@ interface GlobalSettingsPanelProps {
   settings: PrintSettings;
   loadingPrinters: boolean;
   loadingProperties?: boolean;
+  savedProfiles?: SavedPrinterProfileSummary[];
+  loadingProfiles?: boolean;
   onOpenProperties?: () => void;
+  onSelectProfile?: (profileId: string | null) => void;
+  onOpenSaveProfile?: () => void;
+  onOpenProfileManager?: () => void;
   onChange: (nextSettings: PrintSettings) => void;
 }
 
@@ -45,7 +50,12 @@ export function GlobalSettingsPanel({
   settings,
   loadingPrinters,
   loadingProperties = false,
+  savedProfiles = [],
+  loadingProfiles = false,
   onOpenProperties,
+  onSelectProfile,
+  onOpenSaveProfile,
+  onOpenProfileManager,
   onChange,
 }: GlobalSettingsPanelProps) {
   const selectedPrinter = printers.find((printer) => printer.name === settings.printerName);
@@ -215,22 +225,9 @@ export function GlobalSettingsPanel({
       </div>
 
       <div className="setting-field">
-        <div className="field-label-row">
-          <span className="field-label" id="printer-select-label">
-            打印机
-          </span>
-          <Button
-            size="small"
-            type="link"
-            className="printer-properties-btn"
-            disabled={!selectedPrinter || loadingPrinters || loadingProperties}
-            loading={loadingProperties}
-            icon={<SlidersHorizontal size={13} />}
-            onClick={onOpenProperties}
-          >
-            打印机属性
-          </Button>
-        </div>
+        <span className="field-label" id="printer-select-label">
+          打印机
+        </span>
         {/*
           Custom floating menu (fixed + manual rect), not antd Select portal.
           Keeps page flow intact while avoiding the invisible-dropdown bug in WebView2.
@@ -276,6 +273,72 @@ export function GlobalSettingsPanel({
           </span>
         </div>
       )}
+
+      <div className="setting-field">
+        <div className="field-label-row">
+          <span className="field-label" id="profile-select-label">
+            驱动配置
+            {settings.profileDirty && (
+              <span className="profile-dirty-badge" title="当前参数与已保存配置不一致">
+                * 未保存修改
+              </span>
+            )}
+          </span>
+          <Space size={2}>
+            <Button
+              size="small"
+              type="link"
+              className="profile-action-btn"
+              disabled={!selectedPrinter || loadingProperties}
+              onClick={onOpenSaveProfile}
+            >
+              保存
+            </Button>
+            <Button
+              size="small"
+              type="link"
+              className="profile-action-btn"
+              disabled={!selectedPrinter}
+              onClick={onOpenProfileManager}
+            >
+              管理
+            </Button>
+            <Button
+              size="small"
+              type="link"
+              className="profile-action-btn"
+              disabled={!selectedPrinter || loadingPrinters || loadingProperties}
+              loading={loadingProperties}
+              icon={<SlidersHorizontal size={12} />}
+              onClick={onOpenProperties}
+              title="打开 Windows 原生打印机属性窗口"
+            >
+              属性
+            </Button>
+          </Space>
+        </div>
+        <Select
+          className="profile-select full-width"
+          value={settings.persistentProfileId || '__UNSAVED__'}
+          disabled={!selectedPrinter || loadingProfiles}
+          loading={loadingProfiles}
+          onChange={(val) => onSelectProfile?.(val === '__UNSAVED__' ? null : val)}
+          options={[
+            {
+              value: '__UNSAVED__',
+              label: settings.persistentProfileName
+                ? `${settings.persistentProfileName}${settings.profileDirty ? ' *' : ''}`
+                : '未保存的当前配置',
+            },
+            ...savedProfiles.map((p) => ({
+              value: p.id,
+              label: `${p.name}${p.isDefault ? '（默认）' : ''}${
+                p.compatibility !== 'compatible' ? ' [需重建]' : ''
+              }`,
+            })),
+          ]}
+        />
+      </div>
 
       {settings.driverSummary && (
         <div className="driver-config-summary" title={settings.driverSummary}>

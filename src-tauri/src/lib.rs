@@ -38,6 +38,13 @@ pub fn run() {
                 )?;
             }
 
+            let app_data_dir = app
+                .path()
+                .app_data_dir()
+                .unwrap_or_else(|_| std::env::temp_dir().join("com.ws1993.printassist"));
+            let persistent_store = printers::PersistentPrinterProfileStore::new(&app_data_dir);
+            app.manage(persistent_store);
+
             let launch_paths = collect_launch_paths(&std::env::args().collect::<Vec<_>>());
             if !launch_paths.is_empty() {
                 let handle = app.handle().clone();
@@ -52,6 +59,16 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::list_system_printers,
             commands::open_printer_properties,
+            commands::list_saved_printer_profiles,
+            commands::save_printer_profile,
+            commands::load_printer_profile,
+            commands::rename_printer_profile,
+            commands::duplicate_printer_profile,
+            commands::delete_printer_profile,
+            commands::set_default_printer_profile,
+            commands::rebuild_printer_profile,
+            commands::export_printer_profile,
+            commands::import_printer_profile,
             commands::pick_files,
             commands::pick_folder_files,
             commands::expand_file_paths,

@@ -14,7 +14,9 @@ import {
   checkForAppUpdate,
   expandFilePaths,
   isTauriRuntime,
+  listSavedPrinterProfiles,
   listSystemPrinters,
+  loadPrinterProfile,
   openPrinterProperties,
   pickFiles,
   pickFolderFiles,
@@ -25,9 +27,11 @@ import {
 import { AppLogo } from './components/AppLogo';
 import {
   applyDriverSettings,
+  applyLoadedPersistentProfile,
   createDefaultGlobalSettings,
   evaluateSettingAvailability,
   formatDriverSettingsSummary,
+  isProfileDirty,
   mergePrintSettings,
   sanitizeSettingsForPrinter,
   type PrintSettings,
@@ -41,12 +45,19 @@ import { FileSettingsDrawer } from './features/settings/FileSettingsDrawer';
 import { GlobalSettingsPanel } from './features/settings/GlobalSettingsPanel';
 import { ProxySettingsPanel } from './features/settings/ProxySettingsPanel';
 import { UpdateModal, type UpdateInfo } from './features/update/UpdateModal';
+import { SavePrinterProfileModal } from './features/settings/SavePrinterProfileModal';
+import { PrinterProfileManagerModal } from './features/settings/PrinterProfileManagerModal';
 import {
   createDefaultProxySettings,
   getProxyConfig,
   type ProxySettings,
 } from './domain/proxySettings';
-import type { PrinterDriverSettings, SystemPrinter } from './shared/contracts/printer';
+import type {
+  LoadedPrinterProfileResult,
+  PrinterDriverSettings,
+  SavedPrinterProfileSummary,
+  SystemPrinter,
+} from './shared/contracts/printer';
 import type { PrintQueueItemPayload } from './shared/contracts/printJob';
 
 const { Header, Content, Sider, Footer } = Layout;
@@ -58,6 +69,10 @@ export function App() {
   const [sessionProfiles, setSessionProfiles] = useState<
     Record<string, { profileId: string; settings: PrinterDriverSettings; summary: string }>
   >({});
+  const [savedProfiles, setSavedProfiles] = useState<SavedPrinterProfileSummary[]>([]);
+  const [loadingSavedProfiles, setLoadingSavedProfiles] = useState(false);
+  const [saveModalOpen, setSaveModalOpen] = useState(false);
+  const [managerModalOpen, setManagerModalOpen] = useState(false);
   const [loadingProperties, setLoadingProperties] = useState(false);
   const [globalSettings, setGlobalSettings] = useState<PrintSettings>(
     createDefaultGlobalSettings(),
@@ -91,6 +106,29 @@ export function App() {
   const availability = evaluateSettingAvailability(selectedPrinter);
   const settingsItem = queueState.items.find((item) => item.id === settingsItemId) ?? null;
 
+  const activeProfile = useMemo(
+    () => savedProfiles.find((p) => p.id === globalSettings.persistentProfileId),
+    [savedProfiles, globalSettings.persistentProfileId],
+  );
+
+  const fetchSavedProfiles = useCallback(async (printerName: string) => {
+    if (!printerName) {
+      setSavedProfiles([]);
+      return [];
+    }
+    setLoadingSavedProfiles(true);
+    try {
+      const profiles = await listSavedPrinterProfiles(printerName);
+      setSavedProfiles(profiles);
+      return profiles;
+    } catch (err) {
+      console.error('Failed to load saved profiles:', err);
+      return [];
+    } finally {
+      setLoadingSavedProfiles(false);
+    }
+  }, []);
+
   const handleOpenPrinterProperties = async () => {
     if (!globalSettings.printerName || loadingProperties) {
       return;
@@ -117,7 +155,13 @@ export function App() {
           },
         }));
 
-        setGlobalSettings((curr) => applyDriverSettings(curr, driverSettings, profileId));
+        setGlobalSettings((curr) => {
+          const applied = applyDriverSettings(curr, driverSettings, profileId);
+          return {
+            ...applied,
+            profileDirty: Boolean(curr.persistentProfileId),
+          };
+        });
         message.success(`已同步“${globalSettings.printerName}”驱动设置`);
       }
     } catch (error) {
@@ -127,29 +171,76 @@ export function App() {
     }
   };
 
+  const handleSelectSavedProfile = async (profileId: string | null) => {
+    if (!profileId) {
+      setGlobalSettings((curr) => ({
+        ...curr,
+        persistentProfileId: undefined,
+        persistentProfileName: undefined,
+        profileDirty: false,
+      }));
+      return;
+    }
+    try {
+      const loaded = await loadPrinterProfile(profileId);
+      setGlobalSettings((curr) => applyLoadedPersistentProfile(curr, loaded));
+      message.success(`已应用配置“${loaded.persistentProfile.name}”`);
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '加载配置失败');
+    }
+  };
+
+  const handleProfileSaved = (saved: SavedPrinterProfileSummary) => {
+    setSaveModalOpen(false);
+    setGlobalSettings((curr) => ({
+      ...curr,
+      persistentProfileId: saved.id,
+      persistentProfileName: saved.name,
+      profileDirty: false,
+    }));
+    void fetchSavedProfiles(globalSettings.printerName);
+    message.success(`已保存配置“${saved.name}”`);
+  };
+
   const refreshPrinters = useCallback(async () => {
     setLoadingPrinters(true);
     try {
       const nextPrinters = await listSystemPrinters();
       setPrinters(nextPrinters);
+      const preferredName =
+        globalSettings.printerName ||
+        nextPrinters.find((printer) => printer.isDefault)?.name ||
+        nextPrinters[0]?.name ||
+        '';
+      const preferredPrinter = nextPrinters.find((printer) => printer.name === preferredName);
+
       setGlobalSettings((currentSettings) => {
-        const preferredName =
-          currentSettings.printerName ||
-          nextPrinters.find((printer) => printer.isDefault)?.name ||
-          nextPrinters[0]?.name ||
-          '';
-        const preferredPrinter = nextPrinters.find((printer) => printer.name === preferredName);
         return sanitizeSettingsForPrinter(
           { ...currentSettings, printerName: preferredName },
           preferredPrinter,
         );
       });
+
+      if (preferredName) {
+        const profiles = await fetchSavedProfiles(preferredName);
+        const defaultProfile = profiles.find(
+          (p) => p.isDefault && p.compatibility === 'compatible',
+        );
+        if (defaultProfile) {
+          try {
+            const loaded = await loadPrinterProfile(defaultProfile.id);
+            setGlobalSettings((curr) => applyLoadedPersistentProfile(curr, loaded));
+          } catch {
+            // ignore
+          }
+        }
+      }
     } catch (error) {
       message.error(error instanceof Error ? error.message : '读取系统打印机失败');
     } finally {
       setLoadingPrinters(false);
     }
-  }, []);
+  }, [fetchSavedProfiles]);
 
   useEffect(() => {
     void refreshPrinters();
@@ -534,21 +625,42 @@ export function App() {
               settings={globalSettings}
               loadingPrinters={loadingPrinters}
               loadingProperties={loadingProperties}
+              savedProfiles={savedProfiles}
+              loadingProfiles={loadingSavedProfiles}
               onOpenProperties={() => void handleOpenPrinterProperties()}
+              onSelectProfile={(profileId) => void handleSelectSavedProfile(profileId)}
+              onOpenSaveProfile={() => setSaveModalOpen(true)}
+              onOpenProfileManager={() => setManagerModalOpen(true)}
               onChange={(nextSettings) => {
                 const nextPrinterName = nextSettings.printerName;
                 const printer = printers.find((item) => item.name === nextPrinterName);
                 let updated = { ...nextSettings };
 
                 if (nextPrinterName !== globalSettings.printerName) {
-                  const stored = sessionProfiles[nextPrinterName];
-                  if (stored) {
-                    updated.driverProfileId = stored.profileId;
-                    updated.driverSummary = stored.summary;
-                  } else {
-                    updated.driverProfileId = undefined;
-                    updated.driverSummary = undefined;
-                  }
+                  // Switched printer -> query its profiles and auto-load default
+                  void (async () => {
+                    const profiles = await fetchSavedProfiles(nextPrinterName);
+                    const defaultProfile = profiles.find(
+                      (p) => p.isDefault && p.compatibility === 'compatible',
+                    );
+                    if (defaultProfile) {
+                      try {
+                        const loaded = await loadPrinterProfile(defaultProfile.id);
+                        setGlobalSettings((curr) => applyLoadedPersistentProfile(curr, loaded));
+                        return;
+                      } catch {
+                        // ignore
+                      }
+                    }
+                  })();
+
+                  updated.persistentProfileId = undefined;
+                  updated.persistentProfileName = undefined;
+                  updated.driverProfileId = undefined;
+                  updated.driverSummary = undefined;
+                  updated.profileDirty = false;
+                } else {
+                  updated.profileDirty = isProfileDirty(updated, activeProfile?.settings);
                 }
 
                 setGlobalSettings(sanitizeSettingsForPrinter(updated, printer));
@@ -639,6 +751,26 @@ export function App() {
         onClose={() => {
           setUpdateModalOpen(false);
           setPendingUpdateInfo(null);
+        }}
+      />
+      <SavePrinterProfileModal
+        open={saveModalOpen}
+        currentPrinterName={globalSettings.printerName}
+        currentSettings={globalSettings}
+        runtimeProfileId={globalSettings.driverProfileId}
+        currentPersistentProfile={activeProfile}
+        onCancel={() => setSaveModalOpen(false)}
+        onSaved={handleProfileSaved}
+      />
+      <PrinterProfileManagerModal
+        open={managerModalOpen}
+        currentPrinterName={globalSettings.printerName}
+        profiles={savedProfiles}
+        activeProfileId={globalSettings.persistentProfileId}
+        onClose={() => setManagerModalOpen(false)}
+        onRefreshProfiles={() => fetchSavedProfiles(globalSettings.printerName).then(() => {})}
+        onApplyProfile={(loaded) => {
+          setGlobalSettings((curr) => applyLoadedPersistentProfile(curr, loaded));
         }}
       />
     </ConfigProvider>

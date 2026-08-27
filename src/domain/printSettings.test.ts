@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import type { PrinterDriverSettings } from '../shared/contracts/printer';
 import {
   applyDriverSettings,
+  applyLoadedPersistentProfile,
   createDefaultGlobalSettings,
   formatDriverSettingsSummary,
+  isProfileDirty,
   mergePrintSettings,
 } from './printSettings';
 
@@ -109,23 +111,79 @@ describe('printSettings domain', () => {
     });
   });
 
-  describe('mergePrintSettings', () => {
-    it('preserves driverProfileId and driverSummary when overriding file properties', () => {
-      const global = {
-        ...createDefaultGlobalSettings('Canon iR-ADV C5535'),
-        driverProfileId: 'prof-abc',
-        driverSummary: 'A4 · 双面（长边） · 彩色',
+  describe('applyLoadedPersistentProfile', () => {
+    it('applies loaded persistent profile and resets dirty flag', () => {
+      const current = createDefaultGlobalSettings('HP LaserJet');
+      const loadedResult = {
+        persistentProfile: {
+          id: 'persisted-uuid-1',
+          name: '高清双面彩色',
+          printerName: 'HP LaserJet',
+          settings: {
+            printerName: 'HP LaserJet',
+            paperName: 'A4',
+            sidesMode: 'duplex',
+            flipMode: 'longEdge',
+            colorMode: 'color',
+            driverExtraBytes: 512,
+          },
+          summary: 'A4 · 双面（长边） · 彩色',
+          isDefault: true,
+          compatibility: 'compatible' as const,
+          createdAt: '123',
+          updatedAt: '123',
+        },
+        runtimeProfileId: 'runtime-prof-99',
+        settings: {
+          printerName: 'HP LaserJet',
+          paperName: 'A4',
+          sidesMode: 'duplex',
+          flipMode: 'longEdge',
+          colorMode: 'color',
+          driverExtraBytes: 512,
+        },
+        compatibility: 'compatible' as const,
       };
 
-      const merged = mergePrintSettings(global, {
-        colorMode: 'monochrome',
-        copies: 3,
-      });
+      const applied = applyLoadedPersistentProfile(current, loadedResult);
+      expect(applied.persistentProfileId).toBe('persisted-uuid-1');
+      expect(applied.persistentProfileName).toBe('高清双面彩色');
+      expect(applied.driverProfileId).toBe('runtime-prof-99');
+      expect(applied.colorMode).toBe('color');
+      expect(applied.sidesMode).toBe('duplex');
+      expect(applied.profileDirty).toBe(false);
+    });
+  });
 
-      expect(merged.driverProfileId).toBe('prof-abc');
-      expect(merged.driverSummary).toBe('A4 · 双面（长边） · 彩色');
-      expect(merged.colorMode).toBe('monochrome');
-      expect(merged.copies).toBe(3);
+  describe('isProfileDirty', () => {
+    it('detects dirty state when standard settings deviate from loaded snapshot', () => {
+      const snapshot: PrinterDriverSettings = {
+        printerName: 'HP LaserJet',
+        sidesMode: 'duplex',
+        flipMode: 'longEdge',
+        colorMode: 'monochrome',
+        driverExtraBytes: 256,
+      };
+
+      const base = {
+        ...createDefaultGlobalSettings('HP LaserJet'),
+        persistentProfileId: 'persisted-1',
+        sidesMode: 'duplex' as const,
+        flipMode: 'longEdge' as const,
+        colorMode: 'monochrome' as const,
+      };
+
+      // Unmodified -> not dirty
+      expect(isProfileDirty(base, snapshot)).toBe(false);
+
+      // Changed color mode -> dirty
+      expect(isProfileDirty({ ...base, colorMode: 'color' }, snapshot)).toBe(true);
+
+      // Changed sides mode -> dirty
+      expect(isProfileDirty({ ...base, sidesMode: 'simplex' }, snapshot)).toBe(true);
+
+      // Changed flip mode -> dirty
+      expect(isProfileDirty({ ...base, flipMode: 'shortEdge' }, snapshot)).toBe(true);
     });
   });
 });

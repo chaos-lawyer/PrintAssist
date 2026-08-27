@@ -6,11 +6,15 @@ use tauri_plugin_dialog::DialogExt;
 #[cfg(windows)]
 use crate::contracts::PrinterPropertiesStatus;
 use crate::contracts::{
-    PrintBatchRequest, PrintBatchResult, PrinterPropertiesResult, ProxyConfig, SystemPrinter,
-    UpdateCheckResult,
+    ExportPrinterProfilePayload, LoadedPrinterProfileResult, PrintBatchRequest, PrintBatchResult,
+    PrinterPropertiesResult, ProxyConfig, SavePrinterProfileRequest, SavedPrinterProfileSummary,
+    SystemPrinter, UpdateCheckResult,
 };
 use crate::ingress::{collect_path_argument, is_supported_file};
-use crate::printers::{self, PrinterProfileStore};
+use crate::printers::{
+    self, evaluate_profile_compatibility, query_printer_fingerprint, PersistentPrinterProfileStore,
+    PrinterProfileStore,
+};
 use crate::printing::run_print_batch_sync;
 
 const GITHUB_LATEST_RELEASE_URL: &str =
@@ -238,6 +242,309 @@ pub async fn open_printer_properties(
         let _ = (window, printer_name, profile_id, profile_store);
         Err("打印机属性配置仅支持 Windows 平台".to_string())
     }
+}
+
+#[tauri::command]
+pub async fn list_saved_printer_profiles(
+    printer_name: Option<String>,
+    persistent_store: tauri::State<'_, PersistentPrinterProfileStore>,
+) -> Result<Vec<SavedPrinterProfileSummary>, String> {
+    let persistent_store = persistent_store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let available_printers = printers::list_system_printers_sync().unwrap_or_default();
+        let profiles = persistent_store.list_profiles(printer_name.as_deref());
+
+        let mut summaries = Vec::with_capacity(profiles.len());
+        for p in profiles {
+            let default_id = persistent_store.get_default_profile_id(&p.printer.printer_name);
+            let is_default = default_id.as_deref() == Some(&p.id);
+
+            let current_fingerprint = query_printer_fingerprint(&p.printer.printer_name).ok();
+            let compatibility = evaluate_profile_compatibility(
+                &p.printer,
+                &available_printers,
+                current_fingerprint.as_ref(),
+            );
+
+            summaries.push(p.to_summary(is_default, compatibility));
+        }
+
+        // Sort: default profile first, then last_used_at descending, then by name
+        summaries.sort_by(|a, b| {
+            b.is_default
+                .cmp(&a.is_default)
+                .then_with(|| b.last_used_at.cmp(&a.last_used_at))
+                .then_with(|| a.name.cmp(&b.name))
+        });
+
+        Ok(summaries)
+    })
+    .await
+    .map_err(|error| format!("查询保存的配置失败：{error}"))?
+}
+
+#[tauri::command]
+pub async fn save_printer_profile(
+    request: SavePrinterProfileRequest,
+    persistent_store: tauri::State<'_, PersistentPrinterProfileStore>,
+    profile_store: tauri::State<'_, PrinterProfileStore>,
+) -> Result<SavedPrinterProfileSummary, String> {
+    let devmode_bytes = profile_store
+        .get_profile(&request.runtime_profile_id, &request.printer_name)
+        .ok_or_else(|| "当前未找到该运行时的驱动配置数据，请重新打开打印机属性".to_string())?;
+
+    let paper_names = printers::query_paper_names_map(&request.printer_name, None);
+    let bin_names = printers::query_bin_names_map(&request.printer_name, None);
+    let settings = printers::devmode::parse_devmode_standard_fields(
+        &request.printer_name,
+        &devmode_bytes,
+        Some(&paper_names),
+        Some(&bin_names),
+    )?;
+
+    let fingerprint = query_printer_fingerprint(&request.printer_name)?;
+
+    let saved = persistent_store.save_profile(
+        &request.name,
+        &request.printer_name,
+        &devmode_bytes,
+        settings,
+        fingerprint,
+        request.overwrite_persistent_profile_id.as_deref(),
+        request.note,
+    )?;
+
+    let is_default = persistent_store
+        .get_default_profile_id(&request.printer_name)
+        .as_deref()
+        == Some(&saved.id);
+
+    Ok(saved.to_summary(
+        is_default,
+        crate::contracts::PrinterProfileCompatibility::Compatible,
+    ))
+}
+
+#[tauri::command]
+pub async fn load_printer_profile(
+    persistent_profile_id: String,
+    persistent_store: tauri::State<'_, PersistentPrinterProfileStore>,
+    profile_store: tauri::State<'_, PrinterProfileStore>,
+) -> Result<LoadedPrinterProfileResult, String> {
+    let profile = persistent_store
+        .get_profile(&persistent_profile_id)
+        .ok_or_else(|| format!("未找到 ID 为 {persistent_profile_id} 的配置"))?;
+
+    let available_printers = printers::list_system_printers_sync().unwrap_or_default();
+    let current_fingerprint = query_printer_fingerprint(&profile.printer.printer_name).ok();
+    let compatibility = evaluate_profile_compatibility(
+        &profile.printer,
+        &available_printers,
+        current_fingerprint.as_ref(),
+    );
+
+    if compatibility != crate::contracts::PrinterProfileCompatibility::Compatible {
+        return Err(format!(
+            "配置“{}”当前不可用（{}），若驱动已更新请选择“标准字段重建”",
+            profile.name,
+            match compatibility {
+                crate::contracts::PrinterProfileCompatibility::PrinterUnavailable =>
+                    "打印机离线或不存在",
+                crate::contracts::PrinterProfileCompatibility::DriverChanged =>
+                    "驱动版本已发生变更",
+                crate::contracts::PrinterProfileCompatibility::Corrupted => "配置文件校验损坏",
+                crate::contracts::PrinterProfileCompatibility::UnsupportedSchema =>
+                    "配置架构版本不兼容",
+                _ => "未知状态",
+            }
+        ));
+    }
+
+    let devmode_bytes = persistent_store.load_devmode_bytes(&persistent_profile_id)?;
+    let runtime_profile_id = profile_store.save_profile_with_source(
+        &profile.printer.printer_name,
+        devmode_bytes.clone(),
+        Some(persistent_profile_id.clone()),
+    );
+
+    persistent_store.touch_last_used(&persistent_profile_id);
+
+    let is_default = persistent_store
+        .get_default_profile_id(&profile.printer.printer_name)
+        .as_deref()
+        == Some(&persistent_profile_id);
+
+    let summary = profile.to_summary(is_default, compatibility);
+
+    Ok(LoadedPrinterProfileResult {
+        persistent_profile: summary,
+        runtime_profile_id,
+        settings: profile.settings_snapshot,
+        compatibility,
+    })
+}
+
+#[tauri::command]
+pub async fn rename_printer_profile(
+    persistent_profile_id: String,
+    new_name: String,
+    persistent_store: tauri::State<'_, PersistentPrinterProfileStore>,
+) -> Result<SavedPrinterProfileSummary, String> {
+    let updated = persistent_store.rename_profile(&persistent_profile_id, &new_name)?;
+    let is_default = persistent_store
+        .get_default_profile_id(&updated.printer.printer_name)
+        .as_deref()
+        == Some(&persistent_profile_id);
+
+    Ok(updated.to_summary(
+        is_default,
+        crate::contracts::PrinterProfileCompatibility::Compatible,
+    ))
+}
+
+#[tauri::command]
+pub async fn duplicate_printer_profile(
+    persistent_profile_id: String,
+    new_name: String,
+    persistent_store: tauri::State<'_, PersistentPrinterProfileStore>,
+) -> Result<SavedPrinterProfileSummary, String> {
+    let duplicated = persistent_store.duplicate_profile(&persistent_profile_id, &new_name)?;
+    Ok(duplicated.to_summary(
+        false,
+        crate::contracts::PrinterProfileCompatibility::Compatible,
+    ))
+}
+
+#[tauri::command]
+pub async fn delete_printer_profile(
+    persistent_profile_id: String,
+    persistent_store: tauri::State<'_, PersistentPrinterProfileStore>,
+) -> Result<(), String> {
+    persistent_store.delete_profile(&persistent_profile_id)
+}
+
+#[tauri::command]
+pub async fn set_default_printer_profile(
+    printer_name: String,
+    persistent_profile_id: Option<String>,
+    persistent_store: tauri::State<'_, PersistentPrinterProfileStore>,
+) -> Result<(), String> {
+    persistent_store.set_default_profile(&printer_name, persistent_profile_id.as_deref())
+}
+
+#[tauri::command]
+pub async fn rebuild_printer_profile(
+    persistent_profile_id: String,
+    new_name: Option<String>,
+    persistent_store: tauri::State<'_, PersistentPrinterProfileStore>,
+    profile_store: tauri::State<'_, PrinterProfileStore>,
+) -> Result<LoadedPrinterProfileResult, String> {
+    let old_profile = persistent_store
+        .get_profile(&persistent_profile_id)
+        .ok_or_else(|| format!("未找到 ID 为 {persistent_profile_id} 的配置"))?;
+
+    let printer_name = &old_profile.printer.printer_name;
+
+    #[cfg(windows)]
+    let new_devmode = {
+        let mut devmode = printers::devmode::query_default_devmode(printer_name)?;
+        let _ = printers::devmode::apply_settings_to_devmode(
+            &mut devmode,
+            old_profile.settings_snapshot.color_mode.as_ref(),
+            old_profile.settings_snapshot.sides_mode.as_ref(),
+            old_profile.settings_snapshot.flip_mode.as_ref(),
+        );
+        printers::devmode::validate_devmode_with_driver(printer_name, &devmode)?
+    };
+
+    #[cfg(not(windows))]
+    let new_devmode = vec![0_u8; 128];
+
+    let paper_names = printers::query_paper_names_map(printer_name, None);
+    let bin_names = printers::query_bin_names_map(printer_name, None);
+    let new_settings = printers::devmode::parse_devmode_standard_fields(
+        printer_name,
+        &new_devmode,
+        Some(&paper_names),
+        Some(&bin_names),
+    )?;
+
+    let fingerprint = query_printer_fingerprint(printer_name)?;
+    let target_name = new_name.as_deref().unwrap_or(&old_profile.name);
+
+    let saved = persistent_store.save_profile(
+        target_name,
+        printer_name,
+        &new_devmode,
+        new_settings.clone(),
+        fingerprint,
+        Some(&persistent_profile_id),
+        old_profile.note,
+    )?;
+
+    let runtime_profile_id =
+        profile_store.save_profile_with_source(printer_name, new_devmode, Some(saved.id.clone()));
+
+    let is_default = persistent_store
+        .get_default_profile_id(printer_name)
+        .as_deref()
+        == Some(&saved.id);
+
+    Ok(LoadedPrinterProfileResult {
+        persistent_profile: saved.to_summary(
+            is_default,
+            crate::contracts::PrinterProfileCompatibility::Compatible,
+        ),
+        runtime_profile_id,
+        settings: new_settings,
+        compatibility: crate::contracts::PrinterProfileCompatibility::Compatible,
+    })
+}
+
+#[tauri::command]
+pub async fn export_printer_profile(
+    persistent_profile_id: String,
+    target_path: String,
+    persistent_store: tauri::State<'_, PersistentPrinterProfileStore>,
+) -> Result<(), String> {
+    let payload = persistent_store.export_profile(&persistent_profile_id)?;
+    let json_str = serde_json::to_string_pretty(&payload)
+        .map_err(|err| format!("序列化导出数据失败：{err}"))?;
+
+    let path = std::path::Path::new(&target_path);
+    std::fs::write(path, json_str).map_err(|err| format!("写入导出文件失败：{err}"))?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn import_printer_profile(
+    source_path: String,
+    target_printer_name: Option<String>,
+    persistent_store: tauri::State<'_, PersistentPrinterProfileStore>,
+) -> Result<SavedPrinterProfileSummary, String> {
+    let path = std::path::Path::new(&source_path);
+    if !path.is_file() {
+        return Err(format!("导入文件不存在：{}", path.display()));
+    }
+
+    let json_str =
+        std::fs::read_to_string(path).map_err(|err| format!("读取导入文件失败：{err}"))?;
+
+    let payload: ExportPrinterProfilePayload =
+        serde_json::from_str(&json_str).map_err(|err| format!("解析导入文件格式失败：{err}"))?;
+
+    let saved = persistent_store.import_profile(payload, target_printer_name.as_deref())?;
+
+    let is_default = persistent_store
+        .get_default_profile_id(&saved.printer.printer_name)
+        .as_deref()
+        == Some(&saved.id);
+
+    Ok(saved.to_summary(
+        is_default,
+        crate::contracts::PrinterProfileCompatibility::Compatible,
+    ))
 }
 
 #[tauri::command]

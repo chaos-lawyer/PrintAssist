@@ -1,4 +1,10 @@
-import type { PrinterPropertiesResult, SystemPrinter } from '../shared/contracts/printer';
+import type {
+  LoadedPrinterProfileResult,
+  PrinterPropertiesResult,
+  SavePrinterProfileRequest,
+  SavedPrinterProfileSummary,
+  SystemPrinter,
+} from '../shared/contracts/printer';
 import type { PrintBatchRequest, PrintBatchResult } from '../shared/contracts/printJob';
 
 interface TauriWindow {
@@ -34,6 +40,122 @@ export async function openPrinterProperties(
   return invokeCommand<PrinterPropertiesResult>('open_printer_properties', {
     printerName,
     profileId: profileId ?? null,
+  });
+}
+
+export async function listSavedPrinterProfiles(
+  printerName?: string,
+): Promise<SavedPrinterProfileSummary[]> {
+  if (!isTauriRuntime()) {
+    return [];
+  }
+  return invokeCommand<SavedPrinterProfileSummary[]>('list_saved_printer_profiles', {
+    printerName: printerName ?? null,
+  });
+}
+
+export async function savePrinterProfile(
+  request: SavePrinterProfileRequest,
+): Promise<SavedPrinterProfileSummary> {
+  if (!isTauriRuntime()) {
+    throw new Error('当前不在桌面端运行环境');
+  }
+  return invokeCommand<SavedPrinterProfileSummary>('save_printer_profile', { request });
+}
+
+export async function loadPrinterProfile(
+  persistentProfileId: string,
+): Promise<LoadedPrinterProfileResult> {
+  if (!isTauriRuntime()) {
+    throw new Error('当前不在桌面端运行环境');
+  }
+  return invokeCommand<LoadedPrinterProfileResult>('load_printer_profile', {
+    persistentProfileId,
+  });
+}
+
+export async function renamePrinterProfile(
+  persistentProfileId: string,
+  newName: string,
+): Promise<SavedPrinterProfileSummary> {
+  if (!isTauriRuntime()) {
+    throw new Error('当前不在桌面端运行环境');
+  }
+  return invokeCommand<SavedPrinterProfileSummary>('rename_printer_profile', {
+    persistentProfileId,
+    newName,
+  });
+}
+
+export async function duplicatePrinterProfile(
+  persistentProfileId: string,
+  newName: string,
+): Promise<SavedPrinterProfileSummary> {
+  if (!isTauriRuntime()) {
+    throw new Error('当前不在桌面端运行环境');
+  }
+  return invokeCommand<SavedPrinterProfileSummary>('duplicate_printer_profile', {
+    persistentProfileId,
+    newName,
+  });
+}
+
+export async function deletePrinterProfile(persistentProfileId: string): Promise<void> {
+  if (!isTauriRuntime()) {
+    return;
+  }
+  return invokeCommand<void>('delete_printer_profile', { persistentProfileId });
+}
+
+export async function setDefaultPrinterProfile(
+  printerName: string,
+  persistentProfileId?: string | null,
+): Promise<void> {
+  if (!isTauriRuntime()) {
+    return;
+  }
+  return invokeCommand<void>('set_default_printer_profile', {
+    printerName,
+    persistentProfileId: persistentProfileId ?? null,
+  });
+}
+
+export async function rebuildPrinterProfile(
+  persistentProfileId: string,
+  newName?: string,
+): Promise<LoadedPrinterProfileResult> {
+  if (!isTauriRuntime()) {
+    throw new Error('当前不在桌面端运行环境');
+  }
+  return invokeCommand<LoadedPrinterProfileResult>('rebuild_printer_profile', {
+    persistentProfileId,
+    newName: newName ?? null,
+  });
+}
+
+export async function exportPrinterProfile(
+  persistentProfileId: string,
+  targetPath: string,
+): Promise<void> {
+  if (!isTauriRuntime()) {
+    return;
+  }
+  return invokeCommand<void>('export_printer_profile', {
+    persistentProfileId,
+    targetPath,
+  });
+}
+
+export async function importPrinterProfile(
+  sourcePath: string,
+  targetPrinterName?: string,
+): Promise<SavedPrinterProfileSummary> {
+  if (!isTauriRuntime()) {
+    throw new Error('当前不在桌面端运行环境');
+  }
+  return invokeCommand<SavedPrinterProfileSummary>('import_printer_profile', {
+    sourcePath,
+    targetPrinterName: targetPrinterName ?? null,
   });
 }
 

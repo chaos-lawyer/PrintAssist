@@ -42,3 +42,39 @@ export interface PrinterPropertiesResult {
   profileId?: string;
   settings?: PrinterDriverSettings;
 }
+
+export type PrinterProfileCompatibility =
+  | 'compatible'
+  | 'printerUnavailable'
+  | 'driverChanged'
+  | 'corrupted'
+  | 'unsupportedSchema';
+
+export interface SavedPrinterProfileSummary {
+  id: string;
+  name: string;
+  printerName: string;
+  settings: PrinterDriverSettings;
+  summary: string;
+  isDefault: boolean;
+  compatibility: PrinterProfileCompatibility;
+  createdAt: string;
+  updatedAt: string;
+  lastUsedAt?: string;
+  note?: string;
+}
+
+export interface SavePrinterProfileRequest {
+  name: string;
+  printerName: string;
+  runtimeProfileId: string;
+  overwritePersistentProfileId?: string;
+  note?: string;
+}
+
+export interface LoadedPrinterProfileResult {
+  persistentProfile: SavedPrinterProfileSummary;
+  runtimeProfileId: string;
+  settings: PrinterDriverSettings;
+  compatibility: PrinterProfileCompatibility;
+}

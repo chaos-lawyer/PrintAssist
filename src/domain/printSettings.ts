@@ -1,4 +1,8 @@
-import type { PrinterDriverSettings, SystemPrinter } from '../shared/contracts/printer';
+import type {
+  LoadedPrinterProfileResult,
+  PrinterDriverSettings,
+  SystemPrinter,
+} from '../shared/contracts/printer';
 import type { PageRangeInput } from './pageRange';
 
 export type ColorMode = 'color' | 'monochrome';
@@ -14,6 +18,9 @@ export interface PrintSettings {
   pageRange: PageRangeInput;
   driverProfileId?: string;
   driverSummary?: string;
+  persistentProfileId?: string;
+  persistentProfileName?: string;
+  profileDirty?: boolean;
 }
 
 export interface FileSettingsOverride {
@@ -99,6 +106,42 @@ export function applyDriverSettings(
   return next;
 }
 
+export function applyLoadedPersistentProfile(
+  currentSettings: PrintSettings,
+  result: LoadedPrinterProfileResult,
+): PrintSettings {
+  const next = applyDriverSettings(currentSettings, result.settings, result.runtimeProfileId);
+  return {
+    ...next,
+    persistentProfileId: result.persistentProfile.id,
+    persistentProfileName: result.persistentProfile.name,
+    profileDirty: false,
+  };
+}
+
+export function isProfileDirty(
+  current: PrintSettings,
+  profileSettingsSnapshot?: PrinterDriverSettings,
+): boolean {
+  if (!current.persistentProfileId || !profileSettingsSnapshot) {
+    return false;
+  }
+  if (profileSettingsSnapshot.colorMode && current.colorMode !== profileSettingsSnapshot.colorMode) {
+    return true;
+  }
+  if (profileSettingsSnapshot.sidesMode && current.sidesMode !== profileSettingsSnapshot.sidesMode) {
+    return true;
+  }
+  if (
+    current.sidesMode === 'duplex' &&
+    profileSettingsSnapshot.flipMode &&
+    current.flipMode !== profileSettingsSnapshot.flipMode
+  ) {
+    return true;
+  }
+  return false;
+}
+
 export function mergePrintSettings(
   globalSettings: PrintSettings,
   fileOverride: FileSettingsOverride = {},
@@ -112,6 +155,9 @@ export function mergePrintSettings(
     pageRange: fileOverride.pageRange ?? globalSettings.pageRange,
     driverProfileId: globalSettings.driverProfileId,
     driverSummary: globalSettings.driverSummary,
+    persistentProfileId: globalSettings.persistentProfileId,
+    persistentProfileName: globalSettings.persistentProfileName,
+    profileDirty: globalSettings.profileDirty,
   };
 }
 

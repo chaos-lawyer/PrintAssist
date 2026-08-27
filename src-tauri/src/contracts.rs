@@ -170,6 +170,77 @@ pub struct ProxyConfig {
     pub password: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrinterDriverFingerprint {
+    pub fingerprint_version: u32,
+    pub printer_name: String,
+    pub driver_name: String,
+    pub driver_version: u64,
+    pub environment: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub port_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PrinterProfileCompatibility {
+    Compatible,
+    PrinterUnavailable,
+    DriverChanged,
+    Corrupted,
+    UnsupportedSchema,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedPrinterProfileSummary {
+    pub id: String,
+    pub name: String,
+    pub printer_name: String,
+    pub settings: PrinterDriverSettings,
+    pub summary: String,
+    pub is_default: bool,
+    pub compatibility: PrinterProfileCompatibility,
+    pub created_at: String,
+    pub updated_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_used_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SavePrinterProfileRequest {
+    pub name: String,
+    pub printer_name: String,
+    pub runtime_profile_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub overwrite_persistent_profile_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LoadedPrinterProfileResult {
+    pub persistent_profile: SavedPrinterProfileSummary,
+    pub runtime_profile_id: String,
+    pub settings: PrinterDriverSettings,
+    pub compatibility: PrinterProfileCompatibility,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportPrinterProfilePayload {
+    pub schema_version: u32,
+    pub profile: SavedPrinterProfileSummary,
+    pub fingerprint: PrinterDriverFingerprint,
+    pub devmode_base64: String,
+    pub devmode_sha256: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

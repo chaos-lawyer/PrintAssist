@@ -9,6 +9,7 @@ static PROFILE_COUNTER: AtomicU64 = AtomicU64::new(1);
 pub struct StoredPrinterProfile {
     pub printer_name: String,
     pub devmode: Vec<u8>,
+    pub source_persistent_id: Option<String>,
 }
 
 #[derive(Clone, Default)]
@@ -25,6 +26,16 @@ impl PrinterProfileStore {
 
     /// Stores a DEVMODE buffer for a printer and returns a unique profileId.
     pub fn save_profile(&self, printer_name: &str, devmode: Vec<u8>) -> String {
+        self.save_profile_with_source(printer_name, devmode, None)
+    }
+
+    /// Stores a DEVMODE buffer with an optional source persistent profile ID.
+    pub fn save_profile_with_source(
+        &self,
+        printer_name: &str,
+        devmode: Vec<u8>,
+        source_persistent_id: Option<String>,
+    ) -> String {
         let counter = PROFILE_COUNTER.fetch_add(1, Ordering::Relaxed);
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -35,6 +46,7 @@ impl PrinterProfileStore {
         let stored = StoredPrinterProfile {
             printer_name: printer_name.to_string(),
             devmode,
+            source_persistent_id,
         };
 
         if let Ok(mut lock) = self.profiles.write() {
