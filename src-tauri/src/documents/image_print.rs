@@ -346,9 +346,6 @@ fn print_decoded_pages_once(
         Ok(())
     })();
 
-    // Silence unused mutation if compiler folds base_devmode oddly on some builds.
-    let _ = &mut base_devmode;
-
     match page_result {
         Ok(()) => {
             if unsafe { EndDoc(hdc) } <= 0 {

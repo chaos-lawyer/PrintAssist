@@ -187,13 +187,17 @@ pub async fn open_printer_properties(
             .as_deref()
             .and_then(|id| profile_store.get_profile(id, &printer_name));
 
-        let owner_hwnd = window
+        // HWND contains a raw pointer and is not Send. Move only its numeric value
+        // into the blocking task, then reconstruct the non-owning handle there.
+        let owner_hwnd_value = window
             .hwnd()
-            .map(|h| windows::Win32::Foundation::HWND(h.0 as *mut _))
+            .map(|handle| handle.0 as isize)
             .unwrap_or_default();
 
         let printer_name_clone = printer_name.clone();
         let outcome = tauri::async_runtime::spawn_blocking(move || {
+            let owner_hwnd =
+                windows::Win32::Foundation::HWND(owner_hwnd_value as *mut std::ffi::c_void);
             printers::open_printer_properties_sync(
                 owner_hwnd,
                 &printer_name_clone,

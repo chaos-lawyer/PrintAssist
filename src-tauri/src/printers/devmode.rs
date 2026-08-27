@@ -92,25 +92,25 @@ pub fn parse_devmode_standard_fields(
             sides_mode,
             flip_mode,
         ) = unsafe {
-            let p_code = if fields & DM_PAPERSIZE != 0 {
+            let p_code = if (fields & DM_PAPERSIZE).0 != 0 {
                 Some(devmode.Anonymous1.Anonymous1.dmPaperSize)
             } else {
                 None
             };
 
-            let p_width = if fields & DM_PAPERWIDTH != 0 {
+            let p_width = if (fields & DM_PAPERWIDTH).0 != 0 {
                 Some(devmode.Anonymous1.Anonymous1.dmPaperWidth)
             } else {
                 None
             };
 
-            let p_length = if fields & DM_PAPERLENGTH != 0 {
+            let p_length = if (fields & DM_PAPERLENGTH).0 != 0 {
                 Some(devmode.Anonymous1.Anonymous1.dmPaperLength)
             } else {
                 None
             };
 
-            let orient = if fields & DM_ORIENTATION != 0 {
+            let orient = if (fields & DM_ORIENTATION).0 != 0 {
                 let code = devmode.Anonymous1.Anonymous1.dmOrientation;
                 if code == DMORIENT_LANDSCAPE as i16 {
                     Some("landscape".to_string())
@@ -123,23 +123,23 @@ pub fn parse_devmode_standard_fields(
                 None
             };
 
-            let src_code = if fields & DM_DEFAULTSOURCE != 0 {
+            let src_code = if (fields & DM_DEFAULTSOURCE).0 != 0 {
                 Some(devmode.Anonymous1.Anonymous1.dmDefaultSource)
             } else {
                 None
             };
 
-            let quality = if fields & DM_PRINTQUALITY != 0 {
+            let quality = if (fields & DM_PRINTQUALITY).0 != 0 {
                 Some(devmode.Anonymous1.Anonymous1.dmPrintQuality)
             } else {
                 None
             };
 
-            let color = if fields & DM_COLOR != 0 {
+            let color = if (fields & DM_COLOR).0 != 0 {
                 let code = devmode.dmColor;
-                if code == DMCOLOR_COLOR as i16 {
+                if code == DMCOLOR_COLOR {
                     Some("color".to_string())
-                } else if code == DMCOLOR_MONOCHROME as i16 {
+                } else if code == DMCOLOR_MONOCHROME {
                     Some("monochrome".to_string())
                 } else {
                     None
@@ -148,13 +148,13 @@ pub fn parse_devmode_standard_fields(
                 None
             };
 
-            let (sides, flip) = if fields & DM_DUPLEX != 0 {
+            let (sides, flip) = if (fields & DM_DUPLEX).0 != 0 {
                 let code = devmode.dmDuplex;
-                if code == DMDUP_SIMPLEX as i16 {
+                if code == DMDUP_SIMPLEX {
                     (Some("simplex".to_string()), None)
-                } else if code == DMDUP_VERTICAL as i16 {
+                } else if code == DMDUP_VERTICAL {
                     (Some("duplex".to_string()), Some("longEdge".to_string()))
-                } else if code == DMDUP_HORIZONTAL as i16 {
+                } else if code == DMDUP_HORIZONTAL {
                     (Some("duplex".to_string()), Some("shortEdge".to_string()))
                 } else {
                     (None, None)
@@ -221,9 +221,9 @@ pub fn apply_settings_to_devmode(
         if let Some(color) = color_mode {
             devmode.dmFields |= DM_COLOR;
             if color.eq_ignore_ascii_case("color") {
-                devmode.dmColor = DMCOLOR_COLOR as i16;
+                devmode.dmColor = DMCOLOR_COLOR;
             } else {
-                devmode.dmColor = DMCOLOR_MONOCHROME as i16;
+                devmode.dmColor = DMCOLOR_MONOCHROME;
             }
         }
 
@@ -232,15 +232,15 @@ pub fn apply_settings_to_devmode(
             if sides.eq_ignore_ascii_case("duplex") {
                 if let Some(flip) = flip_mode {
                     if flip.eq_ignore_ascii_case("shortEdge") {
-                        devmode.dmDuplex = DMDUP_HORIZONTAL as i16;
+                        devmode.dmDuplex = DMDUP_HORIZONTAL;
                     } else {
-                        devmode.dmDuplex = DMDUP_VERTICAL as i16;
+                        devmode.dmDuplex = DMDUP_VERTICAL;
                     }
                 } else {
-                    devmode.dmDuplex = DMDUP_VERTICAL as i16;
+                    devmode.dmDuplex = DMDUP_VERTICAL;
                 }
             } else {
-                devmode.dmDuplex = DMDUP_SIMPLEX as i16;
+                devmode.dmDuplex = DMDUP_SIMPLEX;
             }
         }
 
@@ -405,8 +405,8 @@ mod tests {
             init.dmSize = devmode_size as u16;
             init.dmDriverExtra = extra_bytes.len() as u16;
             init.dmFields = DM_COLOR | DM_DUPLEX | DM_PAPERSIZE;
-            init.dmColor = DMCOLOR_COLOR as i16;
-            init.dmDuplex = DMDUP_VERTICAL as i16;
+            init.dmColor = DMCOLOR_COLOR;
+            init.dmDuplex = DMDUP_VERTICAL;
             init.Anonymous1.Anonymous1.dmPaperSize = 9; // A4
             *devmode_ptr = init;
         }
