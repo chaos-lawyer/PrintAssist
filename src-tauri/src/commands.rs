@@ -3,12 +3,12 @@ use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Emitter};
 use tauri_plugin_dialog::DialogExt;
 
+#[cfg(windows)]
+use crate::contracts::PrinterPropertiesStatus;
 use crate::contracts::{
     PrintBatchRequest, PrintBatchResult, PrinterPropertiesResult, ProxyConfig, SystemPrinter,
     UpdateCheckResult,
 };
-#[cfg(windows)]
-use crate::contracts::PrinterPropertiesStatus;
 use crate::ingress::{collect_path_argument, is_supported_file};
 use crate::printers::{self, PrinterProfileStore};
 use crate::printing::run_print_batch_sync;
@@ -288,19 +288,14 @@ pub async fn run_print_batch(
     profile_store: tauri::State<'_, PrinterProfileStore>,
 ) -> Result<PrintBatchResult, String> {
     let store_clone = profile_store.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        run_print_batch_sync(request, Some(&store_clone))
-    })
-    .await
-    .map_err(|error| format!("print batch task failed: {error}"))
+    tauri::async_runtime::spawn_blocking(move || run_print_batch_sync(request, Some(&store_clone)))
+        .await
+        .map_err(|error| format!("print batch task failed: {error}"))
 }
 
 #[tauri::command]
-pub async fn check_for_app_update(
-    proxy: Option<ProxyConfig>,
-) -> Result<UpdateCheckResult, String> {
-    let mut client_builder = reqwest::Client::builder()
-        .user_agent("PrintAssist-Updater");
+pub async fn check_for_app_update(proxy: Option<ProxyConfig>) -> Result<UpdateCheckResult, String> {
+    let mut client_builder = reqwest::Client::builder().user_agent("PrintAssist-Updater");
 
     if let Some(ref proxy_config) = proxy {
         if !proxy_config.use_system_proxy {
@@ -409,8 +404,7 @@ pub async fn download_and_install_update(
     use std::fs::File;
     use std::io::Write;
 
-    let mut client_builder = reqwest::Client::builder()
-        .user_agent("PrintAssist-Updater");
+    let mut client_builder = reqwest::Client::builder().user_agent("PrintAssist-Updater");
 
     if let Some(ref proxy_config) = proxy {
         if !proxy_config.use_system_proxy {
@@ -458,8 +452,8 @@ pub async fn download_and_install_update(
     let _ = std::fs::create_dir_all(&temp_dir);
     let file_path = temp_dir.join(&filename);
 
-    let mut file = File::create(&file_path)
-        .map_err(|error| format!("创建临时文件失败：{error}"))?;
+    let mut file =
+        File::create(&file_path).map_err(|error| format!("创建临时文件失败：{error}"))?;
 
     let mut downloaded: u64 = 0;
     let mut stream = response.bytes_stream();
@@ -476,19 +470,26 @@ pub async fn download_and_install_update(
             0
         };
 
-        let _ = app.emit("update-download-progress", serde_json::json!({
-            "percent": percent,
-            "downloaded": downloaded,
-            "total": total_size,
-        }));
+        let _ = app.emit(
+            "update-download-progress",
+            serde_json::json!({
+                "percent": percent,
+                "downloaded": downloaded,
+                "total": total_size,
+            }),
+        );
     }
 
-    file.flush().map_err(|error| format!("刷新文件失败：{error}"))?;
+    file.flush()
+        .map_err(|error| format!("刷新文件失败：{error}"))?;
     drop(file);
 
-    let _ = app.emit("update-download-complete", serde_json::json!({
-        "path": file_path.to_string_lossy().to_string(),
-    }));
+    let _ = app.emit(
+        "update-download-complete",
+        serde_json::json!({
+            "path": file_path.to_string_lossy().to_string(),
+        }),
+    );
 
     if total_size > 0 && downloaded < total_size {
         return Err(format!(
@@ -509,8 +510,7 @@ pub async fn download_and_install_update(
 /// Open the GitHub releases page in the default browser as a fallback.
 #[tauri::command]
 pub async fn open_release_page() -> Result<(), String> {
-    open::that(GITHUB_RELEASES_PAGE)
-        .map_err(|error| format!("打开下载页失败：{error}"))
+    open::that(GITHUB_RELEASES_PAGE).map_err(|error| format!("打开下载页失败：{error}"))
 }
 
 #[tauri::command]

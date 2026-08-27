@@ -95,7 +95,13 @@ fn print_single_item(
 
     #[cfg(not(windows))]
     let print_result: Result<(), String> = {
-        let _ = (path, kind, custom_range, &mut temporary_paths, profile_store);
+        let _ = (
+            path,
+            kind,
+            custom_range,
+            &mut temporary_paths,
+            profile_store,
+        );
         Err("当前平台不支持打印".to_string())
     };
 
@@ -153,19 +159,13 @@ fn print_item_windows(
 
         DocumentKind::Pdf => {
             let pdf_path = if custom_range {
-                let ranged =
-                    extract_pages_to_temp_pdf(path, &item.settings.page_range_expression)?;
+                let ranged = extract_pages_to_temp_pdf(path, &item.settings.page_range_expression)?;
                 temporary_paths.push(ranged.clone());
                 ranged
             } else {
                 path.to_path_buf()
             };
-            print_pdf_preserving_orientation(
-                &pdf_path,
-                printer,
-                copies,
-                active_devmode.as_deref(),
-            )
+            print_pdf_preserving_orientation(&pdf_path, printer, copies, active_devmode.as_deref())
         }
 
         DocumentKind::Word | DocumentKind::Excel | DocumentKind::PowerPoint => {

@@ -49,7 +49,12 @@ pub fn print_image_to_printer(
     }
 
     let decoded = decode_image_bgra(file_path)?;
-    print_decoded_pages(std::slice::from_ref(&decoded), printer_name, copies, devmode)
+    print_decoded_pages(
+        std::slice::from_ref(&decoded),
+        printer_name,
+        copies,
+        devmode,
+    )
 }
 
 /// Query the printer's logical DPI used for device coordinates.

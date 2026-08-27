@@ -29,7 +29,9 @@ jobs:
       - name: Package Portable ZIP
         shell: pwsh
         run: |
-          Compress-Archive -Path "src-tauri/target/release/PrintAssist.exe" -DestinationPath "PrintAssist-windows-x64-portable.zip" -Force
+          New-Item -ItemType Directory -Force "portable"
+          Copy-Item "src-tauri/target/release/print-assist.exe" "portable/PrintAssist.exe"
+          Compress-Archive -Path "portable/*" -DestinationPath "PrintAssist-windows-x64-portable.zip" -Force
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:

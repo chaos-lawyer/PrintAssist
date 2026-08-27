@@ -3,9 +3,7 @@ use std::mem::{align_of, size_of};
 
 use windows::core::{PCWSTR, PWSTR};
 use windows::Win32::Foundation::{GetLastError, ERROR_INSUFFICIENT_BUFFER, HANDLE, HWND};
-use windows::Win32::Graphics::Gdi::{
-    DEVMODEW, DM_IN_BUFFER, DM_IN_PROMPT, DM_OUT_BUFFER,
-};
+use windows::Win32::Graphics::Gdi::{DEVMODEW, DM_IN_BUFFER, DM_IN_PROMPT, DM_OUT_BUFFER};
 use windows::Win32::Graphics::Printing::{
     ClosePrinter, DocumentPropertiesW, EnumPrintersW, GetDefaultPrinterW, OpenPrinterW,
     PRINTER_ENUM_CONNECTIONS, PRINTER_ENUM_LOCAL, PRINTER_INFO_2W, PRINTER_STATUS_DOOR_OPEN,
@@ -383,10 +381,7 @@ pub fn open_printer_properties_sync(
     }
 }
 
-pub fn query_paper_names_map(
-    printer_name: &str,
-    port_name: Option<&str>,
-) -> HashMap<i16, String> {
+pub fn query_paper_names_map(printer_name: &str, port_name: Option<&str>) -> HashMap<i16, String> {
     let printer_wide = null_terminated_wide(printer_name);
     let port_name_wide = port_name.map(null_terminated_wide);
     let port_pointer = port_name_wide
@@ -450,10 +445,7 @@ pub fn query_paper_names_map(
     map
 }
 
-pub fn query_bin_names_map(
-    printer_name: &str,
-    port_name: Option<&str>,
-) -> HashMap<i16, String> {
+pub fn query_bin_names_map(printer_name: &str, port_name: Option<&str>) -> HashMap<i16, String> {
     let printer_wide = null_terminated_wide(printer_name);
     let port_name_wide = port_name.map(null_terminated_wide);
     let port_pointer = port_name_wide

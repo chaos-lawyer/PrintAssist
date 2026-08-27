@@ -81,7 +81,17 @@ pub fn parse_devmode_standard_fields(
         let devmode = unsafe { &*(devmode_bytes.as_ptr() as *const DEVMODEW) };
         let fields = devmode.dmFields;
 
-        let (paper_code, paper_width_tenth_mm, paper_length_tenth_mm, orientation, source_code, print_quality, color_mode, sides_mode, flip_mode) = unsafe {
+        let (
+            paper_code,
+            paper_width_tenth_mm,
+            paper_length_tenth_mm,
+            orientation,
+            source_code,
+            print_quality,
+            color_mode,
+            sides_mode,
+            flip_mode,
+        ) = unsafe {
             let p_code = if fields & DM_PAPERSIZE != 0 {
                 Some(devmode.Anonymous1.Anonymous1.dmPaperSize)
             } else {
@@ -153,16 +163,16 @@ pub fn parse_devmode_standard_fields(
                 (None, None)
             };
 
-            (p_code, p_width, p_length, orient, src_code, quality, color, sides, flip)
+            (
+                p_code, p_width, p_length, orient, src_code, quality, color, sides, flip,
+            )
         };
 
-        let paper_name = paper_code.and_then(|code| {
-            paper_name_lookup.and_then(|lookup| lookup.get(&code).cloned())
-        });
+        let paper_name = paper_code
+            .and_then(|code| paper_name_lookup.and_then(|lookup| lookup.get(&code).cloned()));
 
-        let source_name = source_code.and_then(|code| {
-            source_name_lookup.and_then(|lookup| lookup.get(&code).cloned())
-        });
+        let source_name = source_code
+            .and_then(|code| source_name_lookup.and_then(|lookup| lookup.get(&code).cloned()));
 
         let driver_extra_bytes = devmode.dmDriverExtra as usize;
 
@@ -185,7 +195,12 @@ pub fn parse_devmode_standard_fields(
 
     #[cfg(not(windows))]
     {
-        let _ = (printer_name, devmode_bytes, paper_name_lookup, source_name_lookup);
+        let _ = (
+            printer_name,
+            devmode_bytes,
+            paper_name_lookup,
+            source_name_lookup,
+        );
         Err("非 Windows 平台不支持 DEVMODE 解析".to_string())
     }
 }
@@ -270,7 +285,10 @@ pub fn set_orientation_from_content(
 
 /// Queries the full system default DEVMODE for a printer.
 #[cfg(windows)]
-pub fn query_default_devmode(printer_handle: HANDLE, printer_name: &str) -> Result<Vec<u8>, String> {
+pub fn query_default_devmode(
+    printer_handle: HANDLE,
+    printer_name: &str,
+) -> Result<Vec<u8>, String> {
     let printer_wide = null_terminated_wide(printer_name);
     let needed = unsafe {
         DocumentPropertiesW(
@@ -401,8 +419,9 @@ mod tests {
         // Parse initial fields
         let mut paper_lookup = HashMap::new();
         paper_lookup.insert(9, "A4".to_string());
-        let settings = parse_devmode_standard_fields("Test Printer", &full_buffer, Some(&paper_lookup), None)
-            .expect("parse initial devmode");
+        let settings =
+            parse_devmode_standard_fields("Test Printer", &full_buffer, Some(&paper_lookup), None)
+                .expect("parse initial devmode");
 
         assert_eq!(settings.color_mode, Some("color".to_string()));
         assert_eq!(settings.sides_mode, Some("duplex".to_string()));
@@ -415,8 +434,9 @@ mod tests {
         apply_settings_to_devmode(&mut full_buffer, Some("monochrome"), Some("simplex"), None)
             .expect("apply overrides");
 
-        let updated = parse_devmode_standard_fields("Test Printer", &full_buffer, Some(&paper_lookup), None)
-            .expect("parse updated devmode");
+        let updated =
+            parse_devmode_standard_fields("Test Printer", &full_buffer, Some(&paper_lookup), None)
+                .expect("parse updated devmode");
 
         assert_eq!(updated.color_mode, Some("monochrome".to_string()));
         assert_eq!(updated.sides_mode, Some("simplex".to_string()));
