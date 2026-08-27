@@ -1,16 +1,23 @@
+use std::collections::HashMap;
 use std::mem::{align_of, size_of};
 
 use windows::core::{PCWSTR, PWSTR};
-use windows::Win32::Foundation::{GetLastError, ERROR_INSUFFICIENT_BUFFER};
-use windows::Win32::Graphics::Printing::{
-    EnumPrintersW, GetDefaultPrinterW, PRINTER_ENUM_CONNECTIONS, PRINTER_ENUM_LOCAL,
-    PRINTER_INFO_2W, PRINTER_STATUS_DOOR_OPEN, PRINTER_STATUS_ERROR, PRINTER_STATUS_NOT_AVAILABLE,
-    PRINTER_STATUS_NO_TONER, PRINTER_STATUS_OFFLINE, PRINTER_STATUS_OUTPUT_BIN_FULL,
-    PRINTER_STATUS_OUT_OF_MEMORY, PRINTER_STATUS_PAGE_PUNT, PRINTER_STATUS_PAPER_JAM,
-    PRINTER_STATUS_PAPER_OUT, PRINTER_STATUS_PAPER_PROBLEM, PRINTER_STATUS_SERVER_OFFLINE,
-    PRINTER_STATUS_SERVER_UNKNOWN, PRINTER_STATUS_USER_INTERVENTION,
+use windows::Win32::Foundation::{GetLastError, ERROR_INSUFFICIENT_BUFFER, HANDLE, HWND};
+use windows::Win32::Graphics::Gdi::{
+    DEVMODEW, DM_IN_BUFFER, DM_IN_PROMPT, DM_OUT_BUFFER,
 };
-use windows::Win32::Storage::Xps::{DeviceCapabilitiesW, DC_COLORDEVICE, DC_DUPLEX};
+use windows::Win32::Graphics::Printing::{
+    ClosePrinter, DocumentPropertiesW, EnumPrintersW, GetDefaultPrinterW, OpenPrinterW,
+    PRINTER_ENUM_CONNECTIONS, PRINTER_ENUM_LOCAL, PRINTER_INFO_2W, PRINTER_STATUS_DOOR_OPEN,
+    PRINTER_STATUS_ERROR, PRINTER_STATUS_NOT_AVAILABLE, PRINTER_STATUS_NO_TONER,
+    PRINTER_STATUS_OFFLINE, PRINTER_STATUS_OUTPUT_BIN_FULL, PRINTER_STATUS_OUT_OF_MEMORY,
+    PRINTER_STATUS_PAGE_PUNT, PRINTER_STATUS_PAPER_JAM, PRINTER_STATUS_PAPER_OUT,
+    PRINTER_STATUS_PAPER_PROBLEM, PRINTER_STATUS_SERVER_OFFLINE, PRINTER_STATUS_SERVER_UNKNOWN,
+    PRINTER_STATUS_USER_INTERVENTION,
+};
+use windows::Win32::Storage::Xps::{
+    DeviceCapabilitiesW, DC_BINNAMES, DC_BINS, DC_COLORDEVICE, DC_DUPLEX, DC_PAPERNAMES, DC_PAPERS,
+};
 
 use crate::contracts::{
     CapabilitySource, CapabilitySupport, PrinterCapability, PrinterOperationalState, SystemPrinter,
@@ -298,6 +305,223 @@ impl AlignedPrinterBuffer {
     fn as_bytes_mut(&mut self) -> &mut [u8] {
         unsafe {
             std::slice::from_raw_parts_mut(self.storage.as_mut_ptr().cast(), self.byte_length)
+        }
+    }
+}
+
+pub enum PrinterPropertiesOutcome {
+    Accepted(Vec<u8>),
+    Cancelled,
+}
+
+pub fn open_printer_properties_sync(
+    owner_hwnd: HWND,
+    printer_name: &str,
+    input_devmode: Option<&[u8]>,
+) -> Result<PrinterPropertiesOutcome, String> {
+    if printer_name.trim().is_empty() {
+        return Err("打印机名称不能为空".to_string());
+    }
+
+    let printer_wide = null_terminated_wide(printer_name);
+    let mut printer_handle = HANDLE::default();
+    unsafe {
+        OpenPrinterW(PCWSTR(printer_wide.as_ptr()), &mut printer_handle, None)
+            .map_err(|error| format!("打开打印机 “{printer_name}” 失败：{error}"))?;
+    }
+    let _printer_guard = PrinterGuard(printer_handle);
+
+    let needed = unsafe {
+        DocumentPropertiesW(
+            owner_hwnd,
+            printer_handle,
+            PCWSTR(printer_wide.as_ptr()),
+            None,
+            None,
+            0,
+        )
+    };
+    if needed <= 0 {
+        return Err(format!("查询打印机 “{printer_name}” DEVMODE 大小失败"));
+    }
+
+    let base_devmode = match input_devmode {
+        Some(bytes) if crate::printers::devmode::validate_devmode_buffer(bytes).is_ok() => {
+            bytes.to_vec()
+        }
+        _ => crate::printers::devmode::query_default_devmode(printer_handle, printer_name)?,
+    };
+
+    let buffer_size = (needed as usize).max(base_devmode.len());
+    let mut output_buffer = vec![0_u8; buffer_size];
+
+    let result = unsafe {
+        DocumentPropertiesW(
+            owner_hwnd,
+            printer_handle,
+            PCWSTR(printer_wide.as_ptr()),
+            Some(output_buffer.as_mut_ptr() as *mut DEVMODEW),
+            Some(base_devmode.as_ptr() as *const DEVMODEW),
+            (DM_IN_PROMPT | DM_IN_BUFFER | DM_OUT_BUFFER).0,
+        )
+    };
+
+    const IDOK: i32 = 1;
+    const IDCANCEL: i32 = 2;
+
+    if result == IDOK {
+        crate::printers::devmode::validate_devmode_buffer(&output_buffer)?;
+        Ok(PrinterPropertiesOutcome::Accepted(output_buffer))
+    } else if result == IDCANCEL {
+        Ok(PrinterPropertiesOutcome::Cancelled)
+    } else {
+        let win32_error = unsafe { GetLastError() };
+        Err(format!(
+            "打开打印机属性窗口失败，Win32 错误码 {}",
+            win32_error.0
+        ))
+    }
+}
+
+pub fn query_paper_names_map(
+    printer_name: &str,
+    port_name: Option<&str>,
+) -> HashMap<i16, String> {
+    let printer_wide = null_terminated_wide(printer_name);
+    let port_name_wide = port_name.map(null_terminated_wide);
+    let port_pointer = port_name_wide
+        .as_ref()
+        .map(|wide_name| PCWSTR(wide_name.as_ptr()))
+        .unwrap_or(PCWSTR::null());
+
+    let count = unsafe {
+        DeviceCapabilitiesW(
+            PCWSTR(printer_wide.as_ptr()),
+            port_pointer,
+            DC_PAPERS,
+            PWSTR::null(),
+            None,
+        )
+    };
+
+    if count <= 0 {
+        return HashMap::new();
+    }
+    let count = count as usize;
+
+    let mut paper_codes = vec![0_i16; count];
+    let codes_ret = unsafe {
+        DeviceCapabilitiesW(
+            PCWSTR(printer_wide.as_ptr()),
+            port_pointer,
+            DC_PAPERS,
+            PWSTR(paper_codes.as_mut_ptr() as *mut u16),
+            None,
+        )
+    };
+
+    if codes_ret <= 0 {
+        return HashMap::new();
+    }
+
+    let mut names_buffer = vec![0_u16; count * 64];
+    let names_ret = unsafe {
+        DeviceCapabilitiesW(
+            PCWSTR(printer_wide.as_ptr()),
+            port_pointer,
+            DC_PAPERNAMES,
+            PWSTR(names_buffer.as_mut_ptr()),
+            None,
+        )
+    };
+
+    if names_ret <= 0 {
+        return HashMap::new();
+    }
+
+    let mut map = HashMap::new();
+    for i in 0..count {
+        let chunk = &names_buffer[i * 64..(i + 1) * 64];
+        let name = wide_slice_to_string(chunk).trim().to_string();
+        if !name.is_empty() {
+            map.insert(paper_codes[i], name);
+        }
+    }
+    map
+}
+
+pub fn query_bin_names_map(
+    printer_name: &str,
+    port_name: Option<&str>,
+) -> HashMap<i16, String> {
+    let printer_wide = null_terminated_wide(printer_name);
+    let port_name_wide = port_name.map(null_terminated_wide);
+    let port_pointer = port_name_wide
+        .as_ref()
+        .map(|wide_name| PCWSTR(wide_name.as_ptr()))
+        .unwrap_or(PCWSTR::null());
+
+    let count = unsafe {
+        DeviceCapabilitiesW(
+            PCWSTR(printer_wide.as_ptr()),
+            port_pointer,
+            DC_BINS,
+            PWSTR::null(),
+            None,
+        )
+    };
+
+    if count <= 0 {
+        return HashMap::new();
+    }
+    let count = count as usize;
+
+    let mut bin_codes = vec![0_i16; count];
+    let codes_ret = unsafe {
+        DeviceCapabilitiesW(
+            PCWSTR(printer_wide.as_ptr()),
+            port_pointer,
+            DC_BINS,
+            PWSTR(bin_codes.as_mut_ptr() as *mut u16),
+            None,
+        )
+    };
+
+    if codes_ret <= 0 {
+        return HashMap::new();
+    }
+
+    let mut names_buffer = vec![0_u16; count * 24];
+    let names_ret = unsafe {
+        DeviceCapabilitiesW(
+            PCWSTR(printer_wide.as_ptr()),
+            port_pointer,
+            DC_BINNAMES,
+            PWSTR(names_buffer.as_mut_ptr()),
+            None,
+        )
+    };
+
+    if names_ret <= 0 {
+        return HashMap::new();
+    }
+
+    let mut map = HashMap::new();
+    for i in 0..count {
+        let chunk = &names_buffer[i * 24..(i + 1) * 24];
+        let name = wide_slice_to_string(chunk).trim().to_string();
+        if !name.is_empty() {
+            map.insert(bin_codes[i], name);
+        }
+    }
+    map
+}
+
+struct PrinterGuard(HANDLE);
+impl Drop for PrinterGuard {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = ClosePrinter(self.0);
         }
     }
 }

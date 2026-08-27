@@ -1,4 +1,4 @@
-import type { SystemPrinter } from '../shared/contracts/printer';
+import type { PrinterDriverSettings, SystemPrinter } from '../shared/contracts/printer';
 import type { PageRangeInput } from './pageRange';
 
 export type ColorMode = 'color' | 'monochrome';
@@ -12,6 +12,8 @@ export interface PrintSettings {
   flipMode: FlipMode;
   copies: number;
   pageRange: PageRangeInput;
+  driverProfileId?: string;
+  driverSummary?: string;
 }
 
 export interface FileSettingsOverride {
@@ -36,6 +38,67 @@ export function createDefaultGlobalSettings(printerName = ''): PrintSettings {
   };
 }
 
+export function formatDriverSettingsSummary(settings: PrinterDriverSettings): string {
+  const parts: string[] = [];
+
+  if (settings.paperName) {
+    parts.push(settings.paperName);
+  } else if (settings.paperCode) {
+    parts.push(`纸张代码 ${settings.paperCode}`);
+  }
+
+  if (settings.sourceName) {
+    parts.push(settings.sourceName);
+  } else if (settings.sourceCode) {
+    parts.push(`纸盘代码 ${settings.sourceCode}`);
+  }
+
+  if (settings.sidesMode === 'duplex') {
+    if (settings.flipMode === 'shortEdge') {
+      parts.push('双面（短边）');
+    } else {
+      parts.push('双面（长边）');
+    }
+  } else if (settings.sidesMode === 'simplex') {
+    parts.push('单面');
+  }
+
+  if (settings.colorMode === 'color') {
+    parts.push('彩色');
+  } else if (settings.colorMode === 'monochrome') {
+    parts.push('黑白');
+  }
+
+  return parts.length > 0 ? parts.join(' · ') : '驱动自定义设置';
+}
+
+export function applyDriverSettings(
+  currentSettings: PrintSettings,
+  driverSettings: PrinterDriverSettings,
+  profileId: string,
+): PrintSettings {
+  const next: PrintSettings = {
+    ...currentSettings,
+    driverProfileId: profileId,
+    driverSummary: formatDriverSettingsSummary(driverSettings),
+  };
+
+  if (driverSettings.colorMode === 'color' || driverSettings.colorMode === 'monochrome') {
+    next.colorMode = driverSettings.colorMode;
+  }
+
+  if (driverSettings.sidesMode === 'duplex') {
+    next.sidesMode = 'duplex';
+    if (driverSettings.flipMode === 'shortEdge' || driverSettings.flipMode === 'longEdge') {
+      next.flipMode = driverSettings.flipMode;
+    }
+  } else if (driverSettings.sidesMode === 'simplex') {
+    next.sidesMode = 'simplex';
+  }
+
+  return next;
+}
+
 export function mergePrintSettings(
   globalSettings: PrintSettings,
   fileOverride: FileSettingsOverride = {},
@@ -47,6 +110,8 @@ export function mergePrintSettings(
     flipMode: fileOverride.flipMode ?? globalSettings.flipMode,
     copies: fileOverride.copies ?? globalSettings.copies,
     pageRange: fileOverride.pageRange ?? globalSettings.pageRange,
+    driverProfileId: globalSettings.driverProfileId,
+    driverSummary: globalSettings.driverSummary,
   };
 }
 

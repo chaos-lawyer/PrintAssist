@@ -39,6 +39,7 @@ pub fn print_image_to_printer(
     file_path: &Path,
     printer_name: &str,
     copies: u32,
+    devmode: Option<&[u8]>,
 ) -> Result<(), String> {
     if !file_path.exists() {
         return Err(format!("文件不存在：{}", file_path.display()));
@@ -48,7 +49,7 @@ pub fn print_image_to_printer(
     }
 
     let decoded = decode_image_bgra(file_path)?;
-    print_decoded_pages(std::slice::from_ref(&decoded), printer_name, copies)
+    print_decoded_pages(std::slice::from_ref(&decoded), printer_name, copies, devmode)
 }
 
 /// Query the printer's logical DPI used for device coordinates.
@@ -90,6 +91,7 @@ pub fn print_decoded_pages(
     pages: &[DecodedImage],
     printer_name: &str,
     copies: u32,
+    devmode: Option<&[u8]>,
 ) -> Result<(), String> {
     if pages.is_empty() {
         return Err("没有可打印的页面".to_string());
@@ -100,7 +102,7 @@ pub fn print_decoded_pages(
 
     let copy_count = copies.max(1);
     for _ in 0..copy_count {
-        print_decoded_pages_once(pages, printer_name)?;
+        print_decoded_pages_once(pages, printer_name, devmode)?;
     }
     Ok(())
 }
@@ -258,7 +260,11 @@ fn read_exif_orientation(frame: &IWICBitmapFrameDecode) -> Option<u16> {
     }
 }
 
-fn print_decoded_pages_once(pages: &[DecodedImage], printer_name: &str) -> Result<(), String> {
+fn print_decoded_pages_once(
+    pages: &[DecodedImage],
+    printer_name: &str,
+    devmode: Option<&[u8]>,
+) -> Result<(), String> {
     let printer_wide = os_str_to_wide(OsStr::new(printer_name));
     let mut printer_handle = HANDLE::default();
     unsafe {
@@ -267,7 +273,12 @@ fn print_decoded_pages_once(pages: &[DecodedImage], printer_name: &str) -> Resul
     }
     let _printer_guard = PrinterGuard(printer_handle);
 
-    let mut base_devmode = query_devmode(printer_handle, &printer_wide)?;
+    let base_devmode = match devmode {
+        Some(bytes) if crate::printers::devmode::validate_devmode_buffer(bytes).is_ok() => {
+            bytes.to_vec()
+        }
+        _ => query_devmode(printer_handle, &printer_wide)?,
+    };
     let mut page_devmode = prepare_page_devmode(
         printer_handle,
         &printer_wide,
@@ -665,6 +676,7 @@ mod tests {
             Path::new("C:\\\\this-file-should-not-exist-printassist.png"),
             "Microsoft Print to PDF",
             1,
+            None,
         );
         assert!(result.is_err());
     }

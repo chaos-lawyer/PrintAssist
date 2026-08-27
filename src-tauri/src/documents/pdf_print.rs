@@ -38,6 +38,7 @@ pub fn print_pdf_to_printer(
     file_path: &Path,
     printer_name: &str,
     copies: u32,
+    devmode: Option<&[u8]>,
 ) -> Result<(), String> {
     if !file_path.exists() {
         return Err(format!("文件不存在：{}", file_path.display()));
@@ -52,7 +53,7 @@ pub fn print_pdf_to_printer(
     if pages.is_empty() {
         return Err("PDF 渲染后没有页面".to_string());
     }
-    print_decoded_pages(&pages, printer_name, copies)
+    print_decoded_pages(&pages, printer_name, copies, devmode)
 }
 
 /// Render each PDF page in-process to a print-quality BGRA bitmap.
@@ -304,6 +305,7 @@ mod tests {
             Path::new("C:\\\\this-file-should-not-exist-printassist.pdf"),
             "Microsoft Print to PDF",
             1,
+            None,
         );
         assert!(result.is_err());
     }

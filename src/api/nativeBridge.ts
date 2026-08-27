@@ -1,4 +1,4 @@
-import type { SystemPrinter } from '../shared/contracts/printer';
+import type { PrinterPropertiesResult, SystemPrinter } from '../shared/contracts/printer';
 import type { PrintBatchRequest, PrintBatchResult } from '../shared/contracts/printJob';
 
 interface TauriWindow {
@@ -22,6 +22,19 @@ export async function listSystemPrinters(): Promise<SystemPrinter[]> {
     return [];
   }
   return invokeCommand<SystemPrinter[]>('list_system_printers');
+}
+
+export async function openPrinterProperties(
+  printerName: string,
+  profileId?: string,
+): Promise<PrinterPropertiesResult> {
+  if (!isTauriRuntime()) {
+    return { status: 'cancelled' };
+  }
+  return invokeCommand<PrinterPropertiesResult>('open_printer_properties', {
+    printerName,
+    profileId: profileId ?? null,
+  });
 }
 
 export async function pickFiles(): Promise<string[]> {

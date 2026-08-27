@@ -6,7 +6,9 @@ use std::time::Duration;
 use crate::contracts::{
     PrintBatchRequest, PrintBatchResult, PrintBatchResultItem, PrintQueueItemPayload,
 };
+#[cfg(windows)]
 use crate::documents::office::convert_office_to_pdf;
+#[cfg(windows)]
 use crate::documents::pdf_pages::extract_pages_to_temp_pdf;
 #[cfg(windows)]
 use crate::documents::print_shell::print_file_to_printer;
@@ -17,14 +19,17 @@ use crate::printers;
 /// Keep temp PDFs alive long enough for those fallbacks.
 const TEMP_PRINT_FILE_RETENTION: Duration = Duration::from_secs(180);
 
-pub fn run_print_batch_sync(request: PrintBatchRequest) -> PrintBatchResult {
+pub fn run_print_batch_sync(
+    request: PrintBatchRequest,
+    profile_store: Option<&printers::PrinterProfileStore>,
+) -> PrintBatchResult {
     let mut results = Vec::new();
     let mut succeeded = 0_u32;
     let mut failed = 0_u32;
     let mut skipped = 0_u32;
 
     for item in request.items {
-        let result_item = print_single_item(item);
+        let result_item = print_single_item(item, profile_store);
         match result_item.status.as_str() {
             "succeeded" => succeeded += 1,
             "skipped" => skipped += 1,
@@ -41,7 +46,10 @@ pub fn run_print_batch_sync(request: PrintBatchRequest) -> PrintBatchResult {
     }
 }
 
-fn print_single_item(item: PrintQueueItemPayload) -> PrintBatchResultItem {
+fn print_single_item(
+    item: PrintQueueItemPayload,
+    profile_store: Option<&printers::PrinterProfileStore>,
+) -> PrintBatchResultItem {
     let path = Path::new(&item.path);
     if !path.exists() {
         return failed_item(item, "文件不存在");
@@ -76,11 +84,18 @@ fn print_single_item(item: PrintQueueItemPayload) -> PrintBatchResultItem {
     let mut temporary_paths: Vec<PathBuf> = Vec::new();
 
     #[cfg(windows)]
-    let print_result = print_item_windows(&item, path, kind, custom_range, &mut temporary_paths);
+    let print_result = print_item_windows(
+        &item,
+        path,
+        kind,
+        custom_range,
+        &mut temporary_paths,
+        profile_store,
+    );
 
     #[cfg(not(windows))]
     let print_result: Result<(), String> = {
-        let _ = (path, kind, custom_range, &mut temporary_paths);
+        let _ = (path, kind, custom_range, &mut temporary_paths, profile_store);
         Err("当前平台不支持打印".to_string())
     };
 
@@ -106,76 +121,108 @@ fn print_item_windows(
     kind: DocumentKind,
     custom_range: bool,
     temporary_paths: &mut Vec<PathBuf>,
+    profile_store: Option<&printers::PrinterProfileStore>,
 ) -> Result<(), String> {
     let printer = item.settings.printer_name.as_str();
     let copies = item.settings.copies.max(1);
 
+    // Retrieve and prepare active DEVMODE if stored profile exists
+    let active_devmode: Option<Vec<u8>> = item
+        .settings
+        .driver_profile_id
+        .as_deref()
+        .and_then(|id| profile_store.and_then(|store| store.get_profile(id, printer)))
+        .map(|mut devmode| {
+            // Apply single-item standard settings overrides on top of stored profile
+            let _ = crate::printers::devmode::apply_settings_to_devmode(
+                &mut devmode,
+                Some(&item.settings.color_mode),
+                Some(&item.settings.sides_mode),
+                Some(&item.settings.flip_mode),
+            );
+            devmode
+        });
+
     match kind {
-        DocumentKind::Image => {
-            crate::documents::image_print::print_image_to_printer(path, printer, copies)
-        }
+        DocumentKind::Image => crate::documents::image_print::print_image_to_printer(
+            path,
+            printer,
+            copies,
+            active_devmode.as_deref(),
+        ),
 
         DocumentKind::Pdf => {
             let pdf_path = if custom_range {
-                let ranged = extract_pages_to_temp_pdf(path, &item.settings.page_range_expression)?;
+                let ranged =
+                    extract_pages_to_temp_pdf(path, &item.settings.page_range_expression)?;
                 temporary_paths.push(ranged.clone());
                 ranged
             } else {
                 path.to_path_buf()
             };
-            print_pdf_preserving_orientation(&pdf_path, printer, copies)
-        }
-
-        DocumentKind::Word => {
-            // Word COM PrintOut honors section PageSetup orientation.
-            match crate::documents::office_print::print_office_to_printer(
-                path,
-                kind,
+            print_pdf_preserving_orientation(
+                &pdf_path,
                 printer,
                 copies,
-                item.settings.page_range_mode.as_str(),
-                item.settings.page_range_expression.as_str(),
-            ) {
-                Ok(()) => Ok(()),
-                Err(office_error) => {
-                    // Fallback: convert to PDF then native-print (still orientation-safe).
-                    fallback_office_via_pdf(
-                        item,
-                        path,
-                        kind,
-                        custom_range,
-                        temporary_paths,
-                        &office_error,
-                    )
-                }
-            }
+                active_devmode.as_deref(),
+            )
         }
 
-        DocumentKind::Excel | DocumentKind::PowerPoint => {
-            if custom_range {
-                // Custom ranges for Excel/PPT: PDF extract path is more reliable.
-                return fallback_office_via_pdf(
-                    item,
-                    path,
-                    kind,
-                    true,
-                    temporary_paths,
-                    "自定义页码",
-                );
-            }
+        DocumentKind::Word | DocumentKind::Excel | DocumentKind::PowerPoint => {
+            // Prefer Office -> PDF conversion to ensure driver DEVMODE (paper, duplex, tray, color)
+            // and page orientation are fully respected by the native GDI pipeline.
+            match convert_office_to_pdf(path, kind) {
+                Ok(pdf_path) => {
+                    temporary_paths.push(pdf_path.clone());
+                    let staged_pdf = if custom_range {
+                        let ranged = extract_pages_to_temp_pdf(
+                            &pdf_path,
+                            &item.settings.page_range_expression,
+                        )?;
+                        temporary_paths.push(ranged.clone());
+                        ranged
+                    } else {
+                        pdf_path
+                    };
+                    print_pdf_preserving_orientation(
+                        &staged_pdf,
+                        printer,
+                        copies,
+                        active_devmode.as_deref(),
+                    )
+                }
+                Err(convert_error) => {
+                    // Fallback to Office COM direct printing if enabled
+                    if !item.allow_association_fallback {
+                        return Err(format!(
+                            "Office 文档转换为 PDF 失败（{convert_error}）；请勾选允许关联程序回退以使用直接打印"
+                        ));
+                    }
 
-            match crate::documents::office_print::print_office_to_printer(
-                path, kind, printer, copies, "all", "",
-            ) {
-                Ok(()) => Ok(()),
-                Err(office_error) => {
-                    fallback_office_via_pdf(item, path, kind, false, temporary_paths, &office_error)
+                    if kind == DocumentKind::Word {
+                        crate::documents::office_print::print_office_to_printer(
+                            path,
+                            kind,
+                            printer,
+                            copies,
+                            item.settings.page_range_mode.as_str(),
+                            item.settings.page_range_expression.as_str(),
+                        )
+                    } else if custom_range {
+                        Err(format!(
+                            "{convert_error}；自定义页码需要 Office 转 PDF，无法使用关联程序回退"
+                        ))
+                    } else {
+                        crate::documents::office_print::print_office_to_printer(
+                            path, kind, printer, copies, "all", "",
+                        )
+                    }
                 }
             }
         }
 
         DocumentKind::Text => {
-            // Text still uses association printto; orientation is rarely meaningful.
+            // Text files route through Shell printto
             print_file_to_printer(path, printer, copies)
         }
 
@@ -183,68 +230,15 @@ fn print_item_windows(
     }
 }
 
-/// Prefer WinRT/GDI-style PDF printing that keeps landscape pages landscape.
-/// Do not silently fall back to shell `printto`: association handlers often
-/// re-layout landscape pages and reintroduce the 90° content rotation bug.
+/// Prefer WinRT/GDI-style PDF printing that keeps landscape pages landscape and honors DEVMODE.
 #[cfg(windows)]
 fn print_pdf_preserving_orientation(
     pdf_path: &Path,
     printer: &str,
     copies: u32,
+    devmode: Option<&[u8]>,
 ) -> Result<(), String> {
-    crate::documents::pdf_print::print_pdf_to_printer(pdf_path, printer, copies)
-}
-
-#[cfg(windows)]
-fn fallback_office_via_pdf(
-    item: &PrintQueueItemPayload,
-    path: &Path,
-    kind: DocumentKind,
-    custom_range: bool,
-    temporary_paths: &mut Vec<PathBuf>,
-    prior_error: &str,
-) -> Result<(), String> {
-    let printer = item.settings.printer_name.as_str();
-    let copies = item.settings.copies.max(1);
-
-    let pdf_path = match convert_office_to_pdf(path, kind) {
-        Ok(pdf) => {
-            temporary_paths.push(pdf.clone());
-            pdf
-        }
-        Err(convert_error) => {
-            if !item.allow_association_fallback {
-                return Err(format!(
-                    "{prior_error}；Office 转 PDF 也失败：{convert_error}"
-                ));
-            }
-            if custom_range {
-                return Err(format!(
-                    "{prior_error}；{convert_error}；自定义页码需要 Office 转 PDF，无法使用关联程序回退"
-                ));
-            }
-            // Association fallback cannot prove orientation fidelity.
-            return print_file_to_printer(path, printer, copies).map_err(|shell_error| {
-                format!(
-                    "{prior_error}；Office 转 PDF 失败：{convert_error}；关联程序回退：{shell_error}"
-                )
-            });
-        }
-    };
-
-    let pdf_path = if custom_range {
-        match extract_pages_to_temp_pdf(&pdf_path, &item.settings.page_range_expression) {
-            Ok(ranged) => {
-                temporary_paths.push(ranged.clone());
-                ranged
-            }
-            Err(error) => return Err(error),
-        }
-    } else {
-        pdf_path
-    };
-
-    print_pdf_preserving_orientation(&pdf_path, printer, copies)
+    crate::documents::pdf_print::print_pdf_to_printer(pdf_path, printer, copies, devmode)
 }
 
 fn validate_printer_capabilities(item: &PrintQueueItemPayload) -> Result<(), String> {

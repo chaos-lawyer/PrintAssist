@@ -1,5 +1,5 @@
-import { Alert, InputNumber, Segmented, Typography } from 'antd';
-import { ChevronDown } from 'lucide-react';
+import { Alert, Button, InputNumber, Segmented, Typography } from 'antd';
+import { ChevronDown, SlidersHorizontal } from 'lucide-react';
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { SystemPrinter } from '../../shared/contracts/printer';
@@ -22,6 +22,8 @@ interface GlobalSettingsPanelProps {
   printers: SystemPrinter[];
   settings: PrintSettings;
   loadingPrinters: boolean;
+  loadingProperties?: boolean;
+  onOpenProperties?: () => void;
   onChange: (nextSettings: PrintSettings) => void;
 }
 
@@ -42,6 +44,8 @@ export function GlobalSettingsPanel({
   printers,
   settings,
   loadingPrinters,
+  loadingProperties = false,
+  onOpenProperties,
   onChange,
 }: GlobalSettingsPanelProps) {
   const selectedPrinter = printers.find((printer) => printer.name === settings.printerName);
@@ -211,9 +215,22 @@ export function GlobalSettingsPanel({
       </div>
 
       <div className="setting-field">
-        <span className="field-label" id="printer-select-label">
-          打印机
-        </span>
+        <div className="field-label-row">
+          <span className="field-label" id="printer-select-label">
+            打印机
+          </span>
+          <Button
+            size="small"
+            type="link"
+            className="printer-properties-btn"
+            disabled={!selectedPrinter || loadingPrinters || loadingProperties}
+            loading={loadingProperties}
+            icon={<SlidersHorizontal size={13} />}
+            onClick={onOpenProperties}
+          >
+            打印机属性
+          </Button>
+        </div>
         {/*
           Custom floating menu (fixed + manual rect), not antd Select portal.
           Keeps page flow intact while avoiding the invisible-dropdown bug in WebView2.
@@ -257,6 +274,13 @@ export function GlobalSettingsPanel({
               </>
             ) : null}
           </span>
+        </div>
+      )}
+
+      {settings.driverSummary && (
+        <div className="driver-config-summary" title={settings.driverSummary}>
+          <span className="driver-config-summary-tag">驱动配置</span>
+          <span className="driver-config-summary-text">{settings.driverSummary}</span>
         </div>
       )}
 

@@ -331,10 +331,38 @@ button,
   min-width: 0;
 }
 
+.field-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+}
+
 .field-label {
   color: var(--color-text-secondary);
   font-size: 12px;
   font-weight: 650;
+}
+
+.printer-properties-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-primary);
+  border: none;
+  background: transparent;
+  box-shadow: none;
+}
+
+.printer-properties-btn:not(:disabled):hover {
+  color: #0b3fa8;
+  background: rgba(21, 87, 208, 0.08);
+  border-radius: var(--radius-xs);
 }
 
 .field-hint {
@@ -543,6 +571,42 @@ button,
 .status-dot-sep {
   margin: 0 4px;
   color: var(--color-text-faint);
+}
+
+.driver-config-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  max-width: 100%;
+  min-width: 0;
+  padding: 6px 10px;
+  background: linear-gradient(135deg, #eff5ff 0%, #e8f0fe 100%);
+  border: 1px solid rgba(21, 87, 208, 0.2);
+  border-radius: var(--radius-md);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.driver-config-summary-tag {
+  flex-shrink: 0;
+  padding: 2px 7px;
+  color: var(--color-primary);
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(21, 87, 208, 0.25);
+  border-radius: var(--radius-pill);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.driver-config-summary-text {
+  min-width: 0;
+  color: var(--color-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
 }
 
 .settings-controls {

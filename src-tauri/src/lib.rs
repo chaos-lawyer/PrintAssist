@@ -48,8 +48,10 @@ pub fn run() {
             }
             Ok(())
         })
+        .manage(printers::PrinterProfileStore::default())
         .invoke_handler(tauri::generate_handler![
             commands::list_system_printers,
+            commands::open_printer_properties,
             commands::pick_files,
             commands::pick_folder_files,
             commands::expand_file_paths,

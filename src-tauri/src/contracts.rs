@@ -49,6 +49,52 @@ pub struct SystemPrinter {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PrinterPropertiesStatus {
+    Accepted,
+    Cancelled,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrinterDriverSettings {
+    pub printer_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub paper_code: Option<i16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub paper_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub paper_width_tenth_mm: Option<i16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub paper_length_tenth_mm: Option<i16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_code: Option<i16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub color_mode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sides_mode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub flip_mode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub orientation: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub print_quality: Option<i16>,
+    pub driver_extra_bytes: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrinterPropertiesResult {
+    pub status: PrinterPropertiesStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub profile_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub settings: Option<PrinterDriverSettings>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ResolvedPrintSettingsPayload {
     pub printer_name: String,
@@ -58,6 +104,8 @@ pub struct ResolvedPrintSettingsPayload {
     pub copies: u32,
     pub page_range_mode: String,
     pub page_range_expression: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub driver_profile_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -154,5 +202,44 @@ mod tests {
         assert_eq!(value["color"]["support"], "supported");
         assert_eq!(value["duplex"]["support"], "unknown");
         assert!(value.get("error").is_none());
+    }
+
+    #[test]
+    fn serializes_printer_properties_result_and_settings() {
+        let result = PrinterPropertiesResult {
+            status: PrinterPropertiesStatus::Accepted,
+            profile_id: Some("profile-123".to_string()),
+            settings: Some(PrinterDriverSettings {
+                printer_name: "Office Printer".to_string(),
+                paper_code: Some(9),
+                paper_name: Some("A4".to_string()),
+                paper_width_tenth_mm: Some(2100),
+                paper_length_tenth_mm: Some(2970),
+                source_code: Some(7),
+                source_name: Some("Auto".to_string()),
+                color_mode: Some("monochrome".to_string()),
+                sides_mode: Some("duplex".to_string()),
+                flip_mode: Some("longEdge".to_string()),
+                orientation: Some("portrait".to_string()),
+                print_quality: Some(600),
+                driver_extra_bytes: 512,
+            }),
+        };
+
+        let value = serde_json::to_value(result).expect("serialize properties result");
+        assert_eq!(value["status"], "accepted");
+        assert_eq!(value["profileId"], "profile-123");
+        assert_eq!(value["settings"]["paperName"], "A4");
+        assert_eq!(value["settings"]["driverExtraBytes"], 512);
+
+        let cancelled = PrinterPropertiesResult {
+            status: PrinterPropertiesStatus::Cancelled,
+            profile_id: None,
+            settings: None,
+        };
+        let cancelled_value = serde_json::to_value(cancelled).expect("serialize cancelled");
+        assert_eq!(cancelled_value["status"], "cancelled");
+        assert!(cancelled_value.get("profileId").is_none());
+        assert!(cancelled_value.get("settings").is_none());
     }
 }

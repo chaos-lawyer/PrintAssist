@@ -3,14 +3,19 @@ use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Emitter};
 use tauri_plugin_dialog::DialogExt;
 
-use crate::contracts::{PrintBatchRequest, PrintBatchResult, ProxyConfig, SystemPrinter, UpdateCheckResult};
+use crate::contracts::{
+    PrintBatchRequest, PrintBatchResult, PrinterPropertiesResult, ProxyConfig, SystemPrinter,
+    UpdateCheckResult,
+};
+#[cfg(windows)]
+use crate::contracts::PrinterPropertiesStatus;
 use crate::ingress::{collect_path_argument, is_supported_file};
-use crate::printers;
+use crate::printers::{self, PrinterProfileStore};
 use crate::printing::run_print_batch_sync;
 
 const GITHUB_LATEST_RELEASE_URL: &str =
-    "https://api.github.com/repos/ws1993/PrintAssist/releases/latest";
-const GITHUB_RELEASES_PAGE: &str = "https://github.com/ws1993/PrintAssist/releases/latest";
+    "https://api.github.com/repos/chaos-lawyer/PrintAssist/releases/latest";
+const GITHUB_RELEASES_PAGE: &str = "https://github.com/chaos-lawyer/PrintAssist/releases/latest";
 
 /// Launch the downloaded NSIS installer so it survives app exit.
 ///
@@ -166,6 +171,72 @@ pub async fn list_system_printers() -> Result<Vec<SystemPrinter>, String> {
 }
 
 #[tauri::command]
+pub async fn open_printer_properties(
+    window: tauri::Window,
+    printer_name: String,
+    profile_id: Option<String>,
+    profile_store: tauri::State<'_, PrinterProfileStore>,
+) -> Result<PrinterPropertiesResult, String> {
+    if printer_name.trim().is_empty() {
+        return Err("未指定打印机名称".to_string());
+    }
+
+    #[cfg(windows)]
+    {
+        let input_devmode = profile_id
+            .as_deref()
+            .and_then(|id| profile_store.get_profile(id, &printer_name));
+
+        let owner_hwnd = window
+            .hwnd()
+            .map(|h| windows::Win32::Foundation::HWND(h.0 as *mut _))
+            .unwrap_or_default();
+
+        let printer_name_clone = printer_name.clone();
+        let outcome = tauri::async_runtime::spawn_blocking(move || {
+            printers::open_printer_properties_sync(
+                owner_hwnd,
+                &printer_name_clone,
+                input_devmode.as_deref(),
+            )
+        })
+        .await
+        .map_err(|error| format!("打印机属性任务执行失败：{error}"))??;
+
+        match outcome {
+            printers::PrinterPropertiesOutcome::Accepted(devmode) => {
+                let new_profile_id = profile_store.save_profile(&printer_name, devmode.clone());
+                let paper_names = printers::query_paper_names_map(&printer_name, None);
+                let bin_names = printers::query_bin_names_map(&printer_name, None);
+                let settings = printers::devmode::parse_devmode_standard_fields(
+                    &printer_name,
+                    &devmode,
+                    Some(&paper_names),
+                    Some(&bin_names),
+                )?;
+
+                Ok(PrinterPropertiesResult {
+                    status: PrinterPropertiesStatus::Accepted,
+                    profile_id: Some(new_profile_id),
+                    settings: Some(settings),
+                })
+            }
+            printers::PrinterPropertiesOutcome::Cancelled => Ok(PrinterPropertiesResult {
+                status: PrinterPropertiesStatus::Cancelled,
+                profile_id: None,
+                settings: None,
+            }),
+        }
+    }
+
+    #[cfg(not(windows))]
+    {
+        let _ = (window, printer_name, profile_id, profile_store);
+        Err("打印机属性配置仅支持 Windows 平台".to_string())
+    }
+}
+
+#[tauri::command]
 pub async fn pick_files(app: AppHandle) -> Result<Vec<String>, String> {
     let files = app
         .dialog()
@@ -212,10 +283,16 @@ pub async fn expand_file_paths(paths: Vec<String>) -> Result<Vec<String>, String
 }
 
 #[tauri::command]
-pub async fn run_print_batch(request: PrintBatchRequest) -> Result<PrintBatchResult, String> {
-    tauri::async_runtime::spawn_blocking(move || run_print_batch_sync(request))
-        .await
-        .map_err(|error| format!("print batch task failed: {error}"))
+pub async fn run_print_batch(
+    request: PrintBatchRequest,
+    profile_store: tauri::State<'_, PrinterProfileStore>,
+) -> Result<PrintBatchResult, String> {
+    let store_clone = profile_store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        run_print_batch_sync(request, Some(&store_clone))
+    })
+    .await
+    .map_err(|error| format!("print batch task failed: {error}"))
 }
 
 #[tauri::command]

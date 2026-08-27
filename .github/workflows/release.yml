@@ -24,11 +24,16 @@ jobs:
         run: npm ci
       - name: Build frontend
         run: npm run build
-      - name: Build Windows installer
+      - name: Build Windows installer & binary
         run: npm run tauri:build
+      - name: Package Portable ZIP
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "src-tauri/target/release/PrintAssist.exe" -DestinationPath "PrintAssist-windows-x64-portable.zip" -Force
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             src-tauri/target/release/bundle/nsis/*.exe
+            PrintAssist-windows-x64-portable.zip
           generate_release_notes: true

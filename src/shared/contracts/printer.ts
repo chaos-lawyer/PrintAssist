@@ -18,3 +18,27 @@ export interface SystemPrinter {
   duplex: PrinterCapability;
   error?: string;
 }
+
+export type PrinterPropertiesStatus = 'accepted' | 'cancelled';
+
+export interface PrinterDriverSettings {
+  printerName: string;
+  paperCode?: number;
+  paperName?: string;
+  paperWidthTenthMm?: number;
+  paperLengthTenthMm?: number;
+  sourceCode?: number;
+  sourceName?: string;
+  colorMode?: string;
+  sidesMode?: string;
+  flipMode?: string;
+  orientation?: string;
+  printQuality?: number;
+  driverExtraBytes: number;
+}
+
+export interface PrinterPropertiesResult {
+  status: PrinterPropertiesStatus;
+  profileId?: string;
+  settings?: PrinterDriverSettings;
+}

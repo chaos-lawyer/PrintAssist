@@ -8,6 +8,7 @@ export interface ResolvedPrintSettingsPayload {
   copies: number;
   pageRangeMode: 'all' | 'custom';
   pageRangeExpression: string;
+  driverProfileId?: string;
 }
 
 export interface PrintQueueItemPayload {

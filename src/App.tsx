@@ -15,6 +15,7 @@ import {
   expandFilePaths,
   isTauriRuntime,
   listSystemPrinters,
+  openPrinterProperties,
   pickFiles,
   pickFolderFiles,
   runPrintBatch,
@@ -23,8 +24,10 @@ import {
 } from './api/nativeBridge';
 import { AppLogo } from './components/AppLogo';
 import {
+  applyDriverSettings,
   createDefaultGlobalSettings,
   evaluateSettingAvailability,
+  formatDriverSettingsSummary,
   mergePrintSettings,
   sanitizeSettingsForPrinter,
   type PrintSettings,
@@ -43,7 +46,7 @@ import {
   getProxyConfig,
   type ProxySettings,
 } from './domain/proxySettings';
-import type { SystemPrinter } from './shared/contracts/printer';
+import type { PrinterDriverSettings, SystemPrinter } from './shared/contracts/printer';
 import type { PrintQueueItemPayload } from './shared/contracts/printJob';
 
 const { Header, Content, Sider, Footer } = Layout;
@@ -52,6 +55,10 @@ export function App() {
   const [queueState, dispatch] = useReducer(queueReducer, undefined, createEmptyQueueState);
   const [printers, setPrinters] = useState<SystemPrinter[]>([]);
   const [loadingPrinters, setLoadingPrinters] = useState(true);
+  const [sessionProfiles, setSessionProfiles] = useState<
+    Record<string, { profileId: string; settings: PrinterDriverSettings; summary: string }>
+  >({});
+  const [loadingProperties, setLoadingProperties] = useState(false);
   const [globalSettings, setGlobalSettings] = useState<PrintSettings>(
     createDefaultGlobalSettings(),
   );
@@ -83,6 +90,42 @@ export function App() {
   );
   const availability = evaluateSettingAvailability(selectedPrinter);
   const settingsItem = queueState.items.find((item) => item.id === settingsItemId) ?? null;
+
+  const handleOpenPrinterProperties = async () => {
+    if (!globalSettings.printerName || loadingProperties) {
+      return;
+    }
+    setLoadingProperties(true);
+    try {
+      const existingProfile = sessionProfiles[globalSettings.printerName];
+      const result = await openPrinterProperties(
+        globalSettings.printerName,
+        existingProfile?.profileId,
+      );
+
+      if (result.status === 'accepted' && result.profileId && result.settings) {
+        const profileId = result.profileId;
+        const driverSettings = result.settings;
+        const summary = formatDriverSettingsSummary(driverSettings);
+
+        setSessionProfiles((prev) => ({
+          ...prev,
+          [globalSettings.printerName]: {
+            profileId,
+            settings: driverSettings,
+            summary,
+          },
+        }));
+
+        setGlobalSettings((curr) => applyDriverSettings(curr, driverSettings, profileId));
+        message.success(`已同步“${globalSettings.printerName}”驱动设置`);
+      }
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '打开打印机属性失败');
+    } finally {
+      setLoadingProperties(false);
+    }
+  };
 
   const refreshPrinters = useCallback(async () => {
     setLoadingPrinters(true);
@@ -243,6 +286,7 @@ export function App() {
           copies: resolved.copies,
           pageRangeMode: resolved.pageRange.mode,
           pageRangeExpression: resolved.pageRange.expression,
+          driverProfileId: resolved.driverProfileId,
         },
       });
     }
@@ -489,9 +533,25 @@ export function App() {
               printers={printers}
               settings={globalSettings}
               loadingPrinters={loadingPrinters}
+              loadingProperties={loadingProperties}
+              onOpenProperties={() => void handleOpenPrinterProperties()}
               onChange={(nextSettings) => {
-                const printer = printers.find((item) => item.name === nextSettings.printerName);
-                setGlobalSettings(sanitizeSettingsForPrinter(nextSettings, printer));
+                const nextPrinterName = nextSettings.printerName;
+                const printer = printers.find((item) => item.name === nextPrinterName);
+                let updated = { ...nextSettings };
+
+                if (nextPrinterName !== globalSettings.printerName) {
+                  const stored = sessionProfiles[nextPrinterName];
+                  if (stored) {
+                    updated.driverProfileId = stored.profileId;
+                    updated.driverSummary = stored.summary;
+                  } else {
+                    updated.driverProfileId = undefined;
+                    updated.driverSummary = undefined;
+                  }
+                }
+
+                setGlobalSettings(sanitizeSettingsForPrinter(updated, printer));
               }}
             />
           </Sider>
