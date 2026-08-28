@@ -398,6 +398,7 @@ export function App() {
           copies: resolved.copies,
           sourceCode: resolved.sourceCode,
           sourceName: resolved.sourceName,
+          scaleMode: resolved.scaleMode,
           pageRangeMode: resolved.pageRange.mode,
           pageRangeExpression: resolved.pageRange.expression,
           driverProfileId: resolved.driverProfileId,

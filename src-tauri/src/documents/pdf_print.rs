@@ -39,6 +39,7 @@ pub fn print_pdf_to_printer(
     printer_name: &str,
     copies: u32,
     devmode: Option<&[u8]>,
+    scale_mode: Option<&str>,
 ) -> Result<(), String> {
     if !file_path.exists() {
         return Err(format!("文件不存在：{}", file_path.display()));
@@ -53,7 +54,7 @@ pub fn print_pdf_to_printer(
     if pages.is_empty() {
         return Err("PDF 渲染后没有页面".to_string());
     }
-    print_decoded_pages(&pages, printer_name, copies, devmode)
+    print_decoded_pages(&pages, printer_name, copies, devmode, scale_mode)
 }
 
 /// Render each PDF page in-process to a print-quality BGRA bitmap.

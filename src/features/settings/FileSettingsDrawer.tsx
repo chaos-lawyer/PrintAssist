@@ -7,6 +7,7 @@ import type {
   ColorMode,
   FileSettingsOverride,
   FlipMode,
+  PageScaleMode,
   PrintSettings,
   SidesMode,
 } from '../../domain/printSettings';
@@ -36,6 +37,7 @@ export function FileSettingsDrawer({
   const [useCustomSides, setUseCustomSides] = useState(false);
   const [useCustomCopies, setUseCustomCopies] = useState(false);
   const [useCustomSource, setUseCustomSource] = useState(false);
+  const [useCustomScale, setUseCustomScale] = useState(false);
   const [useCustomPages, setUseCustomPages] = useState(false);
   const [colorMode, setColorMode] = useState<ColorMode>('monochrome');
   const [sidesMode, setSidesMode] = useState<SidesMode>('simplex');
@@ -43,6 +45,7 @@ export function FileSettingsDrawer({
   const [copies, setCopies] = useState(1);
   const [sourceCode, setSourceCode] = useState<number | undefined>(undefined);
   const [sourceName, setSourceName] = useState<string | undefined>(undefined);
+  const [scaleMode, setScaleMode] = useState<PageScaleMode>('actualSize');
   const [paperSources, setPaperSources] = useState<PaperSourceOption[]>([]);
   const [loadingPaperSources, setLoadingPaperSources] = useState(false);
   const [pageExpression, setPageExpression] = useState('1,3,5-8');
@@ -84,6 +87,7 @@ export function FileSettingsDrawer({
     setUseCustomSides(item.override.sidesMode !== undefined || item.override.flipMode !== undefined);
     setUseCustomCopies(item.override.copies !== undefined);
     setUseCustomSource(item.override.sourceCode !== undefined);
+    setUseCustomScale(item.override.scaleMode !== undefined);
     setUseCustomPages(item.override.pageRange !== undefined);
     setColorMode(merged.colorMode);
     setSidesMode(merged.sidesMode);
@@ -91,6 +95,7 @@ export function FileSettingsDrawer({
     setCopies(merged.copies);
     setSourceCode(merged.sourceCode);
     setSourceName(merged.sourceName);
+    setScaleMode(merged.scaleMode ?? 'actualSize');
     setPageExpression(
       item.override.pageRange?.expression ||
         (merged.pageRange.mode === 'custom' ? merged.pageRange.expression : '1,3,5-8'),
@@ -117,6 +122,9 @@ export function FileSettingsDrawer({
     if (useCustomSource) {
       nextOverride.sourceCode = sourceCode;
       nextOverride.sourceName = sourceName;
+    }
+    if (useCustomScale) {
+      nextOverride.scaleMode = scaleMode;
     }
     if (useCustomPages) {
       const parseResult = parsePageRangeExpression(
@@ -254,6 +262,24 @@ export function FileSettingsDrawer({
               label: s.name,
               value: s.code,
             })),
+          ]}
+        />
+      </div>
+
+      <div className="drawer-field">
+        <div className="drawer-field-head">
+          <Typography.Text strong>页面缩放</Typography.Text>
+          <Switch checked={useCustomScale} onChange={setUseCustomScale} />
+        </div>
+        <Select
+          style={{ width: '100%' }}
+          disabled={!useCustomScale}
+          value={scaleMode}
+          onChange={(val) => setScaleMode(val as PageScaleMode)}
+          options={[
+            { label: '实际大小 (100%)', value: 'actualSize' },
+            { label: '仅缩小过大页', value: 'shrinkOversized' },
+            { label: '适应可打印区域', value: 'fitPrintable' },
           ]}
         />
       </div>

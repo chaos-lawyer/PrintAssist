@@ -1,4 +1,6 @@
-import type { ColorMode, FlipMode, SidesMode } from '../../domain/printSettings';
+import type { ColorMode, FlipMode, PageScaleMode, SidesMode } from '../../domain/printSettings';
+
+export type { PageScaleMode };
 
 export interface ResolvedPrintSettingsPayload {
   printerName: string;
@@ -8,6 +10,7 @@ export interface ResolvedPrintSettingsPayload {
   copies: number;
   sourceCode?: number;
   sourceName?: string;
+  scaleMode?: PageScaleMode;
   pageRangeMode: 'all' | 'custom';
   pageRangeExpression: string;
   driverProfileId?: string;

@@ -29,7 +29,7 @@ import {
   Trash2,
   Upload,
 } from 'lucide-react';
-import { useState, type DragEvent } from 'react';
+import { useEffect, useState, type DragEvent } from 'react';
 import {
   deletePrinterProfile,
   duplicatePrinterProfile,
@@ -96,6 +96,11 @@ export function PrinterProfileManagerModal({
     profileId: string;
     position: 'before' | 'after';
   } | null>(null);
+  const [localProfiles, setLocalProfiles] = useState<SavedPrinterProfileSummary[]>(profiles);
+
+  useEffect(() => {
+    setLocalProfiles(profiles);
+  }, [profiles]);
 
   const renderCompatibilityTag = (compatibility: PrinterProfileCompatibility) => {
     switch (compatibility) {
@@ -241,8 +246,8 @@ export function PrinterProfileManagerModal({
       return;
     }
 
-    const sourceIndex = profiles.findIndex((p) => p.id === sourceId);
-    let targetIndex = profiles.findIndex((p) => p.id === target.profileId);
+    const sourceIndex = localProfiles.findIndex((p) => p.id === sourceId);
+    let targetIndex = localProfiles.findIndex((p) => p.id === target.profileId);
     if (sourceIndex < 0 || targetIndex < 0) {
       return;
     }
@@ -252,7 +257,9 @@ export function PrinterProfileManagerModal({
       targetIndex -= 1;
     }
 
-    const nextList = reorderProfileList(profiles, sourceIndex, targetIndex);
+    const previousList = localProfiles;
+    const nextList = reorderProfileList(localProfiles, sourceIndex, targetIndex);
+    setLocalProfiles(nextList);
     const nextIds = nextList.map((p) => p.id);
 
     setLoadingAction('reorder');
@@ -261,6 +268,7 @@ export function PrinterProfileManagerModal({
       await onRefreshProfiles();
       message.success('配置顺序已保存');
     } catch (error) {
+      setLocalProfiles(previousList);
       message.error(error instanceof Error ? error.message : '保存配置顺序失败');
     } finally {
       setLoadingAction(null);
@@ -271,18 +279,20 @@ export function PrinterProfileManagerModal({
     profile: SavedPrinterProfileSummary,
     direction: 'up' | 'down' | 'top' | 'bottom',
   ) => {
-    const currentIndex = profiles.findIndex((p) => p.id === profile.id);
+    const currentIndex = localProfiles.findIndex((p) => p.id === profile.id);
     if (currentIndex < 0 || loadingAction) return;
 
     let targetIndex = currentIndex;
     if (direction === 'up') targetIndex = currentIndex - 1;
     else if (direction === 'down') targetIndex = currentIndex + 1;
     else if (direction === 'top') targetIndex = 0;
-    else if (direction === 'bottom') targetIndex = profiles.length - 1;
+    else if (direction === 'bottom') targetIndex = localProfiles.length - 1;
 
-    if (targetIndex === currentIndex || targetIndex < 0 || targetIndex >= profiles.length) return;
+    if (targetIndex === currentIndex || targetIndex < 0 || targetIndex >= localProfiles.length) return;
 
-    const nextList = reorderProfileList(profiles, currentIndex, targetIndex);
+    const previousList = localProfiles;
+    const nextList = reorderProfileList(localProfiles, currentIndex, targetIndex);
+    setLocalProfiles(nextList);
     const nextIds = nextList.map((p) => p.id);
 
     setLoadingAction(`reorder-${profile.id}`);
@@ -291,6 +301,7 @@ export function PrinterProfileManagerModal({
       await onRefreshProfiles();
       message.success(`已将“${profile.name}”移动到第 ${targetIndex + 1} 位`);
     } catch (error) {
+      setLocalProfiles(previousList);
       message.error(error instanceof Error ? error.message : '调整配置顺序失败');
     } finally {
       setLoadingAction(null);
@@ -310,19 +321,19 @@ export function PrinterProfileManagerModal({
         onClose={onClose}
         destroyOnClose
       >
-        {profiles.length === 0 ? (
+        {localProfiles.length === 0 ? (
           <Empty description="当前打印机暂未保存任何配置，可在主面板调整参数后点击“保存”" />
         ) : (
           <div className="profile-manager-list">
             <Typography.Text type="secondary" className="profile-sort-hint">
               拖动手柄或点击上移/下移按钮调整配置顺序；顺序会同步到主界面的配置下拉菜单。
             </Typography.Text>
-            {profiles.map((profile, index) => {
+            {localProfiles.map((profile, index) => {
               const isActive = activeProfileId === profile.id;
               const isCompatible = profile.compatibility === 'compatible';
               const isDriverChanged = profile.compatibility === 'driverChanged';
               const isFirst = index === 0;
-              const isLast = index === profiles.length - 1;
+              const isLast = index === localProfiles.length - 1;
 
               return (
                 <div

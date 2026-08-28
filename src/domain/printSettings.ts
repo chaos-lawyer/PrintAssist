@@ -8,6 +8,7 @@ import type { PageRangeInput } from './pageRange';
 export type ColorMode = 'color' | 'monochrome';
 export type SidesMode = 'simplex' | 'duplex';
 export type FlipMode = 'longEdge' | 'shortEdge';
+export type PageScaleMode = 'actualSize' | 'shrinkOversized' | 'fitPrintable';
 
 export interface PrintSettings {
   printerName: string;
@@ -17,6 +18,7 @@ export interface PrintSettings {
   copies: number;
   sourceCode?: number;
   sourceName?: string;
+  scaleMode?: PageScaleMode;
   pageRange: PageRangeInput;
   driverProfileId?: string;
   driverSummary?: string;
@@ -32,6 +34,7 @@ export interface FileSettingsOverride {
   copies?: number;
   sourceCode?: number;
   sourceName?: string;
+  scaleMode?: PageScaleMode;
   pageRange?: PageRangeInput;
 }
 
@@ -42,6 +45,7 @@ export function createDefaultGlobalSettings(printerName = ''): PrintSettings {
     sidesMode: 'duplex',
     flipMode: 'longEdge',
     copies: 1,
+    scaleMode: 'actualSize',
     pageRange: {
       mode: 'all',
       expression: '',
@@ -158,6 +162,7 @@ export function mergePrintSettings(
     copies: fileOverride.copies ?? globalSettings.copies,
     sourceCode: fileOverride.sourceCode !== undefined ? fileOverride.sourceCode : globalSettings.sourceCode,
     sourceName: fileOverride.sourceName !== undefined ? fileOverride.sourceName : globalSettings.sourceName,
+    scaleMode: fileOverride.scaleMode ?? globalSettings.scaleMode,
     pageRange: fileOverride.pageRange ?? globalSettings.pageRange,
     driverProfileId: globalSettings.driverProfileId,
     driverSummary: globalSettings.driverSummary,

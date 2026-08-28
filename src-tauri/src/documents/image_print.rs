@@ -19,7 +19,8 @@ use windows::Win32::Graphics::Gdi::{
     ResetDCW, SelectObject, SetBrushOrgEx, SetStretchBltMode, StretchBlt, StretchDIBits,
     BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DEVMODEW, DIB_RGB_COLORS, DMORIENT_LANDSCAPE,
     DMORIENT_PORTRAIT, DM_IN_BUFFER, DM_ORIENTATION, DM_OUT_BUFFER, HALFTONE, HBITMAP, HDC,
-    HORZRES, LOGPIXELSX, SRCCOPY, VERTRES,
+    HORZRES, LOGPIXELSX, PHYSICALHEIGHT, PHYSICALOFFSETX, PHYSICALOFFSETY, PHYSICALWIDTH, SRCCOPY,
+    VERTRES,
 };
 use windows::Win32::Graphics::Imaging::{
     CLSID_WICImagingFactory, GUID_WICPixelFormat32bppBGRA, IWICBitmapFrameDecode, IWICBitmapSource,
@@ -34,12 +35,36 @@ use windows::Win32::System::Com::{
     COINIT_APARTMENTTHREADED,
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PageScaleMode {
+    ActualSize,
+    ShrinkOversized,
+    FitPrintable,
+}
+
+impl Default for PageScaleMode {
+    fn default() -> Self {
+        Self::ActualSize
+    }
+}
+
+impl PageScaleMode {
+    pub fn from_str_opt(val: Option<&str>) -> Self {
+        match val {
+            Some(s) if s.eq_ignore_ascii_case("shrinkOversized") => Self::ShrinkOversized,
+            Some(s) if s.eq_ignore_ascii_case("fitPrintable") => Self::FitPrintable,
+            _ => Self::ActualSize,
+        }
+    }
+}
+
 /// Prints an image while preserving its orientation and maximizing page coverage.
 pub fn print_image_to_printer(
     file_path: &Path,
     printer_name: &str,
     copies: u32,
     devmode: Option<&[u8]>,
+    scale_mode: Option<&str>,
 ) -> Result<(), String> {
     if !file_path.exists() {
         return Err(format!("文件不存在：{}", file_path.display()));
@@ -54,6 +79,7 @@ pub fn print_image_to_printer(
         printer_name,
         copies,
         devmode,
+        scale_mode,
     )
 }
 
@@ -97,6 +123,7 @@ pub fn print_decoded_pages(
     printer_name: &str,
     copies: u32,
     devmode: Option<&[u8]>,
+    scale_mode: Option<&str>,
 ) -> Result<(), String> {
     if pages.is_empty() {
         return Err("没有可打印的页面".to_string());
@@ -107,7 +134,7 @@ pub fn print_decoded_pages(
 
     let copy_count = copies.max(1);
     for _ in 0..copy_count {
-        print_decoded_pages_once(pages, printer_name, devmode)?;
+        print_decoded_pages_once(pages, printer_name, devmode, scale_mode)?;
     }
     Ok(())
 }
@@ -269,6 +296,7 @@ fn print_decoded_pages_once(
     pages: &[DecodedImage],
     printer_name: &str,
     devmode: Option<&[u8]>,
+    scale_mode: Option<&str>,
 ) -> Result<(), String> {
     let printer_wide = os_str_to_wide(OsStr::new(printer_name));
     let mut printer_handle = HANDLE::default();
@@ -319,6 +347,8 @@ fn print_decoded_pages_once(
         return Err("StartDoc 失败".to_string());
     }
 
+    let mode = PageScaleMode::from_str_opt(scale_mode);
+
     let page_result = (|| {
         for page in pages {
             // Select the matching printer coordinate system. Pixels are
@@ -338,7 +368,7 @@ fn print_decoded_pages_once(
             if unsafe { StartPage(hdc) } <= 0 {
                 return Err("StartPage 失败".to_string());
             }
-            draw_image_on_page(hdc, page)?;
+            draw_image_on_page(hdc, page, mode)?;
             if unsafe { EndPage(hdc) } <= 0 {
                 return Err("EndPage 失败".to_string());
             }
@@ -456,19 +486,12 @@ fn set_page_orientation_from_content(
     devmode.Anonymous1.Anonymous1.dmOrientation = requested_orientation as i16;
 }
 
-fn draw_image_on_page(hdc: HDC, image: &DecodedImage) -> Result<(), String> {
-    let page_width = unsafe { GetDeviceCaps(hdc, HORZRES) };
-    let page_height = unsafe { GetDeviceCaps(hdc, VERTRES) };
-    if page_width <= 0 || page_height <= 0 {
-        return Err("无法读取打印机可打印区域".to_string());
-    }
-
-    let dest = compute_destination_rect(
-        page_width as u32,
-        page_height as u32,
-        image.width,
-        image.height,
-    );
+fn draw_image_on_page(
+    hdc: HDC,
+    image: &DecodedImage,
+    mode: PageScaleMode,
+) -> Result<(), String> {
+    let dest = compute_page_destination_rect(hdc, image.width, image.height, mode);
 
     let hbitmap = create_dib_bitmap(hdc, image)?;
     let _bitmap_guard = BitmapGuard(hbitmap);
@@ -508,6 +531,74 @@ fn draw_image_on_page(hdc: HDC, image: &DecodedImage) -> Result<(), String> {
         return Err("绘制图片到打印机失败".to_string());
     }
     Ok(())
+}
+
+/// Computes the destination rectangle according to the specified scale mode:
+/// - ActualSize: 100% physical mapping, content placed at paper center/margins without shrinking
+/// - ShrinkOversized: scales down if content exceeds printable area, keeps 1:1 if it fits
+/// - FitPrintable: stretches/fits proportionally to fill printable area
+pub fn compute_page_destination_rect(
+    hdc: HDC,
+    image_width: u32,
+    image_height: u32,
+    mode: PageScaleMode,
+) -> RECT {
+    let printable_w = unsafe { GetDeviceCaps(hdc, HORZRES) }.max(1) as f64;
+    let printable_h = unsafe { GetDeviceCaps(hdc, VERTRES) }.max(1) as f64;
+    let phys_w = unsafe { GetDeviceCaps(hdc, PHYSICALWIDTH) };
+    let phys_h = unsafe { GetDeviceCaps(hdc, PHYSICALHEIGHT) };
+    let offset_x = unsafe { GetDeviceCaps(hdc, PHYSICALOFFSETX) };
+    let offset_y = unsafe { GetDeviceCaps(hdc, PHYSICALOFFSETY) };
+
+    let image_w = image_width.max(1) as f64;
+    let image_h = image_height.max(1) as f64;
+
+    match mode {
+        PageScaleMode::ActualSize => {
+            if phys_w > 0 && phys_h > 0 {
+                let pw = phys_w as f64;
+                let ph = phys_h as f64;
+                // Center 100% page on the full physical sheet
+                let left_on_paper = (pw - image_w) / 2.0;
+                let top_on_paper = (ph - image_h) / 2.0;
+                let dest_left = (left_on_paper - offset_x as f64).round() as i32;
+                let dest_top = (top_on_paper - offset_y as f64).round() as i32;
+                RECT {
+                    left: dest_left,
+                    top: dest_top,
+                    right: dest_left + image_w.round() as i32,
+                    bottom: dest_top + image_h.round() as i32,
+                }
+            } else {
+                let left = ((printable_w - image_w) / 2.0).round() as i32;
+                let top = ((printable_h - image_h) / 2.0).round() as i32;
+                RECT {
+                    left,
+                    top,
+                    right: left + image_w.round() as i32,
+                    bottom: top + image_h.round() as i32,
+                }
+            }
+        }
+        PageScaleMode::ShrinkOversized => {
+            let scale_w = printable_w / image_w;
+            let scale_h = printable_h / image_h;
+            let scale = scale_w.min(scale_h).min(1.0); // Never enlarge (> 1.0)
+            let draw_w = (image_w * scale).round().max(1.0);
+            let draw_h = (image_h * scale).round().max(1.0);
+            let left = ((printable_w - draw_w) / 2.0).round() as i32;
+            let top = ((printable_h - draw_h) / 2.0).round() as i32;
+            RECT {
+                left,
+                top,
+                right: left + draw_w as i32,
+                bottom: top + draw_h as i32,
+            }
+        }
+        PageScaleMode::FitPrintable => {
+            compute_destination_rect(printable_w as u32, printable_h as u32, image_width, image_height)
+        }
+    }
 }
 
 /// Fit image into the page while preserving aspect ratio and maximizing size.
@@ -679,6 +770,7 @@ mod tests {
             "Microsoft Print to PDF",
             1,
             None,
+            None,
         );
         assert!(result.is_err());
     }
@@ -749,5 +841,14 @@ mod tests {
         assert_eq!(paper_width, 2100);
         assert_eq!(paper_length, 2970);
         assert_eq!(devmode.dmFields & DM_PAPERSIZE, DM_PAPERSIZE);
+    }
+
+    #[test]
+    fn parses_page_scale_mode_correctly() {
+        assert_eq!(PageScaleMode::from_str_opt(Some("actualSize")), PageScaleMode::ActualSize);
+        assert_eq!(PageScaleMode::from_str_opt(Some("shrinkOversized")), PageScaleMode::ShrinkOversized);
+        assert_eq!(PageScaleMode::from_str_opt(Some("fitPrintable")), PageScaleMode::FitPrintable);
+        assert_eq!(PageScaleMode::from_str_opt(None), PageScaleMode::ActualSize);
+        assert_eq!(PageScaleMode::from_str_opt(Some("unknown")), PageScaleMode::ActualSize);
     }
 }

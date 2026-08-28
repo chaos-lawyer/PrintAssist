@@ -4,7 +4,7 @@ import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from
 import { createPortal } from 'react-dom';
 import type { PaperSourceOption, SavedPrinterProfileSummary, SystemPrinter } from '../../shared/contracts/printer';
 import { listPrinterPaperSources } from '../../api/nativeBridge';
-import type { ColorMode, FlipMode, PrintSettings, SidesMode } from '../../domain/printSettings';
+import type { ColorMode, FlipMode, PageScaleMode, PrintSettings, SidesMode } from '../../domain/printSettings';
 import { evaluateSettingAvailability } from '../../domain/printSettings';
 
 interface PrinterMenuPosition {
@@ -744,6 +744,29 @@ export function GlobalSettingsPanel({
                 label: s.name,
                 value: s.code,
               })),
+            ]}
+          />
+        </div>
+
+        <div className="setting-row">
+          <span className="setting-row-label" id="scale-mode-label">
+            缩放
+          </span>
+          <Select
+            className="setting-select"
+            size="small"
+            style={{ flex: 1 }}
+            value={settings.scaleMode ?? 'actualSize'}
+            onChange={(val) =>
+              onChange({
+                ...settings,
+                scaleMode: val as PageScaleMode,
+              })
+            }
+            options={[
+              { label: '实际大小 (100%)', value: 'actualSize' },
+              { label: '仅缩小过大页', value: 'shrinkOversized' },
+              { label: '适应可打印区域', value: 'fitPrintable' },
             ]}
           />
         </div>

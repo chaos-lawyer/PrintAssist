@@ -183,12 +183,15 @@ fn print_item_windows(
             devmode
         });
 
+    let scale_mode = item.settings.scale_mode.as_deref();
+
     match kind {
         DocumentKind::Image => crate::documents::image_print::print_image_to_printer(
             path,
             printer,
             copies,
             active_devmode.as_deref(),
+            scale_mode,
         ),
 
         DocumentKind::Pdf => {
@@ -199,7 +202,7 @@ fn print_item_windows(
             } else {
                 path.to_path_buf()
             };
-            print_pdf_preserving_orientation(&pdf_path, printer, copies, active_devmode.as_deref())
+            print_pdf_preserving_orientation(&pdf_path, printer, copies, active_devmode.as_deref(), scale_mode)
         }
 
         DocumentKind::Word | DocumentKind::Excel | DocumentKind::PowerPoint => {
@@ -223,6 +226,7 @@ fn print_item_windows(
                         printer,
                         copies,
                         active_devmode.as_deref(),
+                        scale_mode,
                     )
                 }
                 Err(convert_error) => {
@@ -271,8 +275,20 @@ fn print_pdf_preserving_orientation(
     printer: &str,
     copies: u32,
     devmode: Option<&[u8]>,
+    scale_mode: Option<&str>,
 ) -> Result<(), String> {
-    crate::documents::pdf_print::print_pdf_to_printer(pdf_path, printer, copies, devmode)
+    crate::documents::pdf_print::print_pdf_to_printer(pdf_path, printer, copies, devmode, scale_mode)
+}
+
+#[cfg(not(windows))]
+fn print_pdf_preserving_orientation(
+    _pdf_path: &Path,
+    _printer: &str,
+    _copies: u32,
+    _devmode: Option<&[u8]>,
+    _scale_mode: Option<&str>,
+) -> Result<(), String> {
+    Err("非 Windows 平台不支持原生打印".to_string())
 }
 
 fn validate_printer_capabilities(item: &PrintQueueItemPayload) -> Result<(), String> {

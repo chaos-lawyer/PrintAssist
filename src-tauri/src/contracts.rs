@@ -116,6 +116,8 @@ pub struct ResolvedPrintSettingsPayload {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scale_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub driver_profile_id: Option<String>,
 }
 
