@@ -120,6 +120,19 @@ export async function setDefaultPrinterProfile(
   });
 }
 
+export async function reorderPrinterProfiles(
+  printerName: string,
+  orderedProfileIds: string[],
+): Promise<void> {
+  if (!isTauriRuntime()) {
+    return;
+  }
+  return invokeCommand<void>('reorder_printer_profiles', {
+    printerName,
+    orderedProfileIds,
+  });
+}
+
 export async function rebuildPrinterProfile(
   persistentProfileId: string,
   newName?: string,
@@ -351,6 +364,13 @@ export async function expandFilePaths(paths: string[]): Promise<string[]> {
     return paths;
   }
   return invokeCommand<string[]>('expand_file_paths', { paths });
+}
+
+export async function showInFolder(path: string): Promise<void> {
+  if (!isTauriRuntime()) {
+    return;
+  }
+  await invokeCommand('show_in_folder', { path });
 }
 
 export { isTauriRuntime };

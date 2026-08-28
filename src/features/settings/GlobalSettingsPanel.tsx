@@ -1,4 +1,4 @@
-import { Alert, Button, InputNumber, Segmented, Select, Space, Typography } from 'antd';
+import { Alert, Button, InputNumber, Segmented, Space, Typography } from 'antd';
 import { ChevronDown, SlidersHorizontal } from 'lucide-react';
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -70,15 +70,30 @@ export function GlobalSettingsPanel({
       reason.includes('尚未选择'),
   );
   const [printerSelectOpen, setPrinterSelectOpen] = useState(false);
+  const [profileSelectOpen, setProfileSelectOpen] = useState(false);
   const printerTriggerRef = useRef<HTMLButtonElement | null>(null);
   const printerMenuRef = useRef<HTMLDivElement | null>(null);
+  const profileTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const profileMenuRef = useRef<HTMLDivElement | null>(null);
   const [printerMenuPosition, setPrinterMenuPosition] = useState<PrinterMenuPosition | null>(null);
+  const [profileMenuPosition, setProfileMenuPosition] = useState<PrinterMenuPosition | null>(null);
   const printerListboxId = useId();
+  const profileListboxId = useId();
   const selectedPrinterLabel = selectedPrinter
     ? `${selectedPrinter.name}${selectedPrinter.isDefault ? '（默认）' : ''}`
     : loadingPrinters
       ? '正在读取系统打印机…'
       : '选择系统打印机';
+  const activeSavedProfile = savedProfiles.find(
+    (profile) => profile.id === settings.persistentProfileId,
+  );
+  const selectedProfileLabel = activeSavedProfile
+    ? `${activeSavedProfile.name}${settings.profileDirty ? ' *' : ''}`
+    : settings.persistentProfileName
+      ? `${settings.persistentProfileName}${settings.profileDirty ? ' *' : ''}`
+      : loadingProfiles
+        ? '正在读取保存的配置…'
+        : '未保存的当前配置';
 
   const updatePrinterMenuPosition = useCallback(() => {
     const triggerElement = printerTriggerRef.current;
@@ -119,6 +134,44 @@ export function GlobalSettingsPanel({
     });
   }, []);
 
+  const updateProfileMenuPosition = useCallback(() => {
+    const triggerElement = profileTriggerRef.current;
+    if (!triggerElement) {
+      return;
+    }
+
+    const triggerRect = triggerElement.getBoundingClientRect();
+    const viewportHeight = window.innerHeight;
+    const viewportWidth = window.innerWidth;
+    const spaceBelow =
+      viewportHeight - triggerRect.bottom - PRINTER_MENU_GAP_PIXELS - PRINTER_MENU_VIEWPORT_PADDING_PIXELS;
+    const spaceAbove =
+      triggerRect.top - PRINTER_MENU_GAP_PIXELS - PRINTER_MENU_VIEWPORT_PADDING_PIXELS;
+    const preferBottom =
+      spaceBelow >= Math.min(PRINTER_MENU_PREFERRED_MAX_HEIGHT_PIXELS, 160) || spaceBelow >= spaceAbove;
+    const availableHeight = Math.max(120, preferBottom ? spaceBelow : spaceAbove);
+    const maxHeight = Math.min(PRINTER_MENU_PREFERRED_MAX_HEIGHT_PIXELS, availableHeight);
+    const width = Math.min(Math.max(triggerRect.width, 220), viewportWidth - PRINTER_MENU_VIEWPORT_PADDING_PIXELS * 2);
+    const left = Math.min(
+      Math.max(PRINTER_MENU_VIEWPORT_PADDING_PIXELS, triggerRect.left),
+      viewportWidth - width - PRINTER_MENU_VIEWPORT_PADDING_PIXELS,
+    );
+    const top = preferBottom
+      ? triggerRect.bottom + PRINTER_MENU_GAP_PIXELS
+      : Math.max(
+          PRINTER_MENU_VIEWPORT_PADDING_PIXELS,
+          triggerRect.top - PRINTER_MENU_GAP_PIXELS - maxHeight,
+        );
+
+    setProfileMenuPosition({
+      top,
+      left,
+      width,
+      maxHeight,
+      placement: preferBottom ? 'bottom' : 'top',
+    });
+  }, []);
+
   useLayoutEffect(() => {
     if (!printerSelectOpen) {
       setPrinterMenuPosition(null);
@@ -126,6 +179,32 @@ export function GlobalSettingsPanel({
     }
     updatePrinterMenuPosition();
   }, [printerSelectOpen, printers.length, updatePrinterMenuPosition]);
+
+  useLayoutEffect(() => {
+    if (!profileSelectOpen) {
+      setProfileMenuPosition(null);
+      return;
+    }
+    updateProfileMenuPosition();
+  }, [profileSelectOpen, savedProfiles.length, updateProfileMenuPosition]);
+
+  const [printerActiveIndex, setPrinterActiveIndex] = useState<number>(0);
+  const [profileActiveIndex, setProfileActiveIndex] = useState<number>(0);
+
+  // Focus and scroll active option into view
+  useEffect(() => {
+    if (printerSelectOpen && printerMenuRef.current) {
+      const activeEl = printerMenuRef.current.querySelector<HTMLElement>('.is-focused');
+      activeEl?.scrollIntoView({ block: 'nearest' });
+    }
+  }, [printerActiveIndex, printerSelectOpen]);
+
+  useEffect(() => {
+    if (profileSelectOpen && profileMenuRef.current) {
+      const activeEl = profileMenuRef.current.querySelector<HTMLElement>('.is-focused');
+      activeEl?.scrollIntoView({ block: 'nearest' });
+    }
+  }, [profileActiveIndex, profileSelectOpen]);
 
   useEffect(() => {
     if (!printerSelectOpen) {
@@ -144,9 +223,31 @@ export function GlobalSettingsPanel({
       }
     };
 
-    const handleEscapeKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (printers.length === 0) return;
+      if (event.key === 'Escape' || event.key === 'Tab') {
         setPrinterSelectOpen(false);
+        printerTriggerRef.current?.focus();
+      } else if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        setPrinterActiveIndex((prev) => (prev + 1) % printers.length);
+      } else if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        setPrinterActiveIndex((prev) => (prev - 1 + printers.length) % printers.length);
+      } else if (event.key === 'Home') {
+        event.preventDefault();
+        setPrinterActiveIndex(0);
+      } else if (event.key === 'End') {
+        event.preventDefault();
+        setPrinterActiveIndex(printers.length - 1);
+      } else if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        const selected = printers[printerActiveIndex];
+        if (selected) {
+          onChange({ ...settings, printerName: selected.name });
+          setPrinterSelectOpen(false);
+          printerTriggerRef.current?.focus();
+        }
       }
     };
 
@@ -155,17 +256,83 @@ export function GlobalSettingsPanel({
     };
 
     document.addEventListener('mousedown', handlePointerDownOutside);
-    document.addEventListener('keydown', handleEscapeKey);
+    document.addEventListener('keydown', handleKeyDown);
     window.addEventListener('resize', handleViewportChange);
-    // Capture scroll from nested sider so floating menu stays under the trigger.
     window.addEventListener('scroll', handleViewportChange, true);
     return () => {
       document.removeEventListener('mousedown', handlePointerDownOutside);
-      document.removeEventListener('keydown', handleEscapeKey);
+      document.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('resize', handleViewportChange);
       window.removeEventListener('scroll', handleViewportChange, true);
     };
-  }, [printerSelectOpen, updatePrinterMenuPosition]);
+  }, [printerSelectOpen, printerActiveIndex, printers, settings, onChange, updatePrinterMenuPosition]);
+
+  const profileOptionsCount = 1 + savedProfiles.length;
+
+  useEffect(() => {
+    if (!profileSelectOpen) {
+      return;
+    }
+
+    const handlePointerDownOutside = (event: MouseEvent) => {
+      const targetNode = event.target;
+      if (!(targetNode instanceof Node)) {
+        return;
+      }
+      const clickedInsideTrigger = profileTriggerRef.current?.contains(targetNode);
+      const clickedInsideMenu = profileMenuRef.current?.contains(targetNode);
+      if (!clickedInsideTrigger && !clickedInsideMenu) {
+        setProfileSelectOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (profileOptionsCount === 0) return;
+      if (event.key === 'Escape' || event.key === 'Tab') {
+        setProfileSelectOpen(false);
+        profileTriggerRef.current?.focus();
+      } else if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        setProfileActiveIndex((prev) => (prev + 1) % profileOptionsCount);
+      } else if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        setProfileActiveIndex((prev) => (prev - 1 + profileOptionsCount) % profileOptionsCount);
+      } else if (event.key === 'Home') {
+        event.preventDefault();
+        setProfileActiveIndex(0);
+      } else if (event.key === 'End') {
+        event.preventDefault();
+        setProfileActiveIndex(profileOptionsCount - 1);
+      } else if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        if (profileActiveIndex === 0) {
+          onSelectProfile?.(null);
+        } else {
+          const profile = savedProfiles[profileActiveIndex - 1];
+          if (profile) {
+            onSelectProfile?.(profile.id);
+          }
+        }
+        setProfileSelectOpen(false);
+        profileTriggerRef.current?.focus();
+      }
+    };
+
+    const handleViewportChange = () => {
+      updateProfileMenuPosition();
+    };
+
+    document.addEventListener('mousedown', handlePointerDownOutside);
+    document.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('resize', handleViewportChange);
+    window.addEventListener('scroll', handleViewportChange, true);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDownOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('resize', handleViewportChange);
+      window.removeEventListener('scroll', handleViewportChange, true);
+    };
+  }, [profileSelectOpen, profileActiveIndex, profileOptionsCount, savedProfiles, onSelectProfile, updateProfileMenuPosition]);
 
   const printerMenu =
     printerSelectOpen && printerMenuPosition
@@ -175,7 +342,9 @@ export function GlobalSettingsPanel({
             id={printerListboxId}
             className={`printer-picker-menu printer-picker-menu--${printerMenuPosition.placement}`}
             role="listbox"
+            tabIndex={-1}
             aria-labelledby="printer-select-label"
+            aria-activedescendant={`${printerListboxId}-option-${printerActiveIndex}`}
             style={{
               top: printerMenuPosition.top,
               left: printerMenuPosition.left,
@@ -188,20 +357,23 @@ export function GlobalSettingsPanel({
                 {loadingPrinters ? '正在读取系统打印机…' : '未找到系统打印机'}
               </div>
             ) : (
-              printers.map((printer) => {
+              printers.map((printer, index) => {
                 const optionLabel = `${printer.name}${printer.isDefault ? '（默认）' : ''}`;
                 const isSelected = printer.name === settings.printerName;
+                const isFocused = index === printerActiveIndex;
                 return (
                   <button
                     key={printer.name}
+                    id={`${printerListboxId}-option-${index}`}
                     type="button"
                     role="option"
                     aria-selected={isSelected}
-                    className={`printer-picker-option${isSelected ? ' is-selected' : ''}`}
+                    className={`printer-picker-option${isSelected ? ' is-selected' : ''}${isFocused ? ' is-focused' : ''}`}
                     onClick={() => {
                       onChange({ ...settings, printerName: printer.name });
                       setPrinterSelectOpen(false);
                     }}
+                    onMouseEnter={() => setPrinterActiveIndex(index)}
                   >
                     <span className="printer-picker-option-name">{optionLabel}</span>
                     <span className="printer-picker-option-meta">
@@ -217,11 +389,77 @@ export function GlobalSettingsPanel({
         )
       : null;
 
+  const profileMenu =
+    profileSelectOpen && profileMenuPosition
+      ? createPortal(
+          <div
+            ref={profileMenuRef}
+            id={profileListboxId}
+            className={`printer-picker-menu profile-picker-menu printer-picker-menu--${profileMenuPosition.placement}`}
+            role="listbox"
+            tabIndex={-1}
+            aria-labelledby="profile-select-label"
+            aria-activedescendant={`${profileListboxId}-option-${profileActiveIndex}`}
+            style={{
+              top: profileMenuPosition.top,
+              left: profileMenuPosition.left,
+              width: profileMenuPosition.width,
+              maxHeight: profileMenuPosition.maxHeight,
+            }}
+          >
+            <button
+              id={`${profileListboxId}-option-0`}
+              type="button"
+              role="option"
+              aria-selected={!settings.persistentProfileId}
+              className={`printer-picker-option${!settings.persistentProfileId ? ' is-selected' : ''}${profileActiveIndex === 0 ? ' is-focused' : ''}`}
+              onClick={() => {
+                onSelectProfile?.(null);
+                setProfileSelectOpen(false);
+              }}
+              onMouseEnter={() => setProfileActiveIndex(0)}
+            >
+              <span className="printer-picker-option-name">未保存的当前配置</span>
+              <span className="printer-picker-option-meta">使用当前面板中的打印参数</span>
+            </button>
+            {savedProfiles.map((profile, index) => {
+              const optionIndex = index + 1;
+              const isSelected = profile.id === settings.persistentProfileId;
+              const isFocused = optionIndex === profileActiveIndex;
+              return (
+                <button
+                  key={profile.id}
+                  id={`${profileListboxId}-option-${optionIndex}`}
+                  type="button"
+                  role="option"
+                  aria-selected={isSelected}
+                  className={`printer-picker-option${isSelected ? ' is-selected' : ''}${isFocused ? ' is-focused' : ''}`}
+                  onClick={() => {
+                    onSelectProfile?.(profile.id);
+                    setProfileSelectOpen(false);
+                  }}
+                  onMouseEnter={() => setProfileActiveIndex(optionIndex)}
+                >
+                  <span className="printer-picker-option-name">
+                    {profile.name}
+                    {profile.isDefault ? '（默认）' : ''}
+                    {profile.compatibility !== 'compatible' ? ' [需重建]' : ''}
+                  </span>
+                  <span className="printer-picker-option-meta">{profile.summary}</span>
+                </button>
+              );
+            })}
+          </div>,
+          document.body,
+        )
+      : null;
+
   return (
     <div className="settings-block">
       <div className="settings-block-head">
-        <Typography.Text className="section-index">02 / 公共设置</Typography.Text>
-        <Typography.Title level={5}>默认打印参数</Typography.Title>
+        <Typography.Title level={5} className="settings-panel-title">
+          打印设置
+        </Typography.Title>
       </div>
 
       <div className="setting-field">
@@ -244,7 +482,10 @@ export function GlobalSettingsPanel({
             aria-expanded={printerSelectOpen}
             aria-controls={printerListboxId}
             disabled={loadingPrinters && printers.length === 0}
-            onClick={() => setPrinterSelectOpen((currentOpen) => !currentOpen)}
+            onClick={() => {
+              setProfileSelectOpen(false);
+              setPrinterSelectOpen((currentOpen) => !currentOpen);
+            }}
           >
             <span className="printer-picker-value">{selectedPrinterLabel}</span>
             <ChevronDown size={16} className="printer-picker-caret" aria-hidden />
@@ -317,27 +558,28 @@ export function GlobalSettingsPanel({
             </Button>
           </Space>
         </div>
-        <Select
-          className="profile-select full-width"
-          value={settings.persistentProfileId || '__UNSAVED__'}
-          disabled={!selectedPrinter || loadingProfiles}
-          loading={loadingProfiles}
-          onChange={(val) => onSelectProfile?.(val === '__UNSAVED__' ? null : val)}
-          options={[
-            {
-              value: '__UNSAVED__',
-              label: settings.persistentProfileName
-                ? `${settings.persistentProfileName}${settings.profileDirty ? ' *' : ''}`
-                : '未保存的当前配置',
-            },
-            ...savedProfiles.map((p) => ({
-              value: p.id,
-              label: `${p.name}${p.isDefault ? '（默认）' : ''}${
-                p.compatibility !== 'compatible' ? ' [需重建]' : ''
-              }`,
-            })),
-          ]}
-        />
+        <div className="printer-picker profile-select">
+          <button
+            ref={profileTriggerRef}
+            type="button"
+            className={`printer-picker-trigger${profileSelectOpen ? ' is-open' : ''}${
+              loadingProfiles ? ' is-loading' : ''
+            }`}
+            aria-labelledby="profile-select-label"
+            aria-haspopup="listbox"
+            aria-expanded={profileSelectOpen}
+            aria-controls={profileListboxId}
+            disabled={!selectedPrinter || loadingProfiles}
+            onClick={() => {
+              setPrinterSelectOpen(false);
+              setProfileSelectOpen((currentOpen) => !currentOpen);
+            }}
+          >
+            <span className="printer-picker-value">{selectedProfileLabel}</span>
+            <ChevronDown size={16} className="printer-picker-caret" aria-hidden />
+          </button>
+          {profileMenu}
+        </div>
       </div>
 
       {settings.driverSummary && (

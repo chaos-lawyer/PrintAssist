@@ -269,14 +269,6 @@ pub async fn list_saved_printer_profiles(
             summaries.push(p.to_summary(is_default, compatibility));
         }
 
-        // Sort: default profile first, then last_used_at descending, then by name
-        summaries.sort_by(|a, b| {
-            b.is_default
-                .cmp(&a.is_default)
-                .then_with(|| b.last_used_at.cmp(&a.last_used_at))
-                .then_with(|| a.name.cmp(&b.name))
-        });
-
         Ok(summaries)
     })
     .await
@@ -430,6 +422,15 @@ pub async fn set_default_printer_profile(
     persistent_store: tauri::State<'_, PersistentPrinterProfileStore>,
 ) -> Result<(), String> {
     persistent_store.set_default_profile(&printer_name, persistent_profile_id.as_deref())
+}
+
+#[tauri::command]
+pub async fn reorder_printer_profiles(
+    printer_name: String,
+    ordered_profile_ids: Vec<String>,
+    persistent_store: tauri::State<'_, PersistentPrinterProfileStore>,
+) -> Result<(), String> {
+    persistent_store.reorder_profiles(&printer_name, &ordered_profile_ids)
 }
 
 #[tauri::command]
@@ -823,4 +824,15 @@ pub async fn open_release_page() -> Result<(), String> {
 #[tauri::command]
 pub fn validate_supported_path(path: String) -> bool {
     is_supported_file(PathBuf::from(path).as_path())
+}
+
+#[tauri::command]
+pub async fn show_in_folder(path: String) -> Result<(), String> {
+    let p = PathBuf::from(path);
+    if let Some(parent) = p.parent() {
+        if parent.exists() {
+            return open::that(parent).map_err(|error| format!("打开所在文件夹失败：{error}"));
+        }
+    }
+    open::that(p).map_err(|error| format!("打开文件位置失败：{error}"))
 }

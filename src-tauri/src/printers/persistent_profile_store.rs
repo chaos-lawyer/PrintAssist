@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -129,8 +129,153 @@ pub struct PersistentPrinterProfileStore {
 }
 
 impl PersistentPrinterProfileStore {
-    pub fn new(app_data_dir: &Path) -> Self {
-        let base_dir = app_data_dir.join("printer-profiles");
+    /// Detects if portable mode is active via CLI flag, environment variable, or portable marker file.
+    pub fn is_portable_mode(exe_dir: Option<&Path>) -> bool {
+        // 1. Explicit CLI arguments
+        if std::env::args().any(|arg| arg == "--portable" || arg == "-p") {
+            return true;
+        }
+        // 2. Explicit Environment Variable
+        if std::env::var("PRINTASSIST_PORTABLE")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false)
+        {
+            return true;
+        }
+        // 3. Explicit marker file in executable directory
+        if let Some(dir) = exe_dir {
+            if dir.join("portable.flag").exists()
+                || dir.join("portable").is_file()
+                || dir.join(".portable").exists()
+            {
+                return true;
+            }
+            // 4. Existing portable data folder from a previous portable run
+            if dir.join("printer-profiles").join("index.json").is_file() {
+                return true;
+            }
+        }
+        false
+    }
+
+    pub fn normalize_storage_dir(dir: &Path) -> PathBuf {
+        if dir.ends_with("printer-profiles") {
+            dir.to_path_buf()
+        } else {
+            dir.join("printer-profiles")
+        }
+    }
+
+    /// Resolves the storage directory.
+    /// In Portable mode: uses `<exe_dir>/printer-profiles` if writable.
+    /// In Standard Installation mode: always uses `%APPDATA%/com.ws1993.printassist/printer-profiles`.
+    pub fn resolve_storage_dir(app_data_fallback: &Path) -> PathBuf {
+        let exe_dir = std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().map(|d| d.to_path_buf()));
+
+        if Self::is_portable_mode(exe_dir.as_deref()) {
+            if let Some(ref dir) = exe_dir {
+                let exe_profile_dir = dir.join("printer-profiles");
+                if fs::create_dir_all(&exe_profile_dir).is_ok() {
+                    let test_file = exe_profile_dir.join(".write_test");
+                    if fs::write(&test_file, b"ok").is_ok() {
+                        let _ = fs::remove_file(test_file);
+                        // Transactional migrate if needed
+                        let _ = Self::transactional_migrate(&exe_profile_dir, app_data_fallback);
+                        return exe_profile_dir;
+                    }
+                }
+            }
+        }
+
+        // Standard installer mode: always use user AppData
+        let fallback_dir = Self::normalize_storage_dir(app_data_fallback);
+        let _ = fs::create_dir_all(&fallback_dir);
+        fallback_dir
+    }
+
+    /// Transactionally migrates profiles from source AppData to target directory.
+    /// If any file is missing or copy fails, cleans up the temporary directory without corrupting target.
+    pub fn transactional_migrate(target_dir: &Path, app_data_dir: &Path) -> Result<(), String> {
+        let target_dir = Self::normalize_storage_dir(target_dir);
+        let target_index = target_dir.join("index.json");
+        if target_index.is_file() {
+            return Ok(()); // Already populated
+        }
+
+        let source_dir = Self::normalize_storage_dir(app_data_dir);
+        let source_index = source_dir.join("index.json");
+        if !source_index.is_file() {
+            return Ok(()); // Nothing to migrate
+        }
+
+        // 1. Read and validate source index
+        let content =
+            fs::read_to_string(&source_index).map_err(|e| format!("读取源索引失败: {e}"))?;
+        let index: PrinterProfileIndex =
+            serde_json::from_str(&content).map_err(|e| format!("解析源索引失败: {e}"))?;
+
+        let source_data = source_dir.join("data");
+
+        // 2. Prepare temporary directory next to target_dir
+        let tmp_dir = target_dir.with_extension(format!("tmp_migration_{}", Uuid::new_v4()));
+        let tmp_data = tmp_dir.join("data");
+        if let Err(e) = fs::create_dir_all(&tmp_data) {
+            let _ = fs::remove_dir_all(&tmp_dir);
+            return Err(format!("创建临时迁移目录失败: {e}"));
+        }
+
+        // 3. Copy each data file and verify existence
+        for profile in &index.profiles {
+            let src_file = source_data.join(&profile.devmode_file);
+            if !src_file.is_file() {
+                let _ = fs::remove_dir_all(&tmp_dir);
+                return Err(format!("源配置数据文件缺失: {}", profile.devmode_file));
+            }
+            let dest_file = tmp_data.join(&profile.devmode_file);
+            if let Err(e) = fs::copy(&src_file, &dest_file) {
+                let _ = fs::remove_dir_all(&tmp_dir);
+                return Err(format!("复制配置数据文件失败: {e}"));
+            }
+        }
+
+        // 4. Copy index.json and index.json.bak
+        let tmp_index = tmp_dir.join("index.json");
+        if let Err(e) = fs::write(&tmp_index, &content) {
+            let _ = fs::remove_dir_all(&tmp_dir);
+            return Err(format!("写入临时索引失败: {e}"));
+        }
+        let source_bak = source_dir.join("index.json.bak");
+        if source_bak.is_file() {
+            let _ = fs::copy(&source_bak, tmp_dir.join("index.json.bak"));
+        }
+
+        // 5. Atomic commit: move verified files into target_dir
+        let _ = fs::create_dir_all(&target_dir);
+        let target_data = target_dir.join("data");
+        let _ = fs::create_dir_all(&target_data);
+
+        for profile in &index.profiles {
+            let tmp_file = tmp_data.join(&profile.devmode_file);
+            let final_file = target_data.join(&profile.devmode_file);
+            if let Err(e) = fs::copy(&tmp_file, &final_file) {
+                let _ = fs::remove_dir_all(&tmp_dir);
+                return Err(format!("提交配置数据失败: {e}"));
+            }
+        }
+
+        if let Err(e) = fs::copy(&tmp_index, &target_index) {
+            let _ = fs::remove_dir_all(&tmp_dir);
+            return Err(format!("提交索引文件失败: {e}"));
+        }
+
+        let _ = fs::remove_dir_all(&tmp_dir);
+        Ok(())
+    }
+
+    pub fn new(storage_dir: &Path) -> Self {
+        let base_dir = Self::normalize_storage_dir(storage_dir);
         let data_dir = base_dir.join("data");
 
         let _ = fs::create_dir_all(&data_dir);
@@ -262,6 +407,65 @@ impl PersistentPrinterProfileStore {
         };
         let key = printer_name.trim().to_lowercase();
         lock.defaults.get(&key).cloned()
+    }
+
+    pub fn reorder_profiles(
+        &self,
+        printer_name: &str,
+        ordered_profile_ids: &[String],
+    ) -> Result<(), String> {
+        let printer_name = printer_name.trim();
+        if printer_name.is_empty() {
+            return Err("打印机名称不能为空".to_string());
+        }
+
+        let mut lock = self
+            .index
+            .write()
+            .map_err(|_| "获取配置索引写锁失败".to_string())?;
+
+        let matching_indices: Vec<usize> = lock
+            .profiles
+            .iter()
+            .enumerate()
+            .filter_map(|(index, profile)| {
+                profile
+                    .printer
+                    .printer_name
+                    .eq_ignore_ascii_case(printer_name)
+                    .then_some(index)
+            })
+            .collect();
+
+        if matching_indices.len() != ordered_profile_ids.len() {
+            return Err("排序列表与当前打印机的配置数量不一致，请刷新后重试".to_string());
+        }
+
+        let expected_ids: HashSet<&str> = matching_indices
+            .iter()
+            .map(|index| lock.profiles[*index].id.as_str())
+            .collect();
+        let supplied_ids: HashSet<&str> = ordered_profile_ids.iter().map(String::as_str).collect();
+        if supplied_ids.len() != ordered_profile_ids.len() || supplied_ids != expected_ids {
+            return Err("排序列表包含重复、缺失或不属于当前打印机的配置".to_string());
+        }
+
+        let profiles_by_id: HashMap<String, PersistedPrinterProfile> = matching_indices
+            .iter()
+            .map(|index| {
+                let profile = lock.profiles[*index].clone();
+                (profile.id.clone(), profile)
+            })
+            .collect();
+
+        for (index, profile_id) in matching_indices.iter().zip(ordered_profile_ids) {
+            lock.profiles[*index] = profiles_by_id
+                .get(profile_id)
+                .cloned()
+                .ok_or_else(|| format!("未找到 ID 为 {profile_id} 的配置"))?;
+        }
+
+        self.save_index_internal(&lock)
     }
 
     pub fn load_devmode_bytes(&self, profile_id: &str) -> Result<Vec<u8>, String> {
@@ -800,5 +1004,200 @@ mod tests {
         store.delete_profile(&saved.id).expect("delete profile");
         assert_eq!(store.get_default_profile_id("HP LaserJet"), None);
         assert!(store.get_profile(&saved.id).is_none());
+    }
+
+    #[test]
+    fn reorders_profiles_for_one_printer_without_moving_other_printers() {
+        let (store, _dir) = make_test_store();
+        let dummy_devmode = vec![1, 2, 3];
+
+        let first = store
+            .save_profile(
+                "第一项",
+                "HP LaserJet",
+                &dummy_devmode,
+                sample_settings("HP LaserJet"),
+                sample_fingerprint("HP LaserJet"),
+                None,
+                None,
+            )
+            .expect("save first");
+        let other = store
+            .save_profile(
+                "其他打印机",
+                "Canon TS8300",
+                &dummy_devmode,
+                sample_settings("Canon TS8300"),
+                sample_fingerprint("Canon TS8300"),
+                None,
+                None,
+            )
+            .expect("save other");
+        let second = store
+            .save_profile(
+                "第二项",
+                "HP LaserJet",
+                &dummy_devmode,
+                sample_settings("HP LaserJet"),
+                sample_fingerprint("HP LaserJet"),
+                None,
+                None,
+            )
+            .expect("save second");
+        let third = store
+            .save_profile(
+                "第三项",
+                "HP LaserJet",
+                &dummy_devmode,
+                sample_settings("HP LaserJet"),
+                sample_fingerprint("HP LaserJet"),
+                None,
+                None,
+            )
+            .expect("save third");
+
+        store
+            .reorder_profiles(
+                "HP LaserJet",
+                &[third.id.clone(), first.id.clone(), second.id.clone()],
+            )
+            .expect("reorder profiles");
+
+        let hp_ids: Vec<String> = store
+            .list_profiles(Some("HP LaserJet"))
+            .into_iter()
+            .map(|profile| profile.id)
+            .collect();
+        assert_eq!(hp_ids, vec![third.id, first.id, second.id]);
+
+        let all_ids: Vec<String> = store
+            .list_profiles(None)
+            .into_iter()
+            .map(|profile| profile.id)
+            .collect();
+        assert_eq!(all_ids[1], other.id);
+    }
+
+    #[test]
+    fn rejects_incomplete_profile_order() {
+        let (store, _dir) = make_test_store();
+        let dummy_devmode = vec![1, 2, 3];
+        let first = store
+            .save_profile(
+                "第一项",
+                "HP LaserJet",
+                &dummy_devmode,
+                sample_settings("HP LaserJet"),
+                sample_fingerprint("HP LaserJet"),
+                None,
+                None,
+            )
+            .expect("save first");
+        store
+            .save_profile(
+                "第二项",
+                "HP LaserJet",
+                &dummy_devmode,
+                sample_settings("HP LaserJet"),
+                sample_fingerprint("HP LaserJet"),
+                None,
+                None,
+            )
+            .expect("save second");
+
+        let result = store.reorder_profiles("HP LaserJet", &[first.id]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn portable_mode_detection_and_flag_test() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("printassist-portable-{}", Uuid::new_v4()));
+        let _ = fs::create_dir_all(&temp_dir);
+        let _guard = TempDirGuard(temp_dir.clone());
+
+        // Without flag -> false
+        assert!(!PersistentPrinterProfileStore::is_portable_mode(Some(
+            &temp_dir
+        )));
+
+        // With portable.flag -> true
+        let flag_path = temp_dir.join("portable.flag");
+        fs::write(&flag_path, b"").expect("write flag");
+        assert!(PersistentPrinterProfileStore::is_portable_mode(Some(
+            &temp_dir
+        )));
+    }
+
+    #[test]
+    fn transactional_migration_succeeds_and_verifies_files() {
+        let (source_store, source_guard) = make_test_store();
+        let target_temp =
+            std::env::temp_dir().join(format!("printassist-target-{}", Uuid::new_v4()));
+        let _target_guard = TempDirGuard(target_temp.clone());
+
+        let devmode_data = vec![42, 43, 44];
+        let profile = source_store
+            .save_profile(
+                "迁移测试配置",
+                "Canon TS8300",
+                &devmode_data,
+                sample_settings("Canon TS8300"),
+                sample_fingerprint("Canon TS8300"),
+                None,
+                None,
+            )
+            .expect("save profile");
+
+        let res =
+            PersistentPrinterProfileStore::transactional_migrate(&target_temp, &source_guard.0);
+        assert!(res.is_ok());
+
+        let target_store = PersistentPrinterProfileStore::new(&target_temp);
+        let loaded = target_store
+            .get_profile(&profile.id)
+            .expect("get profile in target");
+        assert_eq!(loaded.name, "迁移测试配置");
+
+        let loaded_bytes = target_store
+            .load_devmode_bytes(&profile.id)
+            .expect("load devmode bytes in target");
+        assert_eq!(loaded_bytes, devmode_data);
+    }
+
+    #[test]
+    fn transactional_migration_aborts_and_cleans_up_on_missing_file() {
+        let (source_store, source_guard) = make_test_store();
+        let target_temp =
+            std::env::temp_dir().join(format!("printassist-target-fail-{}", Uuid::new_v4()));
+        let _target_guard = TempDirGuard(target_temp.clone());
+
+        let devmode_data = vec![10, 20, 30];
+        let profile = source_store
+            .save_profile(
+                "损坏测试配置",
+                "HP LaserJet",
+                &devmode_data,
+                sample_settings("HP LaserJet"),
+                sample_fingerprint("HP LaserJet"),
+                None,
+                None,
+            )
+            .expect("save profile");
+
+        // Intentionally delete the source data file to simulate corrupted/incomplete source
+        let file_to_delete = source_guard
+            .0
+            .join("printer-profiles")
+            .join("data")
+            .join(&profile.devmode_file);
+        let _ = fs::remove_file(file_to_delete);
+
+        let res =
+            PersistentPrinterProfileStore::transactional_migrate(&target_temp, &source_guard.0);
+        assert!(res.is_err());
+
+        // Target index.json must NOT exist (no partial corruption)
+        assert!(!target_temp.join("index.json").exists());
     }
 }

@@ -2,6 +2,7 @@ import {
   Alert,
   Button,
   Drawer,
+  Dropdown,
   Empty,
   Input,
   Modal,
@@ -12,17 +13,23 @@ import {
   message,
 } from 'antd';
 import {
+  ArrowDown,
+  ArrowDownToLine,
+  ArrowUp,
+  ArrowUpToLine,
   Check,
   Copy,
   Download,
   Edit2,
   FileCheck,
+  GripVertical,
+  MoreHorizontal,
   RefreshCw,
   Star,
   Trash2,
   Upload,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useState, type DragEvent } from 'react';
 import {
   deletePrinterProfile,
   duplicatePrinterProfile,
@@ -31,6 +38,7 @@ import {
   loadPrinterProfile,
   rebuildPrinterProfile,
   renamePrinterProfile,
+  reorderPrinterProfiles,
   setDefaultPrinterProfile,
 } from '../../api/nativeBridge';
 import type {
@@ -38,6 +46,26 @@ import type {
   PrinterProfileCompatibility,
   SavedPrinterProfileSummary,
 } from '../../shared/contracts/printer';
+
+export function reorderProfileList(
+  profiles: SavedPrinterProfileSummary[],
+  sourceIndex: number,
+  targetIndex: number,
+): SavedPrinterProfileSummary[] {
+  if (
+    sourceIndex < 0 ||
+    sourceIndex >= profiles.length ||
+    targetIndex < 0 ||
+    targetIndex >= profiles.length ||
+    sourceIndex === targetIndex
+  ) {
+    return profiles;
+  }
+  const next = [...profiles];
+  const [moved] = next.splice(sourceIndex, 1);
+  next.splice(targetIndex, 0, moved);
+  return next;
+}
 
 interface PrinterProfileManagerModalProps {
   open: boolean;
@@ -63,6 +91,11 @@ export function PrinterProfileManagerModal({
   const [targetProfile, setTargetProfile] = useState<SavedPrinterProfileSummary | null>(null);
   const [newName, setNewName] = useState('');
   const [actionType, setActionType] = useState<'rename' | 'duplicate'>('rename');
+  const [draggingProfileId, setDraggingProfileId] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<{
+    profileId: string;
+    position: 'before' | 'after';
+  } | null>(null);
 
   const renderCompatibilityTag = (compatibility: PrinterProfileCompatibility) => {
     switch (compatibility) {
@@ -186,6 +219,84 @@ export function PrinterProfileManagerModal({
     }
   };
 
+  const handleDragOver = (event: DragEvent<HTMLDivElement>, profileId: string) => {
+    if (!draggingProfileId || draggingProfileId === profileId || loadingAction) {
+      return;
+    }
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+    const rect = event.currentTarget.getBoundingClientRect();
+    const position = event.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
+    setDropTarget({ profileId, position });
+  };
+
+  const handleDrop = async (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const sourceId = draggingProfileId;
+    const target = dropTarget;
+    setDraggingProfileId(null);
+    setDropTarget(null);
+
+    if (!sourceId || !target || sourceId === target.profileId || loadingAction) {
+      return;
+    }
+
+    const sourceIndex = profiles.findIndex((p) => p.id === sourceId);
+    let targetIndex = profiles.findIndex((p) => p.id === target.profileId);
+    if (sourceIndex < 0 || targetIndex < 0) {
+      return;
+    }
+    if (target.position === 'after' && targetIndex < sourceIndex) {
+      targetIndex += 1;
+    } else if (target.position === 'before' && targetIndex > sourceIndex) {
+      targetIndex -= 1;
+    }
+
+    const nextList = reorderProfileList(profiles, sourceIndex, targetIndex);
+    const nextIds = nextList.map((p) => p.id);
+
+    setLoadingAction('reorder');
+    try {
+      await reorderPrinterProfiles(currentPrinterName, nextIds);
+      await onRefreshProfiles();
+      message.success('配置顺序已保存');
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '保存配置顺序失败');
+    } finally {
+      setLoadingAction(null);
+    }
+  };
+
+  const handleMove = async (
+    profile: SavedPrinterProfileSummary,
+    direction: 'up' | 'down' | 'top' | 'bottom',
+  ) => {
+    const currentIndex = profiles.findIndex((p) => p.id === profile.id);
+    if (currentIndex < 0 || loadingAction) return;
+
+    let targetIndex = currentIndex;
+    if (direction === 'up') targetIndex = currentIndex - 1;
+    else if (direction === 'down') targetIndex = currentIndex + 1;
+    else if (direction === 'top') targetIndex = 0;
+    else if (direction === 'bottom') targetIndex = profiles.length - 1;
+
+    if (targetIndex === currentIndex || targetIndex < 0 || targetIndex >= profiles.length) return;
+
+    const nextList = reorderProfileList(profiles, currentIndex, targetIndex);
+    const nextIds = nextList.map((p) => p.id);
+
+    setLoadingAction(`reorder-${profile.id}`);
+    try {
+      await reorderPrinterProfiles(currentPrinterName, nextIds);
+      await onRefreshProfiles();
+      message.success(`已将“${profile.name}”移动到第 ${targetIndex + 1} 位`);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '调整配置顺序失败');
+    } finally {
+      setLoadingAction(null);
+    }
+  };
+
   return (
     <>
       <Drawer
@@ -203,20 +314,49 @@ export function PrinterProfileManagerModal({
           <Empty description="当前打印机暂未保存任何配置，可在主面板调整参数后点击“保存”" />
         ) : (
           <div className="profile-manager-list">
-            {profiles.map((profile) => {
+            <Typography.Text type="secondary" className="profile-sort-hint">
+              拖动手柄或点击上移/下移按钮调整配置顺序；顺序会同步到主界面的配置下拉菜单。
+            </Typography.Text>
+            {profiles.map((profile, index) => {
               const isActive = activeProfileId === profile.id;
               const isCompatible = profile.compatibility === 'compatible';
               const isDriverChanged = profile.compatibility === 'driverChanged';
+              const isFirst = index === 0;
+              const isLast = index === profiles.length - 1;
 
               return (
                 <div
                   key={profile.id}
                   className={`profile-card${isActive ? ' is-active' : ''}${
                     !isCompatible ? ' is-incompatible' : ''
+                  }${draggingProfileId === profile.id ? ' is-dragging' : ''}${
+                    dropTarget?.profileId === profile.id
+                      ? ` is-drop-${dropTarget.position}`
+                      : ''
                   }`}
+                  onDragOver={(event) => handleDragOver(event, profile.id)}
+                  onDrop={(event) => void handleDrop(event)}
                 >
                   <div className="profile-card-header">
                     <div className="profile-card-title-row">
+                      <button
+                        type="button"
+                        className="profile-drag-handle"
+                        draggable={!loadingAction}
+                        onDragStart={(event) => {
+                          event.dataTransfer.effectAllowed = 'move';
+                          event.dataTransfer.setData('text/plain', profile.id);
+                          setDraggingProfileId(profile.id);
+                        }}
+                        onDragEnd={() => {
+                          setDraggingProfileId(null);
+                          setDropTarget(null);
+                        }}
+                        title="拖动调整配置顺序"
+                        aria-label={`拖动“${profile.name}”调整顺序`}
+                      >
+                        <GripVertical size={16} aria-hidden />
+                      </button>
                       <span className="profile-card-name">{profile.name}</span>
                       {profile.isDefault && <Tag color="gold">默认</Tag>}
                       {isActive && <Tag color="processing">正在使用</Tag>}
@@ -225,8 +365,25 @@ export function PrinterProfileManagerModal({
                     <div className="profile-card-actions">
                       <Button
                         size="small"
+                        icon={<ArrowUp size={13} />}
+                        disabled={isFirst || Boolean(loadingAction)}
+                        onClick={() => void handleMove(profile, 'up')}
+                        title="上移一位"
+                        aria-label={`将“${profile.name}”上移一位`}
+                      />
+                      <Button
+                        size="small"
+                        icon={<ArrowDown size={13} />}
+                        disabled={isLast || Boolean(loadingAction)}
+                        onClick={() => void handleMove(profile, 'down')}
+                        title="下移一位"
+                        aria-label={`将“${profile.name}”下移一位`}
+                      />
+
+                      <Button
+                        size="small"
                         type={isActive ? 'default' : 'primary'}
-                        disabled={!isCompatible}
+                        disabled={!isCompatible || Boolean(loadingAction)}
                         loading={loadingAction === `apply-${profile.id}`}
                         onClick={() => void handleApply(profile)}
                       >
@@ -236,45 +393,67 @@ export function PrinterProfileManagerModal({
                       <Button
                         size="small"
                         icon={<Star size={13} fill={profile.isDefault ? '#faad14' : 'none'} />}
+                        disabled={Boolean(loadingAction)}
                         loading={loadingAction === `default-${profile.id}`}
                         onClick={() => void handleToggleDefault(profile)}
                         title={profile.isDefault ? '取消默认' : '设为默认'}
                       />
 
-                      <Button
-                        size="small"
-                        icon={<Edit2 size={13} />}
-                        onClick={() => openRenameOrDuplicate(profile, 'rename')}
-                        title="重命名"
-                      />
-
-                      <Button
-                        size="small"
-                        icon={<Copy size={13} />}
-                        onClick={() => openRenameOrDuplicate(profile, 'duplicate')}
-                        title="复制配置"
-                      />
-
-                      <Popconfirm
-                        title="确定删除此配置？"
-                        description={
-                          profile.isDefault
-                            ? '此配置为默认配置，删除后该打印机将恢复系统默认配置。'
-                            : undefined
-                        }
-                        onConfirm={() => void handleDelete(profile)}
-                        okText="删除"
-                        cancelText="取消"
-                        okButtonProps={{ danger: true }}
+                      <Dropdown
+                        menu={{
+                          items: [
+                            {
+                              key: 'rename',
+                              label: '重命名',
+                              icon: <Edit2 size={13} />,
+                              onClick: () => openRenameOrDuplicate(profile, 'rename'),
+                            },
+                            {
+                              key: 'duplicate',
+                              label: '复制配置',
+                              icon: <Copy size={13} />,
+                              onClick: () => openRenameOrDuplicate(profile, 'duplicate'),
+                            },
+                            {
+                              key: 'top',
+                              label: '移至顶部',
+                              icon: <ArrowUpToLine size={13} />,
+                              disabled: isFirst,
+                              onClick: () => void handleMove(profile, 'top'),
+                            },
+                            {
+                              key: 'bottom',
+                              label: '移至底部',
+                              icon: <ArrowDownToLine size={13} />,
+                              disabled: isLast,
+                              onClick: () => void handleMove(profile, 'bottom'),
+                            },
+                            {
+                              key: 'export',
+                              label: '导出配置',
+                              icon: <Download size={13} />,
+                              onClick: () => void handleExport(profile),
+                            },
+                            {
+                              type: 'divider',
+                            },
+                            {
+                              key: 'delete',
+                              label: '删除配置',
+                              danger: true,
+                              icon: <Trash2 size={13} />,
+                              onClick: () => void handleDelete(profile),
+                            },
+                          ],
+                        }}
                       >
                         <Button
                           size="small"
-                          danger
-                          icon={<Trash2 size={13} />}
-                          loading={loadingAction === `delete-${profile.id}`}
-                          title="删除配置"
+                          icon={<MoreHorizontal size={13} />}
+                          disabled={Boolean(loadingAction)}
+                          title="更多操作"
                         />
-                      </Popconfirm>
+                      </Dropdown>
                     </div>
                   </div>
 

@@ -3,6 +3,7 @@ import {
   ConfigProvider,
   Layout,
   Modal,
+  Popconfirm,
   Space,
   Typography,
   message,
@@ -110,6 +111,19 @@ export function App() {
     () => savedProfiles.find((p) => p.id === globalSettings.persistentProfileId),
     [savedProfiles, globalSettings.persistentProfileId],
   );
+
+  const pageStats = useMemo(() => {
+    let knownPages = 0;
+    let knownCount = 0;
+    for (const item of queueState.items) {
+      if (typeof item.pageCount === 'number' && item.pageCount > 0) {
+        knownPages += item.pageCount;
+        knownCount += 1;
+      }
+    }
+    const allKnown = queueState.items.length > 0 && knownCount === queueState.items.length;
+    return { knownPages, allKnown };
+  }, [queueState.items]);
 
   const fetchSavedProfiles = useCallback(async (printerName: string) => {
     if (!printerName) {
@@ -246,20 +260,35 @@ export function App() {
     void refreshPrinters();
   }, [refreshPrinters]);
 
+  const appendPaths = useCallback((paths: string[]) => {
+    if (queueState.isPrinting) {
+      message.warning('打印进行中，暂不可添加文件');
+      return;
+    }
+    if (paths.length === 0) {
+      return;
+    }
+    dispatch({ type: 'append_files', paths });
+    message.success(`已追加 ${paths.length} 个文件`);
+  }, [queueState.isPrinting]);
+
   useEffect(() => {
     return subscribeIncomingFiles((paths) => {
       if (paths.length > 0) {
-        dispatch({ type: 'append_files', paths });
-        message.success(`已追加 ${paths.length} 个文件`);
+        appendPaths(paths);
       }
     });
-  }, []);
+  }, [appendPaths]);
 
   useEffect(() => {
     // Tauri 2: 桌面拖放路径只能从原生 DragDrop 事件拿到，不能依赖 HTML5 File.path
     return subscribeNativeDragDrop({
       onHoverChange: setIsDragOver,
       onDrop: (paths) => {
+        if (queueState.isPrinting) {
+          message.warning('打印进行中，暂不可添加文件');
+          return;
+        }
         void (async () => {
           try {
             const expanded = await expandFilePaths(paths);
@@ -269,25 +298,20 @@ export function App() {
               }
               return;
             }
-            dispatch({ type: 'append_files', paths: expanded });
-            message.success(`已追加 ${expanded.length} 个文件`);
+            appendPaths(expanded);
           } catch (error) {
             message.error(error instanceof Error ? error.message : '处理拖放文件失败');
           }
         })();
       },
     });
-  }, []);
-
-  const appendPaths = (paths: string[]) => {
-    if (paths.length === 0) {
-      return;
-    }
-    dispatch({ type: 'append_files', paths });
-    message.success(`已追加 ${paths.length} 个文件`);
-  };
+  }, [queueState.isPrinting, appendPaths]);
 
   const handlePickFiles = async () => {
+    if (queueState.isPrinting) {
+      message.warning('打印进行中，暂不可添加文件');
+      return;
+    }
     try {
       appendPaths(await pickFiles());
     } catch (error) {
@@ -296,6 +320,10 @@ export function App() {
   };
 
   const handlePickFolder = async () => {
+    if (queueState.isPrinting) {
+      message.warning('打印进行中，暂不可添加文件');
+      return;
+    }
     try {
       appendPaths(await pickFolderFiles());
     } catch (error) {
@@ -306,6 +334,10 @@ export function App() {
   const handleDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     setIsDragOver(false);
+    if (queueState.isPrinting) {
+      message.warning('打印进行中，暂不可添加文件');
+      return;
+    }
     // 桌面端由 subscribeNativeDragDrop 处理；HTML5 File.path 在 Tauri/WebView2 中为空
     if (isTauriRuntime()) {
       return;
@@ -588,38 +620,7 @@ export function App() {
           </Space>
         </Header>
         <Layout className="app-body">
-          <Sider width={342} theme="light" className="control-rail">
-            <Typography.Text className="section-index">01 / 文件入口</Typography.Text>
-            <Typography.Title level={5}>追加打印文件</Typography.Title>
-            <div
-              className={`drop-zone ${isDragOver ? 'dragging' : ''}`}
-              onDragOver={(event) => {
-                event.preventDefault();
-                setIsDragOver(true);
-              }}
-              onDragLeave={() => setIsDragOver(false)}
-              onDrop={handleDrop}
-            >
-              <FilePlus2 size={24} />
-              <strong>拖放文件到这里</strong>
-              <span>右键菜单、发送到和页面选择都会追加到当前批次</span>
-            </div>
-            <div className="entry-actions">
-              <Button
-                icon={<FilePlus2 size={15} />}
-                disabled={queueState.isPrinting}
-                onClick={() => void handlePickFiles()}
-              >
-                选择文件
-              </Button>
-              <Button
-                icon={<FolderPlus size={15} />}
-                disabled={queueState.isPrinting}
-                onClick={() => void handlePickFolder()}
-              >
-                选择文件夹
-              </Button>
-            </div>
+          <Sider width={330} theme="light" className="control-rail">
             <GlobalSettingsPanel
               printers={printers}
               settings={globalSettings}
@@ -667,29 +668,65 @@ export function App() {
               }}
             />
           </Sider>
-          <Content className="queue-panel">
+          <Content
+            className={`queue-panel${isDragOver ? ' is-drag-over' : ''}`}
+            onDragOver={(event) => {
+              event.preventDefault();
+              setIsDragOver(true);
+            }}
+            onDragLeave={(event) => {
+              // Only reset if cursor left the queue panel entirely
+              const currentTarget = event.currentTarget;
+              const relatedTarget = event.relatedTarget as Node | null;
+              if (!currentTarget.contains(relatedTarget)) {
+                setIsDragOver(false);
+              }
+            }}
+            onDrop={(event) => {
+              event.preventDefault();
+              setIsDragOver(false);
+              handleDrop(event);
+            }}
+          >
+            {isDragOver && (
+              <div className={`queue-drop-overlay${queueState.isPrinting ? ' is-disabled' : ''}`}>
+                <div className="queue-drop-overlay-content">
+                  <FilePlus2 size={44} className="queue-drop-overlay-icon" />
+                  <div className="queue-drop-overlay-title">
+                    {queueState.isPrinting
+                      ? '打印进行中，暂不可添加文件'
+                      : '释放以追加到当前批次'}
+                  </div>
+                  <div className="queue-drop-overlay-desc">
+                    {queueState.isPrinting
+                      ? '请等待当前打印任务完成'
+                      : '支持 PDF、图片及 Office 文档（Word、Excel、PPT）'}
+                  </div>
+                </div>
+              </div>
+            )}
             <div className="queue-heading">
               <div>
-                <Typography.Text className="section-index">当前批次</Typography.Text>
-                <Typography.Title level={3}>待打印文件</Typography.Title>
+                <Typography.Title level={4} className="queue-main-title">
+                  待打印文件
+                </Typography.Title>
               </div>
-              <Space>
+              <Popconfirm
+                title="确定清空当前批次？"
+                description="将移除待打印列表中的所有文件。"
+                disabled={queueState.isPrinting || queueState.items.length === 0}
+                onConfirm={() => dispatch({ type: 'clear_queue' })}
+                okText="确定"
+                cancelText="取消"
+              >
                 <Button
+                  type="text"
+                  danger
                   disabled={queueState.isPrinting || queueState.items.length === 0}
-                  onClick={() => dispatch({ type: 'clear_queue' })}
                 >
-                  清空
+                  清空列表
                 </Button>
-                <Button
-                  type="primary"
-                  icon={<Printer size={16} />}
-                  loading={queueState.isPrinting}
-                  disabled={!availability.printEnabled || queueState.items.length === 0}
-                  onClick={() => void executePrint(false)}
-                >
-                  开始打印
-                </Button>
-              </Space>
+              </Popconfirm>
             </div>
             <PrintSummary
               summary={queueState.lastSummary}
@@ -706,6 +743,50 @@ export function App() {
                 onRemove={(id) => dispatch({ type: 'remove_item', id })}
                 onOpenSettings={(id) => setSettingsItemId(id)}
               />
+            </div>
+            <div className="queue-footer">
+              <div className="queue-footer-stats">
+                {queueState.isPrinting ? (
+                  <span className="queue-footer-status">
+                    正在打印（
+                    {queueState.items.filter((i) => i.status === 'succeeded').length} /{' '}
+                    {queueState.items.length}）
+                  </span>
+                ) : (
+                  <span className="queue-footer-count">
+                    共 <strong>{queueState.items.length}</strong> 个文件
+                    {pageStats.allKnown && pageStats.knownPages > 0
+                      ? ` · ${pageStats.knownPages} 页`
+                      : ''}
+                  </span>
+                )}
+              </div>
+              <Space size={10} className="queue-footer-actions">
+                <Button
+                  icon={<FilePlus2 size={15} />}
+                  disabled={queueState.isPrinting}
+                  onClick={() => void handlePickFiles()}
+                >
+                  选择文件
+                </Button>
+                <Button
+                  icon={<FolderPlus size={15} />}
+                  disabled={queueState.isPrinting}
+                  onClick={() => void handlePickFolder()}
+                >
+                  选择文件夹
+                </Button>
+                <Button
+                  type="primary"
+                  icon={<Printer size={16} />}
+                  loading={queueState.isPrinting}
+                  disabled={!availability.printEnabled || queueState.items.length === 0}
+                  onClick={() => void executePrint(false)}
+                  title={!availability.printEnabled ? availability.reasons.join('；') : undefined}
+                >
+                  开始打印
+                </Button>
+              </Space>
             </div>
           </Content>
         </Layout>

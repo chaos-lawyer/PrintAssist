@@ -42,7 +42,9 @@ pub fn run() {
                 .path()
                 .app_data_dir()
                 .unwrap_or_else(|_| std::env::temp_dir().join("com.ws1993.printassist"));
-            let persistent_store = printers::PersistentPrinterProfileStore::new(&app_data_dir);
+            let storage_dir =
+                printers::PersistentPrinterProfileStore::resolve_storage_dir(&app_data_dir);
+            let persistent_store = printers::PersistentPrinterProfileStore::new(&storage_dir);
             app.manage(persistent_store);
 
             let launch_paths = collect_launch_paths(&std::env::args().collect::<Vec<_>>());
@@ -66,6 +68,7 @@ pub fn run() {
             commands::duplicate_printer_profile,
             commands::delete_printer_profile,
             commands::set_default_printer_profile,
+            commands::reorder_printer_profiles,
             commands::rebuild_printer_profile,
             commands::export_printer_profile,
             commands::import_printer_profile,
@@ -76,7 +79,8 @@ pub fn run() {
             commands::check_for_app_update,
             commands::download_and_install_update,
             commands::open_release_page,
-            commands::validate_supported_path
+            commands::validate_supported_path,
+            commands::show_in_folder
         ])
         .run(tauri::generate_context!())
         .expect("error while running PrintAssist");

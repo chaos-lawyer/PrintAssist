@@ -85,6 +85,9 @@ function normalizePathKey(filePath: string): string {
 export function queueReducer(state: QueueState, action: QueueAction): QueueState {
   switch (action.type) {
     case 'append_files': {
+      if (state.isPrinting) {
+        return state;
+      }
       const existingPathKeys = new Set(state.items.map((item) => normalizePathKey(item.path)));
       const nextItems = [...state.items];
 

@@ -57,4 +57,20 @@ describe('queueReducer', () => {
     state = queueReducer(state, { type: 'clear_queue' });
     expect(state.items).toHaveLength(0);
   });
+
+  it('rejects append_files when isPrinting is true', () => {
+    let state = queueReducer(createEmptyQueueState(), {
+      type: 'append_files',
+      paths: ['C:\\\\docs\\\\a.pdf'],
+    });
+    state = queueReducer(state, { type: 'begin_print' });
+    expect(state.isPrinting).toBe(true);
+
+    const duringPrintState = queueReducer(state, {
+      type: 'append_files',
+      paths: ['C:\\\\docs\\\\b.pdf'],
+    });
+    expect(duringPrintState.items).toHaveLength(1);
+    expect(duringPrintState.items[0].fileName).toBe('a.pdf');
+  });
 });
