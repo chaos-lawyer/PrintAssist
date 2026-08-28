@@ -95,6 +95,7 @@ impl NativePdfRasterContext {
         page: &PdfPage,
         destination_width: u32,
         destination_height: u32,
+        dpi: Option<u32>,
     ) -> Result<DecodedImage, String> {
         let width = destination_width.max(1);
         let height = destination_height.max(1);
@@ -204,6 +205,7 @@ impl NativePdfRasterContext {
             width,
             height,
             pixels,
+            dpi,
         })
     }
 }

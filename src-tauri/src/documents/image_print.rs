@@ -145,6 +145,8 @@ pub struct DecodedImage {
     pub height: u32,
     /// BGRA8 pixels, row-major, top-down.
     pub pixels: Vec<u8>,
+    /// Rasterization DPI if known (e.g. PDF rendered at 300 DPI).
+    pub dpi: Option<u32>,
 }
 
 pub fn decode_image_bgra(file_path: &Path) -> Result<DecodedImage, String> {
@@ -219,6 +221,7 @@ pub fn decode_image_bgra(file_path: &Path) -> Result<DecodedImage, String> {
             width,
             height,
             pixels,
+            dpi: None,
         })
     })();
 
@@ -491,7 +494,7 @@ fn draw_image_on_page(
     image: &DecodedImage,
     mode: PageScaleMode,
 ) -> Result<(), String> {
-    let dest = compute_page_destination_rect(hdc, image.width, image.height, mode);
+    let dest = compute_page_destination_rect(hdc, image, mode);
 
     let hbitmap = create_dib_bitmap(hdc, image)?;
     let _bitmap_guard = BitmapGuard(hbitmap);
@@ -539,8 +542,7 @@ fn draw_image_on_page(
 /// - FitPrintable: stretches/fits proportionally to fill printable area
 pub fn compute_page_destination_rect(
     hdc: HDC,
-    image_width: u32,
-    image_height: u32,
+    image: &DecodedImage,
     mode: PageScaleMode,
 ) -> RECT {
     let printable_w = unsafe { GetDeviceCaps(hdc, HORZRES) }.max(1) as f64;
@@ -549,43 +551,60 @@ pub fn compute_page_destination_rect(
     let phys_h = unsafe { GetDeviceCaps(hdc, PHYSICALHEIGHT) };
     let offset_x = unsafe { GetDeviceCaps(hdc, PHYSICALOFFSETX) };
     let offset_y = unsafe { GetDeviceCaps(hdc, PHYSICALOFFSETY) };
+    let log_pixels_x = unsafe { GetDeviceCaps(hdc, LOGPIXELSX) }.max(1) as f64;
+    let log_pixels_y = unsafe { GetDeviceCaps(hdc, LOGPIXELSY) }.max(1) as f64;
 
-    let image_w = image_width.max(1) as f64;
-    let image_h = image_height.max(1) as f64;
+    let image_w = image.width.max(1) as f64;
+    let image_h = image.height.max(1) as f64;
+
+    // Nominal physical size in printer device units:
+    // If image has a known rasterization DPI (e.g. PDF rendered at 300 DPI),
+    // scale to match the printer's DC resolution (e.g. 600 DPI = 2.0x device units).
+    let (nominal_device_w, nominal_device_h) = if let Some(dpi) = image.dpi {
+        let factor_x = log_pixels_x / (dpi.max(1) as f64);
+        let factor_y = log_pixels_y / (dpi.max(1) as f64);
+        (image_w * factor_x, image_h * factor_y)
+    } else {
+        (image_w, image_h)
+    };
 
     match mode {
         PageScaleMode::ActualSize => {
-            if phys_w > 0 && phys_h > 0 {
-                let pw = phys_w as f64;
-                let ph = phys_h as f64;
-                // Center 100% page on the full physical sheet
-                let left_on_paper = (pw - image_w) / 2.0;
-                let top_on_paper = (ph - image_h) / 2.0;
-                let dest_left = (left_on_paper - offset_x as f64).round() as i32;
-                let dest_top = (top_on_paper - offset_y as f64).round() as i32;
-                RECT {
-                    left: dest_left,
-                    top: dest_top,
-                    right: dest_left + image_w.round() as i32,
-                    bottom: dest_top + image_h.round() as i32,
+            if image.dpi.is_some() {
+                if phys_w > 0 && phys_h > 0 {
+                    let pw = phys_w as f64;
+                    let ph = phys_h as f64;
+                    // Center 100% page on the full physical sheet
+                    let left_on_paper = (pw - nominal_device_w) / 2.0;
+                    let top_on_paper = (ph - nominal_device_h) / 2.0;
+                    let dest_left = (left_on_paper - offset_x as f64).round() as i32;
+                    let dest_top = (top_on_paper - offset_y as f64).round() as i32;
+                    RECT {
+                        left: dest_left,
+                        top: dest_top,
+                        right: dest_left + nominal_device_w.round() as i32,
+                        bottom: dest_top + nominal_device_h.round() as i32,
+                    }
+                } else {
+                    let dest_left = ((printable_w - nominal_device_w) / 2.0).round() as i32;
+                    let dest_top = ((printable_h - nominal_device_h) / 2.0).round() as i32;
+                    RECT {
+                        left: dest_left,
+                        top: dest_top,
+                        right: dest_left + nominal_device_w.round() as i32,
+                        bottom: dest_top + nominal_device_h.round() as i32,
+                    }
                 }
             } else {
-                let left = ((printable_w - image_w) / 2.0).round() as i32;
-                let top = ((printable_h - image_h) / 2.0).round() as i32;
-                RECT {
-                    left,
-                    top,
-                    right: left + image_w.round() as i32,
-                    bottom: top + image_h.round() as i32,
-                }
+                compute_destination_rect(printable_w as u32, printable_h as u32, image.width, image.height)
             }
         }
         PageScaleMode::ShrinkOversized => {
-            let scale_w = printable_w / image_w;
-            let scale_h = printable_h / image_h;
+            let scale_w = printable_w / nominal_device_w;
+            let scale_h = printable_h / nominal_device_h;
             let scale = scale_w.min(scale_h).min(1.0); // Never enlarge (> 1.0)
-            let draw_w = (image_w * scale).round().max(1.0);
-            let draw_h = (image_h * scale).round().max(1.0);
+            let draw_w = (nominal_device_w * scale).round().max(1.0);
+            let draw_h = (nominal_device_h * scale).round().max(1.0);
             let left = ((printable_w - draw_w) / 2.0).round() as i32;
             let top = ((printable_h - draw_h) / 2.0).round() as i32;
             RECT {
@@ -596,7 +615,7 @@ pub fn compute_page_destination_rect(
             }
         }
         PageScaleMode::FitPrintable => {
-            compute_destination_rect(printable_w as u32, printable_h as u32, image_width, image_height)
+            compute_destination_rect(printable_w as u32, printable_h as u32, image.width, image.height)
         }
     }
 }
