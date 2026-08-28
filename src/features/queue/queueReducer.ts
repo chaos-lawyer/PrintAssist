@@ -11,6 +11,7 @@ import type { FileSettingsOverride } from '../../domain/printSettings';
 export type QueueAction =
   | { type: 'append_files'; paths: string[] }
   | { type: 'remove_item'; id: string }
+  | { type: 'batch_remove'; ids: string[] }
   | { type: 'clear_queue' }
   | { type: 'update_override'; id: string; override: FileSettingsOverride }
   | { type: 'set_item_status'; id: string; status: QueueItem['status']; errorMessage?: string }
@@ -112,6 +113,14 @@ export function queueReducer(state: QueueState, action: QueueAction): QueueState
         ...state,
         items: state.items.filter((item) => item.id !== action.id),
       };
+
+    case 'batch_remove': {
+      const idsToRemove = new Set(action.ids);
+      return {
+        ...state,
+        items: state.items.filter((item) => !idsToRemove.has(item.id)),
+      };
+    }
 
     case 'clear_queue':
       return createEmptyQueueState();

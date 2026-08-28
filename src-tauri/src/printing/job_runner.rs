@@ -22,19 +22,52 @@ const TEMP_PRINT_FILE_RETENTION: Duration = Duration::from_secs(180);
 pub fn run_print_batch_sync(
     request: PrintBatchRequest,
     profile_store: Option<&printers::PrinterProfileStore>,
+    app: Option<&tauri::AppHandle>,
 ) -> PrintBatchResult {
     let mut results = Vec::new();
     let mut succeeded = 0_u32;
     let mut failed = 0_u32;
     let mut skipped = 0_u32;
+    let total = request.items.len();
 
-    for item in request.items {
+    for (index, item) in request.items.into_iter().enumerate() {
+        let item_id = item.queue_item_id.clone();
+        if let Some(app_handle) = app {
+            use tauri::Emitter;
+            let _ = app_handle.emit(
+                "print-item-started",
+                serde_json::json!({
+                    "queueItemId": item_id,
+                    "index": index,
+                    "total": total,
+                }),
+            );
+        }
+
         let result_item = print_single_item(item, profile_store);
         match result_item.status.as_str() {
             "succeeded" => succeeded += 1,
             "skipped" => skipped += 1,
             _ => failed += 1,
         }
+
+        if let Some(app_handle) = app {
+            use tauri::Emitter;
+            let _ = app_handle.emit(
+                "print-item-finished",
+                serde_json::json!({
+                    "queueItemId": result_item.queue_item_id.clone(),
+                    "status": result_item.status.clone(),
+                    "message": result_item.message.clone(),
+                    "index": index,
+                    "total": total,
+                    "succeeded": succeeded,
+                    "failed": failed,
+                    "skipped": skipped,
+                }),
+            );
+        }
+
         results.push(result_item);
     }
 

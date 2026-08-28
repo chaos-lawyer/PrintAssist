@@ -4,15 +4,15 @@ import {
   Layout,
   Modal,
   Popconfirm,
+  Progress,
   Space,
   Typography,
   message,
 } from 'antd';
-import { FilePlus2, FolderPlus, Printer, RefreshCw } from 'lucide-react';
+import { FilePlus2, FolderPlus, Printer, RefreshCw, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useReducer, useState } from 'react';
 import type { DragEvent } from 'react';
 import {
-  checkForAppUpdate,
   expandFilePaths,
   isTauriRuntime,
   listSavedPrinterProfiles,
@@ -24,6 +24,7 @@ import {
   runPrintBatch,
   subscribeIncomingFiles,
   subscribeNativeDragDrop,
+  subscribePrintItemEvents,
 } from './api/nativeBridge';
 import { AppLogo } from './components/AppLogo';
 import {
@@ -44,24 +45,16 @@ import { createPrintSummary, queueReducer } from './features/queue/queueReducer'
 import { PrintSummary } from './features/results/PrintSummary';
 import { FileSettingsDrawer } from './features/settings/FileSettingsDrawer';
 import { GlobalSettingsPanel } from './features/settings/GlobalSettingsPanel';
-import { ProxySettingsPanel } from './features/settings/ProxySettingsPanel';
-import { UpdateModal, type UpdateInfo } from './features/update/UpdateModal';
 import { SavePrinterProfileModal } from './features/settings/SavePrinterProfileModal';
 import { PrinterProfileManagerModal } from './features/settings/PrinterProfileManagerModal';
-import {
-  createDefaultProxySettings,
-  getProxyConfig,
-  type ProxySettings,
-} from './domain/proxySettings';
 import type {
-  LoadedPrinterProfileResult,
   PrinterDriverSettings,
   SavedPrinterProfileSummary,
   SystemPrinter,
 } from './shared/contracts/printer';
 import type { PrintQueueItemPayload } from './shared/contracts/printJob';
 
-const { Header, Content, Sider, Footer } = Layout;
+const { Header, Content, Sider } = Layout;
 
 export function App() {
   const [queueState, dispatch] = useReducer(queueReducer, undefined, createEmptyQueueState);
@@ -79,26 +72,9 @@ export function App() {
     createDefaultGlobalSettings(),
   );
   const [settingsItemId, setSettingsItemId] = useState<string | null>(null);
-  const [proxyModalOpen, setProxyModalOpen] = useState(false);
+  const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
   const [allowAssociationFallback, setAllowAssociationFallback] = useState(false);
-  const [updateModalOpen, setUpdateModalOpen] = useState(false);
-  const [pendingUpdateInfo, setPendingUpdateInfo] = useState<UpdateInfo | null>(null);
-  const [proxySettings, setProxySettings] = useState<ProxySettings>(() => {
-    try {
-      const saved = localStorage.getItem('proxySettings');
-      if (saved) {
-        return JSON.parse(saved) as ProxySettings;
-      }
-    } catch {
-      // ignore
-    }
-    return createDefaultProxySettings();
-  });
-
-  useEffect(() => {
-    localStorage.setItem('proxySettings', JSON.stringify(proxySettings));
-  }, [proxySettings]);
 
   const selectedPrinter = useMemo(
     () => printers.find((printer) => printer.name === globalSettings.printerName),
@@ -115,15 +91,29 @@ export function App() {
   const pageStats = useMemo(() => {
     let knownPages = 0;
     let knownCount = 0;
+    let estimatedSheets = 0;
+
     for (const item of queueState.items) {
       if (typeof item.pageCount === 'number' && item.pageCount > 0) {
+        const resolved = mergePrintSettings(globalSettings, item.override);
+        let pagesToPrint = item.pageCount;
+        if (resolved.pageRange.mode === 'custom') {
+          const parsed = parsePageRangeExpression(resolved.pageRange.expression, item.pageCount);
+          if (parsed.ok && parsed.pages.length > 0) {
+            pagesToPrint = parsed.pages.length;
+          }
+        }
         knownPages += item.pageCount;
         knownCount += 1;
+
+        const sheetsPerCopy =
+          resolved.sidesMode === 'duplex' ? Math.ceil(pagesToPrint / 2) : pagesToPrint;
+        estimatedSheets += sheetsPerCopy * (resolved.copies || 1);
       }
     }
     const allKnown = queueState.items.length > 0 && knownCount === queueState.items.length;
-    return { knownPages, allKnown };
-  }, [queueState.items]);
+    return { knownPages, knownCount, estimatedSheets, allKnown };
+  }, [queueState.items, globalSettings]);
 
   const fetchSavedProfiles = useCallback(async (printerName: string) => {
     if (!printerName) {
@@ -481,58 +471,72 @@ export function App() {
     }
   };
 
-  const promptInstallUpdate = (updateInfo: UpdateInfo) => {
-    setPendingUpdateInfo(updateInfo);
-    setUpdateModalOpen(true);
-  };
-
-  /** 检查更新；silent 用于启动时：无更新/失败均不打扰用户。 */
-  const runUpdateCheck = async (options?: { silent?: boolean }) => {
-    const silent = options?.silent ?? false;
-    try {
-      const proxyConfig = getProxyConfig(proxySettings);
-      const updateInfo = await checkForAppUpdate({
-        useSystemProxy: proxyConfig.useSystemProxy,
-        customProxyUrl: proxyConfig.customProxyUrl,
-        username: proxyConfig.username,
-        password: proxyConfig.password,
-      });
-      if (!updateInfo.available) {
-        if (!silent) {
-          message.success('当前已是最新版本');
-        }
-        return;
-      }
-      promptInstallUpdate(updateInfo);
-    } catch (error) {
-      if (!silent) {
-        message.error(error instanceof Error ? error.message : '检查更新失败');
-      }
-    }
-  };
-
-  const handleCheckUpdate = async () => {
-    await runUpdateCheck({ silent: false });
-  };
-
-  // 启动后自动检查更新：仅在有新版本时弹窗提示
+  // 监听单文件打印实时进度事件
   useEffect(() => {
-    if (!isTauriRuntime()) {
-      return;
-    }
-    let cancelled = false;
-    const startupCheckTimer = window.setTimeout(() => {
-      if (!cancelled) {
-        void runUpdateCheck({ silent: true });
-      }
-    }, 800);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(startupCheckTimer);
-    };
-    // 仅启动时检查一次，使用首屏已加载的代理设置
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const unsubscribe = subscribePrintItemEvents({
+      onItemStarted: (event) => {
+        dispatch({
+          type: 'set_item_status',
+          id: event.queueItemId,
+          status: 'printing',
+        });
+      },
+      onItemFinished: (event) => {
+        dispatch({
+          type: 'set_item_status',
+          id: event.queueItemId,
+          status: event.status,
+          errorMessage: event.message,
+        });
+      },
+    });
+    return unsubscribe;
   }, []);
+
+  // 全局快捷键支持：Delete/Backspace 移除选中，Ctrl/Cmd+A 全选，Ctrl/Cmd+P 触发打印
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const activeEl = document.activeElement;
+      const isInputActive =
+        activeEl instanceof HTMLInputElement ||
+        activeEl instanceof HTMLTextAreaElement ||
+        activeEl?.getAttribute('contenteditable') === 'true';
+
+      // Delete / Backspace：批量删除选中
+      if ((event.key === 'Delete' || event.key === 'Backspace') && !isInputActive) {
+        if (selectedRowKeys.length > 0 && !queueState.isPrinting) {
+          event.preventDefault();
+          const count = selectedRowKeys.length;
+          dispatch({ type: 'batch_remove', ids: selectedRowKeys as string[] });
+          setSelectedRowKeys([]);
+          message.success(`已移除 ${count} 个文件`);
+        }
+      }
+
+      // Ctrl+A / Cmd+A：全选待打印文件
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        (event.key === 'a' || event.key === 'A') &&
+        !isInputActive
+      ) {
+        if (queueState.items.length > 0 && !queueState.isPrinting) {
+          event.preventDefault();
+          setSelectedRowKeys(queueState.items.map((item) => item.id));
+        }
+      }
+
+      // Ctrl+P / Cmd+P：开始打印
+      if ((event.ctrlKey || event.metaKey) && (event.key === 'p' || event.key === 'P')) {
+        event.preventDefault();
+        if (availability.printEnabled && queueState.items.length > 0 && !queueState.isPrinting) {
+          void executePrint(false);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedRowKeys, queueState.isPrinting, queueState.items, availability.printEnabled, executePrint]);
 
   return (
     <ConfigProvider
@@ -604,23 +608,201 @@ export function App() {
               <Typography.Text>
                 当前批次 · {queueState.items.length} 个文件
                 {queueState.isPrinting ? ' · 打印中' : ''}
+                {' · v'}{__APP_VERSION__}
               </Typography.Text>
             </div>
           </div>
           <Space className="header-actions" size={10}>
-            <Button ghost onClick={() => setProxyModalOpen(true)}>
-              代理设置
-            </Button>
             <Button ghost icon={<RefreshCw size={14} />} onClick={() => void refreshPrinters()}>
               刷新打印机
-            </Button>
-            <Button ghost onClick={() => void handleCheckUpdate()}>
-              检查更新
             </Button>
           </Space>
         </Header>
         <Layout className="app-body">
-          <Sider width={330} theme="light" className="control-rail">
+          <Content
+            className={`queue-panel${isDragOver ? ' is-drag-over' : ''}`}
+            onDragOver={(event) => {
+              event.preventDefault();
+              setIsDragOver(true);
+            }}
+            onDragLeave={(event) => {
+              // Only reset if cursor left the queue panel entirely
+              const currentTarget = event.currentTarget;
+              const relatedTarget = event.relatedTarget as Node | null;
+              if (!currentTarget.contains(relatedTarget)) {
+                setIsDragOver(false);
+              }
+            }}
+            onDrop={(event) => {
+              event.preventDefault();
+              setIsDragOver(false);
+              handleDrop(event);
+            }}
+          >
+            {isDragOver && (
+              <div className={`queue-drop-overlay${queueState.isPrinting ? ' is-disabled' : ''}`}>
+                <div className="queue-drop-overlay-content">
+                  <FilePlus2 size={44} className="queue-drop-overlay-icon" />
+                  <div className="queue-drop-overlay-title">
+                    {queueState.isPrinting
+                      ? '打印进行中，暂不可添加文件'
+                      : '释放以追加到当前批次'}
+                  </div>
+                  <div className="queue-drop-overlay-desc">
+                    {queueState.isPrinting
+                      ? '请等待当前打印任务完成'
+                      : '支持 PDF、图片及 Office 文档（Word、Excel、PPT）'}
+                  </div>
+                </div>
+              </div>
+            )}
+            <div className="queue-heading">
+              <div>
+                <Typography.Title level={4} className="queue-main-title">
+                  待打印文件
+                </Typography.Title>
+              </div>
+              <Space size={8}>
+                {selectedRowKeys.length > 0 && (
+                  <Popconfirm
+                    title={`确定移除选中的 ${selectedRowKeys.length} 个文件？`}
+                    description="移除后可重新添加。"
+                    disabled={queueState.isPrinting}
+                    onConfirm={() => {
+                      dispatch({ type: 'batch_remove', ids: selectedRowKeys as string[] });
+                      setSelectedRowKeys([]);
+                      message.success(`已移除 ${selectedRowKeys.length} 个文件`);
+                    }}
+                    okText="确定"
+                    cancelText="取消"
+                  >
+                    <Button
+                      type="text"
+                      danger
+                      icon={<Trash2 size={14} />}
+                      disabled={queueState.isPrinting}
+                    >
+                      移除选中（{selectedRowKeys.length}）
+                    </Button>
+                  </Popconfirm>
+                )}
+                <Popconfirm
+                  title="确定清空当前批次？"
+                  description="将移除待打印列表中的所有文件。"
+                  disabled={queueState.isPrinting || queueState.items.length === 0}
+                  onConfirm={() => {
+                    dispatch({ type: 'clear_queue' });
+                    setSelectedRowKeys([]);
+                  }}
+                  okText="确定"
+                  cancelText="取消"
+                >
+                  <Button
+                    type="text"
+                    danger
+                    disabled={queueState.isPrinting || queueState.items.length === 0}
+                  >
+                    清空列表
+                  </Button>
+                </Popconfirm>
+              </Space>
+            </div>
+            <PrintSummary
+              summary={queueState.lastSummary}
+              onRetryFailed={() => {
+                dispatch({ type: 'retry_failed' });
+                void executePrint(true);
+              }}
+            />
+            <div className="queue-body">
+              <PrintQueue
+                items={queueState.items}
+                globalSettings={globalSettings}
+                isPrinting={queueState.isPrinting}
+                selectedRowKeys={selectedRowKeys}
+                onSelectionChange={(keys) => setSelectedRowKeys(keys)}
+                onRemove={(id) => {
+                  dispatch({ type: 'remove_item', id });
+                  setSelectedRowKeys((prev) => prev.filter((k) => k !== id));
+                }}
+                onOpenSettings={(id) => setSettingsItemId(id)}
+                onMoveItem={(id, direction) => dispatch({ type: 'move_item', id, direction })}
+              />
+            </div>
+            <div className="queue-footer">
+              <div className="queue-footer-stats">
+                {queueState.isPrinting ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <span className="queue-footer-status">
+                      正在打印（
+                      {
+                        queueState.items.filter(
+                          (i) =>
+                            i.status === 'succeeded' ||
+                            i.status === 'failed' ||
+                            i.status === 'skipped',
+                        ).length
+                      }{' '}
+                      / {queueState.items.length}）
+                    </span>
+                    <Progress
+                      percent={
+                        queueState.items.length > 0
+                          ? Math.round(
+                              (queueState.items.filter(
+                                (i) =>
+                                  i.status === 'succeeded' ||
+                                  i.status === 'failed' ||
+                                  i.status === 'skipped',
+                              ).length /
+                                queueState.items.length) *
+                                100,
+                            )
+                          : 0
+                      }
+                      size="small"
+                      status="active"
+                      style={{ width: 130, margin: 0 }}
+                    />
+                  </div>
+                ) : (
+                  <span className="queue-footer-count">
+                    共 <strong>{queueState.items.length}</strong> 个文件
+                    {pageStats.allKnown && pageStats.knownPages > 0
+                      ? ` · ${pageStats.knownPages} 页 (预估耗纸 ${pageStats.estimatedSheets} 张)`
+                      : ''}
+                  </span>
+                )}
+              </div>
+              <Space size={10} className="queue-footer-actions">
+                <Button
+                  icon={<FilePlus2 size={15} />}
+                  disabled={queueState.isPrinting}
+                  onClick={() => void handlePickFiles()}
+                >
+                  选择文件
+                </Button>
+                <Button
+                  icon={<FolderPlus size={15} />}
+                  disabled={queueState.isPrinting}
+                  onClick={() => void handlePickFolder()}
+                >
+                  选择文件夹
+                </Button>
+                <Button
+                  type="primary"
+                  icon={<Printer size={16} />}
+                  loading={queueState.isPrinting}
+                  disabled={!availability.printEnabled || queueState.items.length === 0}
+                  onClick={() => void executePrint(false)}
+                  title={!availability.printEnabled ? availability.reasons.join('；') : undefined}
+                >
+                  开始打印
+                </Button>
+              </Space>
+            </div>
+          </Content>
+          <Sider width={320} theme="light" className="control-rail">
             <GlobalSettingsPanel
               printers={printers}
               settings={globalSettings}
@@ -668,133 +850,7 @@ export function App() {
               }}
             />
           </Sider>
-          <Content
-            className={`queue-panel${isDragOver ? ' is-drag-over' : ''}`}
-            onDragOver={(event) => {
-              event.preventDefault();
-              setIsDragOver(true);
-            }}
-            onDragLeave={(event) => {
-              // Only reset if cursor left the queue panel entirely
-              const currentTarget = event.currentTarget;
-              const relatedTarget = event.relatedTarget as Node | null;
-              if (!currentTarget.contains(relatedTarget)) {
-                setIsDragOver(false);
-              }
-            }}
-            onDrop={(event) => {
-              event.preventDefault();
-              setIsDragOver(false);
-              handleDrop(event);
-            }}
-          >
-            {isDragOver && (
-              <div className={`queue-drop-overlay${queueState.isPrinting ? ' is-disabled' : ''}`}>
-                <div className="queue-drop-overlay-content">
-                  <FilePlus2 size={44} className="queue-drop-overlay-icon" />
-                  <div className="queue-drop-overlay-title">
-                    {queueState.isPrinting
-                      ? '打印进行中，暂不可添加文件'
-                      : '释放以追加到当前批次'}
-                  </div>
-                  <div className="queue-drop-overlay-desc">
-                    {queueState.isPrinting
-                      ? '请等待当前打印任务完成'
-                      : '支持 PDF、图片及 Office 文档（Word、Excel、PPT）'}
-                  </div>
-                </div>
-              </div>
-            )}
-            <div className="queue-heading">
-              <div>
-                <Typography.Title level={4} className="queue-main-title">
-                  待打印文件
-                </Typography.Title>
-              </div>
-              <Popconfirm
-                title="确定清空当前批次？"
-                description="将移除待打印列表中的所有文件。"
-                disabled={queueState.isPrinting || queueState.items.length === 0}
-                onConfirm={() => dispatch({ type: 'clear_queue' })}
-                okText="确定"
-                cancelText="取消"
-              >
-                <Button
-                  type="text"
-                  danger
-                  disabled={queueState.isPrinting || queueState.items.length === 0}
-                >
-                  清空列表
-                </Button>
-              </Popconfirm>
-            </div>
-            <PrintSummary
-              summary={queueState.lastSummary}
-              onRetryFailed={() => {
-                dispatch({ type: 'retry_failed' });
-                void executePrint(true);
-              }}
-            />
-            <div className="queue-body">
-              <PrintQueue
-                items={queueState.items}
-                globalSettings={globalSettings}
-                isPrinting={queueState.isPrinting}
-                onRemove={(id) => dispatch({ type: 'remove_item', id })}
-                onOpenSettings={(id) => setSettingsItemId(id)}
-              />
-            </div>
-            <div className="queue-footer">
-              <div className="queue-footer-stats">
-                {queueState.isPrinting ? (
-                  <span className="queue-footer-status">
-                    正在打印（
-                    {queueState.items.filter((i) => i.status === 'succeeded').length} /{' '}
-                    {queueState.items.length}）
-                  </span>
-                ) : (
-                  <span className="queue-footer-count">
-                    共 <strong>{queueState.items.length}</strong> 个文件
-                    {pageStats.allKnown && pageStats.knownPages > 0
-                      ? ` · ${pageStats.knownPages} 页`
-                      : ''}
-                  </span>
-                )}
-              </div>
-              <Space size={10} className="queue-footer-actions">
-                <Button
-                  icon={<FilePlus2 size={15} />}
-                  disabled={queueState.isPrinting}
-                  onClick={() => void handlePickFiles()}
-                >
-                  选择文件
-                </Button>
-                <Button
-                  icon={<FolderPlus size={15} />}
-                  disabled={queueState.isPrinting}
-                  onClick={() => void handlePickFolder()}
-                >
-                  选择文件夹
-                </Button>
-                <Button
-                  type="primary"
-                  icon={<Printer size={16} />}
-                  loading={queueState.isPrinting}
-                  disabled={!availability.printEnabled || queueState.items.length === 0}
-                  onClick={() => void executePrint(false)}
-                  title={!availability.printEnabled ? availability.reasons.join('；') : undefined}
-                >
-                  开始打印
-                </Button>
-              </Space>
-            </div>
-          </Content>
         </Layout>
-        <Footer className="app-footer">
-          <Typography.Text className="app-version" type="secondary">
-            v{__APP_VERSION__}
-          </Typography.Text>
-        </Footer>
       </Layout>
       <FileSettingsDrawer
         open={Boolean(settingsItem)}
@@ -809,29 +865,6 @@ export function App() {
           }
           dispatch({ type: 'update_override', id: settingsItem.id, override });
           message.success('已保存单文件设置');
-        }}
-      />
-      <Modal
-        title="代理设置"
-        open={proxyModalOpen}
-        onCancel={() => setProxyModalOpen(false)}
-        footer={
-          <Button type="primary" onClick={() => setProxyModalOpen(false)}>
-            确定
-          </Button>
-        }
-        width={420}
-        destroyOnClose
-      >
-        <ProxySettingsPanel settings={proxySettings} onChange={setProxySettings} />
-      </Modal>
-      <UpdateModal
-        open={updateModalOpen}
-        updateInfo={pendingUpdateInfo}
-        proxyConfig={getProxyConfig(proxySettings)}
-        onClose={() => {
-          setUpdateModalOpen(false);
-          setPendingUpdateInfo(null);
         }}
       />
       <SavePrinterProfileModal

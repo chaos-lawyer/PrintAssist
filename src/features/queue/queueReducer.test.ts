@@ -73,4 +73,20 @@ describe('queueReducer', () => {
     expect(duringPrintState.items).toHaveLength(1);
     expect(duringPrintState.items[0].fileName).toBe('a.pdf');
   });
+
+  it('removes multiple items via batch_remove', () => {
+    let state = queueReducer(createEmptyQueueState(), {
+      type: 'append_files',
+      paths: ['C:\\\\docs\\\\a.pdf', 'C:\\\\docs\\\\b.pdf', 'C:\\\\docs\\\\c.pdf'],
+    });
+    expect(state.items).toHaveLength(3);
+    const toRemove = [state.items[0].id, state.items[2].id];
+
+    state = queueReducer(state, {
+      type: 'batch_remove',
+      ids: toRemove,
+    });
+    expect(state.items).toHaveLength(1);
+    expect(state.items[0].fileName).toBe('b.pdf');
+  });
 });

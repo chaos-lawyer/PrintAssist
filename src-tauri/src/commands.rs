@@ -592,13 +592,16 @@ pub async fn expand_file_paths(paths: Vec<String>) -> Result<Vec<String>, String
 
 #[tauri::command]
 pub async fn run_print_batch(
+    app: tauri::AppHandle,
     request: PrintBatchRequest,
     profile_store: tauri::State<'_, PrinterProfileStore>,
 ) -> Result<PrintBatchResult, String> {
     let store_clone = profile_store.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || run_print_batch_sync(request, Some(&store_clone)))
-        .await
-        .map_err(|error| format!("print batch task failed: {error}"))
+    tauri::async_runtime::spawn_blocking(move || {
+        run_print_batch_sync(request, Some(&store_clone), Some(&app))
+    })
+    .await
+    .map_err(|error| format!("print batch task failed: {error}"))
 }
 
 #[tauri::command]

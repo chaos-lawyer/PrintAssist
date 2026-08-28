@@ -11,6 +11,8 @@ import {
 import type { ColumnsType } from 'antd/es/table';
 import type { MenuProps } from 'antd';
 import {
+  ArrowDown,
+  ArrowUp,
   Copy,
   File,
   FileCode,
@@ -19,6 +21,7 @@ import {
   FileText,
   FolderOpen,
   Image,
+  Loader2,
   MoreHorizontal,
   Presentation,
   Settings2,
@@ -38,8 +41,11 @@ interface PrintQueueProps {
   items: QueueItem[];
   globalSettings: PrintSettings;
   isPrinting: boolean;
+  selectedRowKeys: React.Key[];
+  onSelectionChange: (keys: React.Key[]) => void;
   onRemove: (id: string) => void;
   onOpenSettings: (id: string) => void;
+  onMoveItem?: (id: string, direction: 'up' | 'down') => void;
 }
 
 function statusTag(status: QueueItem['status']) {
@@ -48,7 +54,20 @@ function statusTag(status: QueueItem['status']) {
     case 'pending':
       return <Tag color="blue">待打印</Tag>;
     case 'printing':
-      return <Tag color="processing">打印中</Tag>;
+      return (
+        <Tag
+          color="processing"
+          icon={
+            <Loader2
+              size={12}
+              className="spin-icon"
+              style={{ verticalAlign: -1, marginRight: 4 }}
+            />
+          }
+        >
+          打印中
+        </Tag>
+      );
     case 'succeeded':
       return <Tag color="success">成功</Tag>;
     case 'failed':
@@ -114,8 +133,11 @@ export function PrintQueue({
   items,
   globalSettings,
   isPrinting,
+  selectedRowKeys,
+  onSelectionChange,
   onRemove,
   onOpenSettings,
+  onMoveItem,
 }: PrintQueueProps) {
   // Count duplicate file names to provide disambiguation hints
   const fileNameCounts = useMemo(() => {
@@ -176,6 +198,7 @@ export function PrintQueue({
       dataIndex: 'kind',
       key: 'kind',
       width: 75,
+      align: 'center',
       render: (kind: QueueItem['kind']) => (
         <span className="queue-type-badge">{kindLabel(kind)}</span>
       ),
@@ -185,6 +208,7 @@ export function PrintQueue({
       dataIndex: 'pageCount',
       key: 'pageCount',
       width: 70,
+      align: 'center',
       render: (pageCount: number | null) => (
         <span className="queue-page-count">{pageCount ?? '—'}</span>
       ),
@@ -220,6 +244,7 @@ export function PrintQueue({
       dataIndex: 'status',
       key: 'status',
       width: 95,
+      align: 'center',
       render: (status: QueueItem['status'], record) => (
         <div>
           {statusTag(status)}
@@ -234,10 +259,30 @@ export function PrintQueue({
     {
       title: '操作',
       key: 'actions',
-      width: 110,
-      align: 'right',
-      render: (_, record) => {
+      width: 130,
+      align: 'center',
+      render: (_, record, index) => {
+        const isFirst = index === 0;
+        const isLast = index === items.length - 1;
+
         const moreMenuItems: MenuProps['items'] = [
+          {
+            key: 'move-up',
+            icon: <ArrowUp size={13} />,
+            label: '上移一行',
+            disabled: isPrinting || isFirst,
+            onClick: () => onMoveItem?.(record.id, 'up'),
+          },
+          {
+            key: 'move-down',
+            icon: <ArrowDown size={13} />,
+            label: '下移一行',
+            disabled: isPrinting || isLast,
+            onClick: () => onMoveItem?.(record.id, 'down'),
+          },
+          {
+            type: 'divider',
+          },
           {
             key: 'copy-path',
             icon: <Copy size={13} />,
@@ -270,16 +315,36 @@ export function PrintQueue({
               icon={<Settings2 size={13} />}
               disabled={isPrinting}
               onClick={() => onOpenSettings(record.id)}
-              title="设置此文件参数"
+              title="设置此文件的打印参数（色彩/单双面/份数/页码）"
+              aria-label="设置此文件参数"
+            />
+            <Button
+              size="small"
+              icon={<FolderOpen size={13} />}
+              onClick={() => void handleShowInFolder(record.path)}
+              title="在系统资源管理器中打开并定位文件"
+              aria-label="在文件夹中显示"
+            />
+            <Button
+              size="small"
+              danger
+              icon={<Trash2 size={13} />}
+              disabled={isPrinting}
+              onClick={() => onRemove(record.id)}
+              title="从列表中移除此文件"
+              aria-label="移除文件"
+            />
+            <Dropdown
+              menu={{ items: moreMenuItems }}
+              trigger={['click']}
+              placement="bottomRight"
+              getPopupContainer={(trigger) => trigger.closest('.queue-panel') || document.body}
             >
-              设置
-            </Button>
-            <Dropdown menu={{ items: moreMenuItems }} trigger={['click']} placement="bottomRight">
               <Button
                 size="small"
                 icon={<MoreHorizontal size={14} />}
                 disabled={isPrinting}
-                title="更多操作"
+                title="更多选项（复制完整路径等）"
               />
             </Dropdown>
           </Space>
@@ -313,6 +378,14 @@ export function PrintQueue({
         columns={columns}
         dataSource={items}
         className="queue-compact-table"
+        rowSelection={{
+          selectedRowKeys,
+          onChange: onSelectionChange,
+          getCheckboxProps: (record) => ({
+            disabled: isPrinting,
+            'aria-label': `选择 ${record.fileName}`,
+          }),
+        }}
       />
     </div>
   );

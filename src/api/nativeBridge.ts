@@ -193,88 +193,6 @@ export async function runPrintBatch(request: PrintBatchRequest): Promise<PrintBa
   return invokeCommand<PrintBatchResult>('run_print_batch', { request });
 }
 
-export interface ProxyConfigPayload {
-  useSystemProxy: boolean;
-  customProxyUrl?: string;
-  username?: string;
-  password?: string;
-}
-
-export interface UpdateCheckResult {
-  available: boolean;
-  version?: string;
-  body?: string;
-  downloadUrl?: string;
-  downloadSize?: number;
-}
-
-export async function checkForAppUpdate(
-  proxy?: ProxyConfigPayload,
-): Promise<UpdateCheckResult> {
-  if (!isTauriRuntime()) {
-    return { available: false };
-  }
-  return invokeCommand<UpdateCheckResult>('check_for_app_update', { proxy: proxy ?? null });
-}
-
-export interface UpdateDownloadProgress {
-  percent: number;
-  downloaded: number;
-  total: number;
-}
-
-export async function downloadAndInstallUpdate(
-  downloadUrl: string,
-  proxy?: ProxyConfigPayload,
-): Promise<string> {
-  if (!isTauriRuntime()) {
-    throw new Error('当前不在桌面运行时中，无法下载更新');
-  }
-  return invokeCommand<string>('download_and_install_update', {
-    downloadUrl,
-    proxy: proxy ?? null,
-  });
-}
-
-export async function openReleasePage(): Promise<void> {
-  if (!isTauriRuntime()) {
-    window.open('https://github.com/ws1993/PrintAssist/releases/latest', '_blank');
-    return;
-  }
-  await invokeCommand('open_release_page');
-}
-
-export function subscribeUpdateDownloadProgress(
-  onProgress: (progress: UpdateDownloadProgress) => void,
-): () => void {
-  if (!isTauriRuntime()) {
-    return () => undefined;
-  }
-
-  let disposed = false;
-  let unlisten: (() => void) | undefined;
-
-  void import('@tauri-apps/api/event').then(({ listen }) => {
-    if (disposed) {
-      return;
-    }
-    void listen<UpdateDownloadProgress>('update-download-progress', (event) => {
-      onProgress(event.payload);
-    }).then((stop) => {
-      if (disposed) {
-        stop();
-        return;
-      }
-      unlisten = stop;
-    });
-  });
-
-  return () => {
-    disposed = true;
-    unlisten?.();
-  };
-}
-
 export function subscribeIncomingFiles(
   onFiles: (paths: string[]) => void,
 ): () => void {
@@ -371,6 +289,70 @@ export async function showInFolder(path: string): Promise<void> {
     return;
   }
   await invokeCommand('show_in_folder', { path });
+}
+
+export interface PrintItemStartedEvent {
+  queueItemId: string;
+  index: number;
+  total: number;
+}
+
+export interface PrintItemFinishedEvent {
+  queueItemId: string;
+  status: 'succeeded' | 'failed' | 'skipped';
+  message?: string;
+  index: number;
+  total: number;
+  succeeded: number;
+  failed: number;
+  skipped: number;
+}
+
+export function subscribePrintItemEvents(handlers: {
+  onItemStarted?: (event: PrintItemStartedEvent) => void;
+  onItemFinished?: (event: PrintItemFinishedEvent) => void;
+}): () => void {
+  if (!isTauriRuntime()) {
+    return () => undefined;
+  }
+
+  let disposed = false;
+  const unlistenFns: Array<() => void> = [];
+
+  void import('@tauri-apps/api/event').then(({ listen }) => {
+    if (disposed) {
+      return;
+    }
+    if (handlers.onItemStarted) {
+      void listen<PrintItemStartedEvent>('print-item-started', (event) => {
+        handlers.onItemStarted?.(event.payload);
+      }).then((stop) => {
+        if (disposed) {
+          stop();
+          return;
+        }
+        unlistenFns.push(stop);
+      });
+    }
+    if (handlers.onItemFinished) {
+      void listen<PrintItemFinishedEvent>('print-item-finished', (event) => {
+        handlers.onItemFinished?.(event.payload);
+      }).then((stop) => {
+        if (disposed) {
+          stop();
+          return;
+        }
+        unlistenFns.push(stop);
+      });
+    }
+  });
+
+  return () => {
+    disposed = true;
+    for (const unlisten of unlistenFns) {
+      unlisten();
+    }
+  };
 }
 
 export { isTauriRuntime };
