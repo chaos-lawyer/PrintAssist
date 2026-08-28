@@ -446,16 +446,12 @@ pub async fn rebuild_printer_profile(
     let printer_name = &old_profile.printer.printer_name;
 
     #[cfg(windows)]
-    let new_devmode = {
-        let mut devmode = printers::devmode::query_default_devmode(printer_name)?;
-        let _ = printers::devmode::apply_settings_to_devmode(
-            &mut devmode,
-            old_profile.settings_snapshot.color_mode.as_ref(),
-            old_profile.settings_snapshot.sides_mode.as_ref(),
-            old_profile.settings_snapshot.flip_mode.as_ref(),
-        );
-        printers::devmode::validate_devmode_with_driver(printer_name, &devmode)?
-    };
+    let new_devmode = printers::devmode::rebuild_devmode_from_settings(
+        printer_name,
+        old_profile.settings_snapshot.color_mode.as_deref(),
+        old_profile.settings_snapshot.sides_mode.as_deref(),
+        old_profile.settings_snapshot.flip_mode.as_deref(),
+    )?;
 
     #[cfg(not(windows))]
     let new_devmode = vec![0_u8; 128];

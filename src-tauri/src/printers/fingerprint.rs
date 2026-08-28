@@ -52,7 +52,7 @@ pub fn query_printer_fingerprint(printer_name: &str) -> Result<PrinterDriverFing
         GetPrinterW(
             printer_handle,
             2,
-            Some(printer_buf.as_mut_ptr()),
+            Some(printer_buf.as_mut_slice()),
             &mut needed,
         )
     };
@@ -60,7 +60,7 @@ pub fn query_printer_fingerprint(printer_name: &str) -> Result<PrinterDriverFing
         return Err("读取打印机信息失败".to_string());
     }
 
-    let info2 = unsafe { &*(printer_buf.as_ptr() as *const PRINTER_INFO_2W) };
+    let info2 = unsafe { (printer_buf.as_ptr() as *const PRINTER_INFO_2W).read_unaligned() };
     let driver_name = unsafe {
         if info2.pDriverName.is_null() {
             printer_name.to_string()
@@ -92,12 +92,12 @@ pub fn query_printer_fingerprint(printer_name: &str) -> Result<PrinterDriverFing
                 printer_handle,
                 None,
                 2,
-                Some(driver_buf.as_mut_ptr()),
+                Some(driver_buf.as_mut_slice()),
                 &mut driver_needed,
             )
         };
-        if driver_ok.is_ok() && driver_buf.len() >= size_of::<DRIVER_INFO_2W>() {
-            let drv2 = unsafe { &*(driver_buf.as_ptr() as *const DRIVER_INFO_2W) };
+        if driver_ok.as_bool() && driver_buf.len() >= size_of::<DRIVER_INFO_2W>() {
+            let drv2 = unsafe { (driver_buf.as_ptr() as *const DRIVER_INFO_2W).read_unaligned() };
             let env = unsafe {
                 if drv2.pEnvironment.is_null() {
                     "Windows x64".to_string()

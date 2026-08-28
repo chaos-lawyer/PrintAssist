@@ -18,7 +18,7 @@ use windows::Win32::Graphics::Gdi::{
     DM_ORIENTATION, DM_OUT_BUFFER, DM_PAPERLENGTH, DM_PAPERSIZE, DM_PAPERWIDTH, DM_PRINTQUALITY,
 };
 #[cfg(windows)]
-use windows::Win32::Graphics::Printing::DocumentPropertiesW;
+use windows::Win32::Graphics::Printing::{ClosePrinter, DocumentPropertiesW, OpenPrinterW};
 
 use crate::contracts::PrinterDriverSettings;
 
@@ -321,6 +321,37 @@ pub fn query_default_devmode(
 
     validate_devmode_buffer(&buffer)?;
     Ok(buffer)
+}
+
+/// Rebuilds a DEVMODE from the printer driver's current defaults while preserving
+/// the standard settings that can be safely migrated from a saved profile.
+#[cfg(windows)]
+pub fn rebuild_devmode_from_settings(
+    printer_name: &str,
+    color_mode: Option<&str>,
+    sides_mode: Option<&str>,
+    flip_mode: Option<&str>,
+) -> Result<Vec<u8>, String> {
+    let printer_wide = null_terminated_wide(printer_name);
+    let mut printer_handle = HANDLE::default();
+    unsafe {
+        OpenPrinterW(PCWSTR(printer_wide.as_ptr()), &mut printer_handle, None)
+            .map_err(|error| format!("打开打印机 “{printer_name}” 失败：{error}"))?;
+    }
+
+    struct PrinterGuard(HANDLE);
+    impl Drop for PrinterGuard {
+        fn drop(&mut self) {
+            unsafe {
+                let _ = ClosePrinter(self.0);
+            }
+        }
+    }
+    let _printer_guard = PrinterGuard(printer_handle);
+
+    let mut devmode = query_default_devmode(printer_handle, printer_name)?;
+    apply_settings_to_devmode(&mut devmode, color_mode, sides_mode, flip_mode)?;
+    validate_devmode_with_driver(printer_handle, printer_name, &devmode)
 }
 
 /// Submits an in-memory DEVMODE buffer to DocumentPropertiesW(DM_IN_BUFFER | DM_OUT_BUFFER)
