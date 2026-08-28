@@ -15,6 +15,8 @@ export interface PrintSettings {
   sidesMode: SidesMode;
   flipMode: FlipMode;
   copies: number;
+  sourceCode?: number;
+  sourceName?: string;
   pageRange: PageRangeInput;
   driverProfileId?: string;
   driverSummary?: string;
@@ -28,6 +30,8 @@ export interface FileSettingsOverride {
   sidesMode?: SidesMode;
   flipMode?: FlipMode;
   copies?: number;
+  sourceCode?: number;
+  sourceName?: string;
   pageRange?: PageRangeInput;
 }
 
@@ -152,6 +156,8 @@ export function mergePrintSettings(
     sidesMode: fileOverride.sidesMode ?? globalSettings.sidesMode,
     flipMode: fileOverride.flipMode ?? globalSettings.flipMode,
     copies: fileOverride.copies ?? globalSettings.copies,
+    sourceCode: fileOverride.sourceCode !== undefined ? fileOverride.sourceCode : globalSettings.sourceCode,
+    sourceName: fileOverride.sourceName !== undefined ? fileOverride.sourceName : globalSettings.sourceName,
     pageRange: fileOverride.pageRange ?? globalSettings.pageRange,
     driverProfileId: globalSettings.driverProfileId,
     driverSummary: globalSettings.driverSummary,

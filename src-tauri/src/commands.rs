@@ -6,9 +6,9 @@ use tauri_plugin_dialog::DialogExt;
 #[cfg(windows)]
 use crate::contracts::PrinterPropertiesStatus;
 use crate::contracts::{
-    ExportPrinterProfilePayload, LoadedPrinterProfileResult, PrintBatchRequest, PrintBatchResult,
-    PrinterPropertiesResult, ProxyConfig, SavePrinterProfileRequest, SavedPrinterProfileSummary,
-    SystemPrinter, UpdateCheckResult,
+    ExportPrinterProfilePayload, LoadedPrinterProfileResult, PaperSourceOption, PrintBatchRequest,
+    PrintBatchResult, PrinterPropertiesResult, ProxyConfig, SavePrinterProfileRequest,
+    SavedPrinterProfileSummary, SystemPrinter, UpdateCheckResult,
 };
 use crate::ingress::{collect_path_argument, is_supported_file};
 use crate::printers::{
@@ -172,6 +172,23 @@ pub async fn list_system_printers() -> Result<Vec<SystemPrinter>, String> {
     tauri::async_runtime::spawn_blocking(printers::list_system_printers_sync)
         .await
         .map_err(|error| format!("printer discovery task failed: {error}"))?
+}
+
+#[tauri::command]
+pub async fn list_printer_paper_sources(
+    printer_name: String,
+) -> Result<Vec<PaperSourceOption>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let bins_map = printers::query_bin_names_map(&printer_name, None);
+        let mut list: Vec<PaperSourceOption> = bins_map
+            .into_iter()
+            .map(|(code, name)| PaperSourceOption { code, name })
+            .collect();
+        list.sort_by_key(|item| item.code);
+        Ok(list)
+    })
+    .await
+    .map_err(|error| format!("failed to list paper sources: {error}"))?
 }
 
 #[tauri::command]

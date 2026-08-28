@@ -21,6 +21,11 @@ export interface SystemPrinter {
 
 export type PrinterPropertiesStatus = 'accepted' | 'cancelled';
 
+export interface PaperSourceOption {
+  code: number;
+  name: string;
+}
+
 export interface PrinterDriverSettings {
   printerName: string;
   paperCode?: number;

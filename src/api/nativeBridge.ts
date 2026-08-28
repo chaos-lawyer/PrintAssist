@@ -1,5 +1,6 @@
 import type {
   LoadedPrinterProfileResult,
+  PaperSourceOption,
   PrinterPropertiesResult,
   SavePrinterProfileRequest,
   SavedPrinterProfileSummary,
@@ -28,6 +29,13 @@ export async function listSystemPrinters(): Promise<SystemPrinter[]> {
     return [];
   }
   return invokeCommand<SystemPrinter[]>('list_system_printers');
+}
+
+export async function listPrinterPaperSources(printerName: string): Promise<PaperSourceOption[]> {
+  if (!isTauriRuntime() || !printerName) {
+    return [];
+  }
+  return invokeCommand<PaperSourceOption[]>('list_printer_paper_sources', { printerName });
 }
 
 export async function openPrinterProperties(

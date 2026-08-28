@@ -205,18 +205,24 @@ pub fn parse_devmode_standard_fields(
     }
 }
 
-/// Overwrites color, duplex, and flip settings onto an existing DEVMODE buffer without corrupting private data.
+/// Overwrites color, duplex, flip, and paper source settings onto an existing DEVMODE buffer without corrupting private data.
 pub fn apply_settings_to_devmode(
     devmode_bytes: &mut [u8],
     color_mode: Option<&str>,
     sides_mode: Option<&str>,
     flip_mode: Option<&str>,
+    source_code: Option<i16>,
 ) -> Result<(), String> {
     validate_devmode_buffer(devmode_bytes)?;
 
     #[cfg(windows)]
     {
         let devmode = unsafe { &mut *(devmode_bytes.as_mut_ptr() as *mut DEVMODEW) };
+
+        if let Some(src) = source_code {
+            devmode.dmFields |= DM_DEFAULTSOURCE;
+            devmode.Anonymous1.Anonymous1.dmDefaultSource = src;
+        }
 
         if let Some(color) = color_mode {
             devmode.dmFields |= DM_COLOR;
@@ -249,7 +255,7 @@ pub fn apply_settings_to_devmode(
 
     #[cfg(not(windows))]
     {
-        let _ = (color_mode, sides_mode, flip_mode);
+        let _ = (color_mode, sides_mode, flip_mode, source_code);
         Err("非 Windows 平台不支持 DEVMODE 修改".to_string())
     }
 }
@@ -350,7 +356,7 @@ pub fn rebuild_devmode_from_settings(
     let _printer_guard = PrinterGuard(printer_handle);
 
     let mut devmode = query_default_devmode(printer_handle, printer_name)?;
-    apply_settings_to_devmode(&mut devmode, color_mode, sides_mode, flip_mode)?;
+    apply_settings_to_devmode(&mut devmode, color_mode, sides_mode, flip_mode, None)?;
     validate_devmode_with_driver(printer_handle, printer_name, &devmode)
 }
 
@@ -462,7 +468,7 @@ mod tests {
         assert_eq!(settings.driver_extra_bytes, 128);
 
         // Apply override: change to monochrome + simplex
-        apply_settings_to_devmode(&mut full_buffer, Some("monochrome"), Some("simplex"), None)
+        apply_settings_to_devmode(&mut full_buffer, Some("monochrome"), Some("simplex"), None, None)
             .expect("apply overrides");
 
         let updated =

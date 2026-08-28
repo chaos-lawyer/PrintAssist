@@ -60,6 +60,7 @@ pub fn run() {
         .manage(printers::PrinterProfileStore::default())
         .invoke_handler(tauri::generate_handler![
             commands::list_system_printers,
+            commands::list_printer_paper_sources,
             commands::open_printer_properties,
             commands::list_saved_printer_profiles,
             commands::save_printer_profile,

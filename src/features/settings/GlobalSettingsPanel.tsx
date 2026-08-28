@@ -1,8 +1,9 @@
-import { Alert, Button, InputNumber, Segmented, Space, Typography } from 'antd';
-import { ChevronDown, SlidersHorizontal } from 'lucide-react';
+import { Alert, Button, Input, InputNumber, Segmented, Select, Space, Tooltip, Typography } from 'antd';
+import { ChevronDown, RefreshCw, SlidersHorizontal } from 'lucide-react';
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import type { SavedPrinterProfileSummary, SystemPrinter } from '../../shared/contracts/printer';
+import type { PaperSourceOption, SavedPrinterProfileSummary, SystemPrinter } from '../../shared/contracts/printer';
+import { listPrinterPaperSources } from '../../api/nativeBridge';
 import type { ColorMode, FlipMode, PrintSettings, SidesMode } from '../../domain/printSettings';
 import { evaluateSettingAvailability } from '../../domain/printSettings';
 
@@ -25,6 +26,7 @@ interface GlobalSettingsPanelProps {
   loadingProperties?: boolean;
   savedProfiles?: SavedPrinterProfileSummary[];
   loadingProfiles?: boolean;
+  onRefreshPrinters?: () => void;
   onOpenProperties?: () => void;
   onSelectProfile?: (profileId: string | null) => void;
   onOpenSaveProfile?: () => void;
@@ -52,6 +54,7 @@ export function GlobalSettingsPanel({
   loadingProperties = false,
   savedProfiles = [],
   loadingProfiles = false,
+  onRefreshPrinters,
   onOpenProperties,
   onSelectProfile,
   onOpenSaveProfile,
@@ -69,6 +72,37 @@ export function GlobalSettingsPanel({
       reason.includes('错误') ||
       reason.includes('尚未选择'),
   );
+  const [paperSources, setPaperSources] = useState<PaperSourceOption[]>([]);
+  const [loadingPaperSources, setLoadingPaperSources] = useState(false);
+
+  useEffect(() => {
+    if (!settings.printerName) {
+      setPaperSources([]);
+      return;
+    }
+    let cancelled = false;
+    setLoadingPaperSources(true);
+    void listPrinterPaperSources(settings.printerName)
+      .then((sources) => {
+        if (!cancelled) {
+          setPaperSources(sources);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setPaperSources([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoadingPaperSources(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [settings.printerName]);
+
   const [printerSelectOpen, setPrinterSelectOpen] = useState(false);
   const [profileSelectOpen, setProfileSelectOpen] = useState(false);
   const printerTriggerRef = useRef<HTMLButtonElement | null>(null);
@@ -460,6 +494,17 @@ export function GlobalSettingsPanel({
         <Typography.Title level={5} className="settings-panel-title">
           打印设置
         </Typography.Title>
+        <Tooltip title="刷新打印机列表">
+          <Button
+            type="text"
+            size="small"
+            icon={<RefreshCw size={13} className={loadingPrinters ? 'spin-icon' : ''} />}
+            loading={loadingPrinters}
+            onClick={onRefreshPrinters}
+            aria-label="刷新打印机列表"
+            className="refresh-printers-btn"
+          />
+        </Tooltip>
       </div>
 
       <div className="setting-field">
@@ -674,6 +719,35 @@ export function GlobalSettingsPanel({
           </Typography.Text>
         )}
 
+        <div className="setting-row">
+          <span className="setting-row-label" id="paper-tray-label">
+            纸盘
+          </span>
+          <Select
+            className="setting-select"
+            size="small"
+            style={{ flex: 1 }}
+            loading={loadingPaperSources}
+            placeholder="自动选择"
+            value={settings.sourceCode ?? -1}
+            onChange={(val) => {
+              if (val === -1) {
+                onChange({ ...settings, sourceCode: undefined, sourceName: undefined });
+              } else {
+                const found = paperSources.find((s) => s.code === val);
+                onChange({ ...settings, sourceCode: val, sourceName: found?.name });
+              }
+            }}
+            options={[
+              { label: '自动选择 / 默认纸盘', value: -1 },
+              ...paperSources.map((s) => ({
+                label: s.name,
+                value: s.code,
+              })),
+            ]}
+          />
+        </div>
+
         <div className="setting-row setting-row-copies">
           <label className="setting-row-label" htmlFor="copies-input">
             份数
@@ -695,6 +769,56 @@ export function GlobalSettingsPanel({
             <Typography.Text type="secondary">份</Typography.Text>
           </div>
         </div>
+
+        <div className="setting-row">
+          <span className="setting-row-label" id="page-range-label">
+            页码
+          </span>
+          <Segmented
+            className="setting-segmented"
+            size="small"
+            block
+            aria-labelledby="page-range-label"
+            value={settings.pageRange?.mode ?? 'all'}
+            options={[
+              { label: '全部页', value: 'all' },
+              { label: '自定义', value: 'custom' },
+            ]}
+            onChange={(value) => {
+              const mode = value as 'all' | 'custom';
+              onChange({
+                ...settings,
+                pageRange: {
+                  mode,
+                  expression: settings.pageRange?.expression || (mode === 'custom' ? '1,3,5-8' : ''),
+                },
+              });
+            }}
+          />
+        </div>
+
+        {settings.pageRange?.mode === 'custom' && (
+          <div className="setting-row setting-row-nested">
+            <span className="setting-row-label" id="page-expr-label">
+              范围
+            </span>
+            <Input
+              id="page-expr-input"
+              size="small"
+              placeholder="例如 1,3,5-8"
+              value={settings.pageRange?.expression}
+              onChange={(e) =>
+                onChange({
+                  ...settings,
+                  pageRange: {
+                    mode: 'custom',
+                    expression: e.target.value,
+                  },
+                })
+              }
+            />
+          </div>
+        )}
       </div>
 
       {criticalReasons.length > 0 && (

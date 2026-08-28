@@ -178,6 +178,7 @@ fn print_item_windows(
                 Some(&item.settings.color_mode),
                 Some(&item.settings.sides_mode),
                 Some(&item.settings.flip_mode),
+                item.settings.source_code,
             );
             devmode
         });

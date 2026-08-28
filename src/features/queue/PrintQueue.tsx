@@ -1,6 +1,5 @@
 import {
   Button,
-  Dropdown,
   Space,
   Table,
   Tag,
@@ -9,11 +8,7 @@ import {
   message,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import type { MenuProps } from 'antd';
 import {
-  ArrowDown,
-  ArrowUp,
-  Copy,
   File,
   FileCode,
   FilePlus2,
@@ -22,7 +17,6 @@ import {
   FolderOpen,
   Image,
   Loader2,
-  MoreHorizontal,
   Presentation,
   Settings2,
   Trash2,
@@ -45,7 +39,7 @@ interface PrintQueueProps {
   onSelectionChange: (keys: React.Key[]) => void;
   onRemove: (id: string) => void;
   onOpenSettings: (id: string) => void;
-  onMoveItem?: (id: string, direction: 'up' | 'down') => void;
+  onAddFiles?: () => void;
 }
 
 function statusTag(status: QueueItem['status']) {
@@ -137,7 +131,7 @@ export function PrintQueue({
   onSelectionChange,
   onRemove,
   onOpenSettings,
-  onMoveItem,
+  onAddFiles,
 }: PrintQueueProps) {
   // Count duplicate file names to provide disambiguation hints
   const fileNameCounts = useMemo(() => {
@@ -147,17 +141,6 @@ export function PrintQueue({
     }
     return counts;
   }, [items]);
-
-  const handleCopyPath = async (path: string) => {
-    try {
-      if (navigator.clipboard) {
-        await navigator.clipboard.writeText(path);
-        message.success('已复制文件完整路径');
-      }
-    } catch {
-      message.error('复制路径失败');
-    }
-  };
 
   const handleShowInFolder = async (path: string) => {
     try {
@@ -259,108 +242,58 @@ export function PrintQueue({
     {
       title: '操作',
       key: 'actions',
-      width: 130,
+      width: 100,
       align: 'center',
-      render: (_, record, index) => {
-        const isFirst = index === 0;
-        const isLast = index === items.length - 1;
-
-        const moreMenuItems: MenuProps['items'] = [
-          {
-            key: 'move-up',
-            icon: <ArrowUp size={13} />,
-            label: '上移一行',
-            disabled: isPrinting || isFirst,
-            onClick: () => onMoveItem?.(record.id, 'up'),
-          },
-          {
-            key: 'move-down',
-            icon: <ArrowDown size={13} />,
-            label: '下移一行',
-            disabled: isPrinting || isLast,
-            onClick: () => onMoveItem?.(record.id, 'down'),
-          },
-          {
-            type: 'divider',
-          },
-          {
-            key: 'copy-path',
-            icon: <Copy size={13} />,
-            label: '复制完整路径',
-            onClick: () => void handleCopyPath(record.path),
-          },
-          {
-            key: 'show-folder',
-            icon: <FolderOpen size={13} />,
-            label: '在文件夹中显示',
-            onClick: () => void handleShowInFolder(record.path),
-          },
-          {
-            type: 'divider',
-          },
-          {
-            key: 'remove',
-            icon: <Trash2 size={13} />,
-            label: '移除文件',
-            danger: true,
-            disabled: isPrinting,
-            onClick: () => onRemove(record.id),
-          },
-        ];
-
-        return (
-          <Space size={4}>
-            <Button
-              size="small"
-              icon={<Settings2 size={13} />}
-              disabled={isPrinting}
-              onClick={() => onOpenSettings(record.id)}
-              title="设置此文件的打印参数（色彩/单双面/份数/页码）"
-              aria-label="设置此文件参数"
-            />
-            <Button
-              size="small"
-              icon={<FolderOpen size={13} />}
-              onClick={() => void handleShowInFolder(record.path)}
-              title="在系统资源管理器中打开并定位文件"
-              aria-label="在文件夹中显示"
-            />
-            <Button
-              size="small"
-              danger
-              icon={<Trash2 size={13} />}
-              disabled={isPrinting}
-              onClick={() => onRemove(record.id)}
-              title="从列表中移除此文件"
-              aria-label="移除文件"
-            />
-            <Dropdown
-              menu={{ items: moreMenuItems }}
-              trigger={['click']}
-              placement="bottomRight"
-              getPopupContainer={(trigger) => trigger.closest('.queue-panel') || document.body}
-            >
-              <Button
-                size="small"
-                icon={<MoreHorizontal size={14} />}
-                disabled={isPrinting}
-                title="更多选项（复制完整路径等）"
-              />
-            </Dropdown>
-          </Space>
-        );
-      },
+      render: (_, record) => (
+        <Space size={4}>
+          <Button
+            size="small"
+            icon={<Settings2 size={13} />}
+            disabled={isPrinting}
+            onClick={() => onOpenSettings(record.id)}
+            title="设置此文件的打印参数（色彩/单双面/份数/页码）"
+            aria-label="设置此文件参数"
+          />
+          <Button
+            size="small"
+            icon={<FolderOpen size={13} />}
+            onClick={() => void handleShowInFolder(record.path)}
+            title="在系统资源管理器中打开并定位文件"
+            aria-label="在文件夹中显示"
+          />
+          <Button
+            size="small"
+            danger
+            icon={<Trash2 size={13} />}
+            disabled={isPrinting}
+            onClick={() => onRemove(record.id)}
+            title="从列表中移除此文件"
+            aria-label="移除文件"
+          />
+        </Space>
+      ),
     },
   ];
 
   if (items.length === 0) {
     return (
-      <div className="queue-empty-container">
+      <div 
+        className="queue-empty-container is-clickable"
+        onClick={onAddFiles}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            onAddFiles?.();
+          }
+        }}
+      >
         <div className="queue-empty-inner">
           <div className="queue-empty-icon-wrap">
             <FilePlus2 size={36} />
           </div>
-          <div className="queue-empty-title">将文件或文件夹拖到此处</div>
+          <div className="queue-empty-title">将文件或文件夹拖到此处，或点击添加</div>
           <div className="queue-empty-desc">
             支持 PDF、图片及 Office 文档（Word、Excel、PPT），可继续批量追加
           </div>

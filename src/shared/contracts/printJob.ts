@@ -6,6 +6,8 @@ export interface ResolvedPrintSettingsPayload {
   sidesMode: SidesMode;
   flipMode: FlipMode;
   copies: number;
+  sourceCode?: number;
+  sourceName?: string;
   pageRangeMode: 'all' | 'custom';
   pageRangeExpression: string;
   driverProfileId?: string;

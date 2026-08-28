@@ -96,6 +96,13 @@ pub struct PrinterPropertiesResult {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct PaperSourceOption {
+    pub code: i16,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ResolvedPrintSettingsPayload {
     pub printer_name: String,
     pub color_mode: String,
@@ -104,6 +111,10 @@ pub struct ResolvedPrintSettingsPayload {
     pub copies: u32,
     pub page_range_mode: String,
     pub page_range_expression: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_code: Option<i16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub driver_profile_id: Option<String>,
 }

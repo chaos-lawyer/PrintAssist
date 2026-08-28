@@ -1,6 +1,8 @@
-import { Button, Drawer, Input, InputNumber, Radio, Space, Switch, Tooltip, Typography, message } from 'antd';
+import { Button, Drawer, Input, InputNumber, Radio, Select, Space, Switch, Tooltip, Typography, message } from 'antd';
 import { useEffect, useState } from 'react';
 import type { QueueItem } from '../../domain/queueTypes';
+import type { PaperSourceOption } from '../../shared/contracts/printer';
+import { listPrinterPaperSources } from '../../api/nativeBridge';
 import type {
   ColorMode,
   FileSettingsOverride,
@@ -33,12 +35,45 @@ export function FileSettingsDrawer({
   const [useCustomColor, setUseCustomColor] = useState(false);
   const [useCustomSides, setUseCustomSides] = useState(false);
   const [useCustomCopies, setUseCustomCopies] = useState(false);
+  const [useCustomSource, setUseCustomSource] = useState(false);
   const [useCustomPages, setUseCustomPages] = useState(false);
   const [colorMode, setColorMode] = useState<ColorMode>('monochrome');
   const [sidesMode, setSidesMode] = useState<SidesMode>('simplex');
   const [flipMode, setFlipMode] = useState<FlipMode>('longEdge');
   const [copies, setCopies] = useState(1);
+  const [sourceCode, setSourceCode] = useState<number | undefined>(undefined);
+  const [sourceName, setSourceName] = useState<string | undefined>(undefined);
+  const [paperSources, setPaperSources] = useState<PaperSourceOption[]>([]);
+  const [loadingPaperSources, setLoadingPaperSources] = useState(false);
   const [pageExpression, setPageExpression] = useState('1,3,5-8');
+
+  useEffect(() => {
+    if (!globalSettings.printerName) {
+      setPaperSources([]);
+      return;
+    }
+    let cancelled = false;
+    setLoadingPaperSources(true);
+    void listPrinterPaperSources(globalSettings.printerName)
+      .then((sources) => {
+        if (!cancelled) {
+          setPaperSources(sources);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setPaperSources([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoadingPaperSources(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [globalSettings.printerName]);
 
   useEffect(() => {
     if (!item) {
@@ -48,11 +83,14 @@ export function FileSettingsDrawer({
     setUseCustomColor(item.override.colorMode !== undefined);
     setUseCustomSides(item.override.sidesMode !== undefined || item.override.flipMode !== undefined);
     setUseCustomCopies(item.override.copies !== undefined);
+    setUseCustomSource(item.override.sourceCode !== undefined);
     setUseCustomPages(item.override.pageRange !== undefined);
     setColorMode(merged.colorMode);
     setSidesMode(merged.sidesMode);
     setFlipMode(merged.flipMode);
     setCopies(merged.copies);
+    setSourceCode(merged.sourceCode);
+    setSourceName(merged.sourceName);
     setPageExpression(
       item.override.pageRange?.expression ||
         (merged.pageRange.mode === 'custom' ? merged.pageRange.expression : '1,3,5-8'),
@@ -75,6 +113,10 @@ export function FileSettingsDrawer({
     }
     if (useCustomCopies) {
       nextOverride.copies = copies;
+    }
+    if (useCustomSource) {
+      nextOverride.sourceCode = sourceCode;
+      nextOverride.sourceName = sourceName;
     }
     if (useCustomPages) {
       const parseResult = parsePageRangeExpression(
@@ -182,6 +224,37 @@ export function FileSettingsDrawer({
           disabled={!useCustomCopies}
           value={copies}
           onChange={(value) => setCopies(typeof value === 'number' && value > 0 ? value : 1)}
+        />
+      </div>
+
+      <div className="drawer-field">
+        <div className="drawer-field-head">
+          <Typography.Text strong>纸盘</Typography.Text>
+          <Switch checked={useCustomSource} onChange={setUseCustomSource} />
+        </div>
+        <Select
+          style={{ width: '100%' }}
+          disabled={!useCustomSource}
+          loading={loadingPaperSources}
+          placeholder="自动选择"
+          value={sourceCode ?? -1}
+          onChange={(val) => {
+            if (val === -1) {
+              setSourceCode(undefined);
+              setSourceName(undefined);
+            } else {
+              const found = paperSources.find((s) => s.code === val);
+              setSourceCode(val);
+              setSourceName(found?.name);
+            }
+          }}
+          options={[
+            { label: '自动选择 / 默认纸盘', value: -1 },
+            ...paperSources.map((s) => ({
+              label: s.name,
+              value: s.code,
+            })),
+          ]}
         />
       </div>
 

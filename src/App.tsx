@@ -3,13 +3,12 @@ import {
   ConfigProvider,
   Layout,
   Modal,
-  Popconfirm,
   Progress,
   Space,
   Typography,
   message,
 } from 'antd';
-import { FilePlus2, FolderPlus, Printer, RefreshCw, Trash2 } from 'lucide-react';
+import { FilePlus2, FolderPlus, Printer, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useReducer, useState } from 'react';
 import type { DragEvent } from 'react';
 import {
@@ -397,6 +396,8 @@ export function App() {
           sidesMode: resolved.sidesMode,
           flipMode: resolved.flipMode,
           copies: resolved.copies,
+          sourceCode: resolved.sourceCode,
+          sourceName: resolved.sourceName,
           pageRangeMode: resolved.pageRange.mode,
           pageRangeExpression: resolved.pageRange.expression,
           driverProfileId: resolved.driverProfileId,
@@ -471,6 +472,39 @@ export function App() {
     }
   };
 
+  const handleBatchRemove = () => {
+    if (selectedRowKeys.length === 0 || queueState.isPrinting) return;
+    const count = selectedRowKeys.length;
+    Modal.confirm({
+      title: `确定移除选中的 ${count} 个文件？`,
+      content: '移除后可随时重新添加。',
+      okText: '确定移除',
+      okButtonProps: { danger: true },
+      cancelText: '取消',
+      onOk: () => {
+        dispatch({ type: 'batch_remove', ids: selectedRowKeys as string[] });
+        setSelectedRowKeys([]);
+        message.success(`已移除 ${count} 个文件`);
+      },
+    });
+  };
+
+  const handleClearQueue = () => {
+    if (queueState.items.length === 0 || queueState.isPrinting) return;
+    Modal.confirm({
+      title: '确定清空当前批次？',
+      content: '将移除待打印列表中的所有文件。',
+      okText: '确定清空',
+      okButtonProps: { danger: true },
+      cancelText: '取消',
+      onOk: () => {
+        dispatch({ type: 'clear_queue' });
+        setSelectedRowKeys([]);
+        message.success('已清空待打印列表');
+      },
+    });
+  };
+
   // 监听单文件打印实时进度事件
   useEffect(() => {
     const unsubscribe = subscribePrintItemEvents({
@@ -506,10 +540,7 @@ export function App() {
       if ((event.key === 'Delete' || event.key === 'Backspace') && !isInputActive) {
         if (selectedRowKeys.length > 0 && !queueState.isPrinting) {
           event.preventDefault();
-          const count = selectedRowKeys.length;
-          dispatch({ type: 'batch_remove', ids: selectedRowKeys as string[] });
-          setSelectedRowKeys([]);
-          message.success(`已移除 ${count} 个文件`);
+          handleBatchRemove();
         }
       }
 
@@ -612,11 +643,6 @@ export function App() {
               </Typography.Text>
             </div>
           </div>
-          <Space className="header-actions" size={10}>
-            <Button ghost icon={<RefreshCw size={14} />} onClick={() => void refreshPrinters()}>
-              刷新打印机
-            </Button>
-          </Space>
         </Header>
         <Layout className="app-body">
           <Content
@@ -664,47 +690,24 @@ export function App() {
               </div>
               <Space size={8}>
                 {selectedRowKeys.length > 0 && (
-                  <Popconfirm
-                    title={`确定移除选中的 ${selectedRowKeys.length} 个文件？`}
-                    description="移除后可重新添加。"
-                    disabled={queueState.isPrinting}
-                    onConfirm={() => {
-                      dispatch({ type: 'batch_remove', ids: selectedRowKeys as string[] });
-                      setSelectedRowKeys([]);
-                      message.success(`已移除 ${selectedRowKeys.length} 个文件`);
-                    }}
-                    okText="确定"
-                    cancelText="取消"
-                  >
-                    <Button
-                      type="text"
-                      danger
-                      icon={<Trash2 size={14} />}
-                      disabled={queueState.isPrinting}
-                    >
-                      移除选中（{selectedRowKeys.length}）
-                    </Button>
-                  </Popconfirm>
-                )}
-                <Popconfirm
-                  title="确定清空当前批次？"
-                  description="将移除待打印列表中的所有文件。"
-                  disabled={queueState.isPrinting || queueState.items.length === 0}
-                  onConfirm={() => {
-                    dispatch({ type: 'clear_queue' });
-                    setSelectedRowKeys([]);
-                  }}
-                  okText="确定"
-                  cancelText="取消"
-                >
                   <Button
                     type="text"
                     danger
-                    disabled={queueState.isPrinting || queueState.items.length === 0}
+                    icon={<Trash2 size={14} />}
+                    disabled={queueState.isPrinting}
+                    onClick={handleBatchRemove}
                   >
-                    清空列表
+                    移除选中（{selectedRowKeys.length}）
                   </Button>
-                </Popconfirm>
+                )}
+                <Button
+                  type="text"
+                  danger
+                  disabled={queueState.isPrinting || queueState.items.length === 0}
+                  onClick={handleClearQueue}
+                >
+                  清空列表
+                </Button>
               </Space>
             </div>
             <PrintSummary
@@ -726,7 +729,7 @@ export function App() {
                   setSelectedRowKeys((prev) => prev.filter((k) => k !== id));
                 }}
                 onOpenSettings={(id) => setSettingsItemId(id)}
-                onMoveItem={(id, direction) => dispatch({ type: 'move_item', id, direction })}
+                onAddFiles={() => void handlePickFiles()}
               />
             </div>
             <div className="queue-footer">
@@ -810,6 +813,7 @@ export function App() {
               loadingProperties={loadingProperties}
               savedProfiles={savedProfiles}
               loadingProfiles={loadingSavedProfiles}
+              onRefreshPrinters={() => void refreshPrinters()}
               onOpenProperties={() => void handleOpenPrinterProperties()}
               onSelectProfile={(profileId) => void handleSelectSavedProfile(profileId)}
               onOpenSaveProfile={() => setSaveModalOpen(true)}
