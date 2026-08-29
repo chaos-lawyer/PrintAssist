@@ -13,6 +13,7 @@ export interface ResolvedPrintSettingsPayload {
   scaleMode?: PageScaleMode;
   pageRangeMode: 'all' | 'custom';
   pageRangeExpression: string;
+  collate?: boolean;
   driverProfileId?: string;
 }
 

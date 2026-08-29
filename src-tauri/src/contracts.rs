@@ -81,6 +81,8 @@ pub struct PrinterDriverSettings {
     pub orientation: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub print_quality: Option<i16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub collate: Option<bool>,
     pub driver_extra_bytes: usize,
 }
 
@@ -103,6 +105,17 @@ pub struct PaperSourceOption {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct PaperSourceCapability {
+    pub status: String, // "available" | "unsupported" | "unavailable"
+    pub sources: Vec<PaperSourceOption>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_source_code: Option<i16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ResolvedPrintSettingsPayload {
     pub printer_name: String,
     pub color_mode: String,
@@ -117,6 +130,8 @@ pub struct ResolvedPrintSettingsPayload {
     pub source_name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scale_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub collate: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub driver_profile_id: Option<String>,
 }
@@ -306,6 +321,7 @@ mod tests {
                 flip_mode: Some("longEdge".to_string()),
                 orientation: Some("portrait".to_string()),
                 print_quality: Some(600),
+                collate: Some(true),
                 driver_extra_bytes: 512,
             }),
         };

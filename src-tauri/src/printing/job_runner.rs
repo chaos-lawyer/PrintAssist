@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 
@@ -15,6 +16,21 @@ use crate::documents::print_shell::print_file_to_printer;
 use crate::documents::{detect_document_kind, DocumentKind};
 use crate::printers;
 
+/// Global atomic cancellation flag for active print batches
+static CANCEL_REQUESTED: AtomicBool = AtomicBool::new(false);
+
+pub fn cancel_current_batch() {
+    CANCEL_REQUESTED.store(true, Ordering::SeqCst);
+}
+
+pub fn reset_cancel_flag() {
+    CANCEL_REQUESTED.store(false, Ordering::SeqCst);
+}
+
+pub fn is_cancel_requested() -> bool {
+    CANCEL_REQUESTED.load(Ordering::SeqCst)
+}
+
 /// Shell `printto` / staged PDF handlers may open files asynchronously.
 /// Keep temp PDFs alive long enough for those fallbacks.
 const TEMP_PRINT_FILE_RETENTION: Duration = Duration::from_secs(180);
@@ -24,6 +40,7 @@ pub fn run_print_batch_sync(
     profile_store: Option<&printers::PrinterProfileStore>,
     app: Option<&tauri::AppHandle>,
 ) -> PrintBatchResult {
+    reset_cancel_flag();
     let mut results = Vec::new();
     let mut succeeded = 0_u32;
     let mut failed = 0_u32;
@@ -32,6 +49,36 @@ pub fn run_print_batch_sync(
 
     for (index, item) in request.items.into_iter().enumerate() {
         let item_id = item.queue_item_id.clone();
+
+        if is_cancel_requested() {
+            let result_item = PrintBatchResultItem {
+                queue_item_id: item_id.clone(),
+                path: item.path.clone(),
+                file_name: item.file_name.clone(),
+                status: "skipped".to_string(),
+                message: Some("用户已取消打印".to_string()),
+            };
+            skipped += 1;
+            if let Some(app_handle) = app {
+                use tauri::Emitter;
+                let _ = app_handle.emit(
+                    "print-item-finished",
+                    serde_json::json!({
+                        "queueItemId": item_id,
+                        "status": result_item.status.clone(),
+                        "message": result_item.message.clone(),
+                        "index": index,
+                        "total": total,
+                        "succeeded": succeeded,
+                        "failed": failed,
+                        "skipped": skipped,
+                    }),
+                );
+            }
+            results.push(result_item);
+            continue;
+        }
+
         if let Some(app_handle) = app {
             use tauri::Emitter;
             let _ = app_handle.emit(
@@ -165,23 +212,31 @@ fn print_item_windows(
     let printer = item.settings.printer_name.as_str();
     let copies = item.settings.copies.max(1);
 
-    // Retrieve and prepare active DEVMODE if stored profile exists
-    let active_devmode: Option<Vec<u8>> = item
+    // Retrieve and prepare active DEVMODE if stored profile exists or query default DEVMODE
+    let mut devmode_buf: Option<Vec<u8>> = item
         .settings
         .driver_profile_id
         .as_deref()
-        .and_then(|id| profile_store.and_then(|store| store.get_profile(id, printer)))
-        .map(|mut devmode| {
-            // Apply single-item standard settings overrides on top of stored profile
-            let _ = crate::printers::devmode::apply_settings_to_devmode(
-                &mut devmode,
-                Some(&item.settings.color_mode),
-                Some(&item.settings.sides_mode),
-                Some(&item.settings.flip_mode),
-                item.settings.source_code,
-            );
-            devmode
-        });
+        .and_then(|id| profile_store.and_then(|store| store.get_profile(id, printer)));
+
+    if devmode_buf.is_none() {
+        if let Ok(default_dm) = crate::printers::devmode::get_printer_default_devmode(printer) {
+            devmode_buf = Some(default_dm);
+        }
+    }
+
+    let active_devmode: Option<Vec<u8>> = devmode_buf.map(|mut devmode| {
+        // Apply single-item standard settings overrides on top of stored profile
+        let _ = crate::printers::devmode::apply_settings_to_devmode(
+            &mut devmode,
+            Some(&item.settings.color_mode),
+            Some(&item.settings.sides_mode),
+            Some(&item.settings.flip_mode),
+            item.settings.source_code,
+            item.settings.collate,
+        );
+        devmode
+    });
 
     let scale_mode = item.settings.scale_mode.as_deref();
 
@@ -281,6 +336,7 @@ fn print_pdf_preserving_orientation(
 }
 
 #[cfg(not(windows))]
+#[allow(dead_code)]
 fn print_pdf_preserving_orientation(
     _pdf_path: &Path,
     _printer: &str,

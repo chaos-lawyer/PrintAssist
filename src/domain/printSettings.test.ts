@@ -186,4 +186,74 @@ describe('printSettings domain', () => {
       expect(isProfileDirty({ ...base, flipMode: 'shortEdge' }, snapshot)).toBe(true);
     });
   });
+
+  describe('single-file override and inheritance', () => {
+    it('inherits global settings when override has no custom values', () => {
+      const global = createDefaultGlobalSettings('HP LaserJet');
+      global.colorMode = 'color';
+      global.copies = 3;
+      global.sidesMode = 'duplex';
+      global.flipMode = 'shortEdge';
+
+      const merged = mergePrintSettings(global, {});
+      expect(merged.colorMode).toBe('color');
+      expect(merged.copies).toBe(3);
+      expect(merged.sidesMode).toBe('duplex');
+      expect(merged.flipMode).toBe('shortEdge');
+    });
+
+    it('directly modifies field without solidifying other fields', () => {
+      const global = createDefaultGlobalSettings('HP LaserJet');
+      global.colorMode = 'monochrome';
+      global.copies = 1;
+
+      // Override only copies
+      const override = { copies: 5 };
+      const merged1 = mergePrintSettings(global, override);
+      expect(merged1.copies).toBe(5);
+      expect(merged1.colorMode).toBe('monochrome');
+
+      // Now global color changes, file should inherit new color while keeping copies
+      global.colorMode = 'color';
+      const merged2 = mergePrintSettings(global, override);
+      expect(merged2.colorMode).toBe('color');
+      expect(merged2.copies).toBe(5);
+    });
+
+    it('resets individual field by deleting key from override', () => {
+      const global = createDefaultGlobalSettings('HP LaserJet');
+      global.colorMode = 'color';
+
+      const override: { colorMode?: 'monochrome' | 'color'; copies?: number } = {
+        colorMode: 'monochrome',
+        copies: 4,
+      };
+
+      // Reset color back to global
+      delete override.colorMode;
+      const merged = mergePrintSettings(global, override);
+      expect(merged.colorMode).toBe('color');
+      expect(merged.copies).toBe(4);
+    });
+
+    it('all fields reset restores entire file to follow global', () => {
+      const global = createDefaultGlobalSettings('HP LaserJet');
+      global.colorMode = 'color';
+      global.copies = 2;
+      global.sidesMode = 'duplex';
+
+      let override = {
+        colorMode: 'monochrome' as const,
+        copies: 10,
+        sidesMode: 'simplex' as const,
+      };
+
+      // Reset all
+      override = {} as typeof override;
+      const merged = mergePrintSettings(global, override);
+      expect(merged.colorMode).toBe('color');
+      expect(merged.copies).toBe(2);
+      expect(merged.sidesMode).toBe('duplex');
+    });
+  });
 });

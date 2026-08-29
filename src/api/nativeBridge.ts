@@ -1,5 +1,6 @@
 import type {
   LoadedPrinterProfileResult,
+  PaperSourceCapability,
   PaperSourceOption,
   PrinterPropertiesResult,
   SavePrinterProfileRequest,
@@ -31,11 +32,11 @@ export async function listSystemPrinters(): Promise<SystemPrinter[]> {
   return invokeCommand<SystemPrinter[]>('list_system_printers');
 }
 
-export async function listPrinterPaperSources(printerName: string): Promise<PaperSourceOption[]> {
+export async function listPrinterPaperSources(printerName: string): Promise<PaperSourceCapability> {
   if (!isTauriRuntime() || !printerName) {
-    return [];
+    return { status: 'unsupported', sources: [] };
   }
-  return invokeCommand<PaperSourceOption[]>('list_printer_paper_sources', { printerName });
+  return invokeCommand<PaperSourceCapability>('list_printer_paper_sources', { printerName });
 }
 
 export async function openPrinterProperties(
@@ -131,11 +132,11 @@ export async function setDefaultPrinterProfile(
 export async function reorderPrinterProfiles(
   printerName: string,
   orderedProfileIds: string[],
-): Promise<void> {
+): Promise<string[]> {
   if (!isTauriRuntime()) {
-    return;
+    return orderedProfileIds;
   }
-  return invokeCommand<void>('reorder_printer_profiles', {
+  return invokeCommand<string[]>('reorder_printer_profiles', {
     printerName,
     orderedProfileIds,
   });
@@ -199,6 +200,13 @@ export async function runPrintBatch(request: PrintBatchRequest): Promise<PrintBa
     throw new Error('当前不在桌面运行时中，无法执行真实打印');
   }
   return invokeCommand<PrintBatchResult>('run_print_batch', { request });
+}
+
+export async function cancelPrintBatch(): Promise<void> {
+  if (!isTauriRuntime()) {
+    return;
+  }
+  return invokeCommand<void>('cancel_print_batch');
 }
 
 export function subscribeIncomingFiles(

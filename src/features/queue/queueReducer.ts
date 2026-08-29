@@ -14,6 +14,10 @@ export type QueueAction =
   | { type: 'batch_remove'; ids: string[] }
   | { type: 'clear_queue' }
   | { type: 'update_override'; id: string; override: FileSettingsOverride }
+  | { type: 'batch_set_override'; ids: string[]; override: Partial<FileSettingsOverride> }
+  | { type: 'sort_queue'; by: 'fileName' | 'kind' | 'pageCount'; direction: 'asc' | 'desc' }
+  | { type: 'reverse_queue' }
+  | { type: 'reorder_items'; sourceIndex: number; targetIndex: number }
   | { type: 'set_item_status'; id: string; status: QueueItem['status']; errorMessage?: string }
   | { type: 'begin_print' }
   | { type: 'finish_print'; summary: PrintJobSummary }
@@ -137,6 +141,73 @@ export function queueReducer(state: QueueState, action: QueueAction): QueueState
             : item,
         ),
       };
+
+    case 'batch_set_override': {
+      const targetIds = new Set(action.ids);
+      return {
+        ...state,
+        items: state.items.map((item) => {
+          if (!targetIds.has(item.id)) {
+            return item;
+          }
+          return {
+            ...item,
+            override: {
+              ...item.override,
+              ...action.override,
+            },
+          };
+        }),
+      };
+    }
+
+    case 'sort_queue': {
+      const sorted = [...state.items].sort((a, b) => {
+        let cmp = 0;
+        if (action.by === 'fileName') {
+          cmp = a.fileName.localeCompare(b.fileName, undefined, {
+            numeric: true,
+            sensitivity: 'base',
+          });
+        } else if (action.by === 'kind') {
+          cmp = a.kind.localeCompare(b.kind);
+        } else if (action.by === 'pageCount') {
+          const aCount = a.pageCount ?? 0;
+          const bCount = b.pageCount ?? 0;
+          cmp = aCount - bCount;
+        }
+        return action.direction === 'desc' ? -cmp : cmp;
+      });
+      return {
+        ...state,
+        items: sorted,
+      };
+    }
+
+    case 'reverse_queue':
+      return {
+        ...state,
+        items: [...state.items].reverse(),
+      };
+
+    case 'reorder_items': {
+      const { sourceIndex, targetIndex } = action;
+      if (
+        sourceIndex < 0 ||
+        sourceIndex >= state.items.length ||
+        targetIndex < 0 ||
+        targetIndex >= state.items.length
+      ) {
+        return state;
+      }
+      const nextItems = [...state.items];
+      const [moved] = nextItems.splice(sourceIndex, 1);
+      nextItems.splice(targetIndex, 0, moved);
+      return {
+        ...state,
+        items: nextItems,
+      };
+    }
 
     case 'set_item_status':
       return {

@@ -22,14 +22,13 @@ import {
   Download,
   Edit2,
   FileCheck,
-  GripVertical,
   MoreHorizontal,
   RefreshCw,
   Star,
   Trash2,
   Upload,
 } from 'lucide-react';
-import { useEffect, useState, type DragEvent } from 'react';
+import { useEffect, useState } from 'react';
 import {
   deletePrinterProfile,
   duplicatePrinterProfile,
@@ -61,27 +60,27 @@ export function reorderProfileList(
   ) {
     return profiles;
   }
-  const next = [...profiles];
-  const [moved] = next.splice(sourceIndex, 1);
-  next.splice(targetIndex, 0, moved);
-  return next;
+  const updated = [...profiles];
+  const [removed] = updated.splice(sourceIndex, 1);
+  updated.splice(targetIndex, 0, removed);
+  return updated;
 }
 
 interface PrinterProfileManagerModalProps {
   open: boolean;
   currentPrinterName: string;
-  profiles: SavedPrinterProfileSummary[];
   activeProfileId?: string;
+  profiles: SavedPrinterProfileSummary[];
   onClose: () => void;
-  onRefreshProfiles: () => Promise<void>;
+  onRefreshProfiles: () => Promise<unknown>;
   onApplyProfile: (loaded: LoadedPrinterProfileResult) => void;
 }
 
 export function PrinterProfileManagerModal({
   open,
   currentPrinterName,
-  profiles,
   activeProfileId,
+  profiles,
   onClose,
   onRefreshProfiles,
   onApplyProfile,
@@ -91,11 +90,6 @@ export function PrinterProfileManagerModal({
   const [targetProfile, setTargetProfile] = useState<SavedPrinterProfileSummary | null>(null);
   const [newName, setNewName] = useState('');
   const [actionType, setActionType] = useState<'rename' | 'duplicate'>('rename');
-  const [draggingProfileId, setDraggingProfileId] = useState<string | null>(null);
-  const [dropTarget, setDropTarget] = useState<{
-    profileId: string;
-    position: 'before' | 'after';
-  } | null>(null);
   const [localProfiles, setLocalProfiles] = useState<SavedPrinterProfileSummary[]>(profiles);
 
   useEffect(() => {
@@ -224,57 +218,6 @@ export function PrinterProfileManagerModal({
     }
   };
 
-  const handleDragOver = (event: DragEvent<HTMLDivElement>, profileId: string) => {
-    if (!draggingProfileId || draggingProfileId === profileId || loadingAction) {
-      return;
-    }
-    event.preventDefault();
-    event.dataTransfer.dropEffect = 'move';
-    const rect = event.currentTarget.getBoundingClientRect();
-    const position = event.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
-    setDropTarget({ profileId, position });
-  };
-
-  const handleDrop = async (event: DragEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    const sourceId = draggingProfileId;
-    const target = dropTarget;
-    setDraggingProfileId(null);
-    setDropTarget(null);
-
-    if (!sourceId || !target || sourceId === target.profileId || loadingAction) {
-      return;
-    }
-
-    const sourceIndex = localProfiles.findIndex((p) => p.id === sourceId);
-    let targetIndex = localProfiles.findIndex((p) => p.id === target.profileId);
-    if (sourceIndex < 0 || targetIndex < 0) {
-      return;
-    }
-    if (target.position === 'after' && targetIndex < sourceIndex) {
-      targetIndex += 1;
-    } else if (target.position === 'before' && targetIndex > sourceIndex) {
-      targetIndex -= 1;
-    }
-
-    const previousList = localProfiles;
-    const nextList = reorderProfileList(localProfiles, sourceIndex, targetIndex);
-    setLocalProfiles(nextList);
-    const nextIds = nextList.map((p) => p.id);
-
-    setLoadingAction('reorder');
-    try {
-      await reorderPrinterProfiles(currentPrinterName, nextIds);
-      await onRefreshProfiles();
-      message.success('配置顺序已保存');
-    } catch (error) {
-      setLocalProfiles(previousList);
-      message.error(error instanceof Error ? error.message : '保存配置顺序失败');
-    } finally {
-      setLoadingAction(null);
-    }
-  };
-
   const handleMove = async (
     profile: SavedPrinterProfileSummary,
     direction: 'up' | 'down' | 'top' | 'bottom',
@@ -297,7 +240,9 @@ export function PrinterProfileManagerModal({
 
     setLoadingAction(`reorder-${profile.id}`);
     try {
-      await reorderPrinterProfiles(currentPrinterName, nextIds);
+      const authoritativeIds = await reorderPrinterProfiles(currentPrinterName, nextIds);
+      const byId = new Map(nextList.map((p) => [p.id, p]));
+      setLocalProfiles(authoritativeIds.map((id) => byId.get(id)).filter(Boolean) as SavedPrinterProfileSummary[]);
       await onRefreshProfiles();
       message.success(`已将“${profile.name}”移动到第 ${targetIndex + 1} 位`);
     } catch (error) {
@@ -326,7 +271,7 @@ export function PrinterProfileManagerModal({
         ) : (
           <div className="profile-manager-list">
             <Typography.Text type="secondary" className="profile-sort-hint">
-              拖动手柄或点击上移/下移按钮调整配置顺序；顺序会同步到主界面的配置下拉菜单。
+              点击上移/下移按钮或更多菜单调整配置顺序；顺序会同步到主界面的配置下拉菜单。
             </Typography.Text>
             {localProfiles.map((profile, index) => {
               const isActive = activeProfileId === profile.id;
@@ -340,34 +285,10 @@ export function PrinterProfileManagerModal({
                   key={profile.id}
                   className={`profile-card${isActive ? ' is-active' : ''}${
                     !isCompatible ? ' is-incompatible' : ''
-                  }${draggingProfileId === profile.id ? ' is-dragging' : ''}${
-                    dropTarget?.profileId === profile.id
-                      ? ` is-drop-${dropTarget.position}`
-                      : ''
                   }`}
-                  onDragOver={(event) => handleDragOver(event, profile.id)}
-                  onDrop={(event) => void handleDrop(event)}
                 >
                   <div className="profile-card-header">
                     <div className="profile-card-title-row">
-                      <button
-                        type="button"
-                        className="profile-drag-handle"
-                        draggable={!loadingAction}
-                        onDragStart={(event) => {
-                          event.dataTransfer.effectAllowed = 'move';
-                          event.dataTransfer.setData('text/plain', profile.id);
-                          setDraggingProfileId(profile.id);
-                        }}
-                        onDragEnd={() => {
-                          setDraggingProfileId(null);
-                          setDropTarget(null);
-                        }}
-                        title="拖动调整配置顺序"
-                        aria-label={`拖动“${profile.name}”调整顺序`}
-                      >
-                        <GripVertical size={16} aria-hidden />
-                      </button>
                       <span className="profile-card-name">{profile.name}</span>
                       {profile.isDefault && <Tag color="gold">默认</Tag>}
                       {isActive && <Tag color="processing">正在使用</Tag>}

@@ -445,7 +445,12 @@ pub fn query_paper_names_map(printer_name: &str, port_name: Option<&str>) -> Has
     map
 }
 
-pub fn query_bin_names_map(printer_name: &str, port_name: Option<&str>) -> HashMap<i16, String> {
+pub fn query_paper_source_capability(
+    printer_name: &str,
+    port_name: Option<&str>,
+) -> crate::contracts::PaperSourceCapability {
+    use crate::contracts::{PaperSourceCapability, PaperSourceOption};
+
     let printer_wide = null_terminated_wide(printer_name);
     let port_name_wide = port_name.map(null_terminated_wide);
     let port_pointer = port_name_wide
@@ -463,8 +468,22 @@ pub fn query_bin_names_map(printer_name: &str, port_name: Option<&str>) -> HashM
         )
     };
 
-    if count <= 0 {
-        return HashMap::new();
+    if count < 0 {
+        return PaperSourceCapability {
+            status: "unavailable".to_string(),
+            sources: Vec::new(),
+            default_source_code: None,
+            detail: Some(format!("DeviceCapabilitiesW(DC_BINS) 调用失败，返回码 {count}")),
+        };
+    }
+
+    if count == 0 {
+        return PaperSourceCapability {
+            status: "unsupported".to_string(),
+            sources: Vec::new(),
+            default_source_code: None,
+            detail: None,
+        };
     }
     let count = count as usize;
 
@@ -480,7 +499,12 @@ pub fn query_bin_names_map(printer_name: &str, port_name: Option<&str>) -> HashM
     };
 
     if codes_ret <= 0 {
-        return HashMap::new();
+        return PaperSourceCapability {
+            status: "unavailable".to_string(),
+            sources: Vec::new(),
+            default_source_code: None,
+            detail: Some(format!("DeviceCapabilitiesW 读取纸盘代码失败，返回码 {codes_ret}")),
+        };
     }
 
     let mut names_buffer = vec![0_u16; count * 24];
@@ -495,18 +519,49 @@ pub fn query_bin_names_map(printer_name: &str, port_name: Option<&str>) -> HashM
     };
 
     if names_ret <= 0 {
-        return HashMap::new();
+        return PaperSourceCapability {
+            status: "unavailable".to_string(),
+            sources: Vec::new(),
+            default_source_code: None,
+            detail: Some(format!("DeviceCapabilitiesW 读取纸盘名称失败，返回码 {names_ret}")),
+        };
     }
 
-    let mut map = HashMap::new();
+    let mut sources = Vec::new();
+    let mut seen_codes = std::collections::HashSet::new();
     for i in 0..count {
+        let code = bin_codes[i];
         let chunk = &names_buffer[i * 24..(i + 1) * 24];
         let name = wide_slice_to_string(chunk).trim().to_string();
-        if !name.is_empty() {
-            map.insert(bin_codes[i], name);
+        if !name.is_empty() && seen_codes.insert(code) {
+            sources.push(PaperSourceOption { code, name });
         }
     }
-    map
+    sources.sort_by_key(|item| item.code);
+
+    if sources.len() < 2 {
+        PaperSourceCapability {
+            status: "unsupported".to_string(),
+            sources,
+            default_source_code: None,
+            detail: None,
+        }
+    } else {
+        PaperSourceCapability {
+            status: "available".to_string(),
+            sources,
+            default_source_code: None,
+            detail: None,
+        }
+    }
+}
+
+pub fn query_bin_names_map(printer_name: &str, port_name: Option<&str>) -> HashMap<i16, String> {
+    query_paper_source_capability(printer_name, port_name)
+        .sources
+        .into_iter()
+        .map(|s| (s.code, s.name))
+        .collect()
 }
 
 struct PrinterGuard(HANDLE);

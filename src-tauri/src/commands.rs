@@ -6,9 +6,9 @@ use tauri_plugin_dialog::DialogExt;
 #[cfg(windows)]
 use crate::contracts::PrinterPropertiesStatus;
 use crate::contracts::{
-    ExportPrinterProfilePayload, LoadedPrinterProfileResult, PaperSourceOption, PrintBatchRequest,
-    PrintBatchResult, PrinterPropertiesResult, ProxyConfig, SavePrinterProfileRequest,
-    SavedPrinterProfileSummary, SystemPrinter, UpdateCheckResult,
+    ExportPrinterProfilePayload, LoadedPrinterProfileResult, PaperSourceCapability,
+    PrintBatchRequest, PrintBatchResult, PrinterPropertiesResult, ProxyConfig,
+    SavePrinterProfileRequest, SavedPrinterProfileSummary, SystemPrinter, UpdateCheckResult,
 };
 use crate::ingress::{collect_path_argument, is_supported_file};
 use crate::printers::{
@@ -177,15 +177,9 @@ pub async fn list_system_printers() -> Result<Vec<SystemPrinter>, String> {
 #[tauri::command]
 pub async fn list_printer_paper_sources(
     printer_name: String,
-) -> Result<Vec<PaperSourceOption>, String> {
+) -> Result<PaperSourceCapability, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let bins_map = printers::query_bin_names_map(&printer_name, None);
-        let mut list: Vec<PaperSourceOption> = bins_map
-            .into_iter()
-            .map(|(code, name)| PaperSourceOption { code, name })
-            .collect();
-        list.sort_by_key(|item| item.code);
-        Ok(list)
+        Ok(printers::query_paper_source_capability(&printer_name, None))
     })
     .await
     .map_err(|error| format!("failed to list paper sources: {error}"))?
@@ -446,7 +440,7 @@ pub async fn reorder_printer_profiles(
     printer_name: String,
     ordered_profile_ids: Vec<String>,
     persistent_store: tauri::State<'_, PersistentPrinterProfileStore>,
-) -> Result<(), String> {
+) -> Result<Vec<String>, String> {
     persistent_store.reorder_profiles(&printer_name, &ordered_profile_ids)
 }
 
@@ -620,6 +614,13 @@ pub async fn run_print_batch(
     .await
     .map_err(|error| format!("print batch task failed: {error}"))
 }
+
+#[tauri::command]
+pub fn cancel_print_batch() -> Result<(), String> {
+    crate::printing::cancel_current_batch();
+    Ok(())
+}
+
 
 #[tauri::command]
 pub async fn check_for_app_update(proxy: Option<ProxyConfig>) -> Result<UpdateCheckResult, String> {

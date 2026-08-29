@@ -4,11 +4,11 @@ import {
   Table,
   Tag,
   Tooltip,
-  Typography,
   message,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import {
+  Eye,
   File,
   FileCode,
   FilePlus2,
@@ -21,7 +21,7 @@ import {
   Settings2,
   Trash2,
 } from 'lucide-react';
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { showInFolder } from '../../api/nativeBridge';
 import type { QueueItem } from '../../domain/queueTypes';
 import { describePageRange } from '../../domain/pageRange';
@@ -39,7 +39,10 @@ interface PrintQueueProps {
   onSelectionChange: (keys: React.Key[]) => void;
   onRemove: (id: string) => void;
   onOpenSettings: (id: string) => void;
+  onPreview?: (item: QueueItem) => void;
   onAddFiles?: () => void;
+  activeId?: string | null;
+  onActiveIdChange?: (id: string | null) => void;
 }
 
 function statusTag(status: QueueItem['status']) {
@@ -131,8 +134,31 @@ export function PrintQueue({
   onSelectionChange,
   onRemove,
   onOpenSettings,
+  onPreview,
   onAddFiles,
+  activeId: propsActiveId,
+  onActiveIdChange,
 }: PrintQueueProps) {
+  const [internalActiveId, setInternalActiveId] = useState<string | null>(null);
+  const activeId = propsActiveId !== undefined ? propsActiveId : internalActiveId;
+  const setActiveId = (id: string | null) => {
+    setInternalActiveId(id);
+    onActiveIdChange?.(id);
+  };
+
+  const [rangeAnchorId, setRangeAnchorId] = useState<string | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  // Marquee state
+  const [marqueeBox, setMarqueeBox] = useState<{
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  } | null>(null);
+  const marqueeStartRef = useRef<{ x: number; y: number; ctrl: boolean; shift: boolean } | null>(null);
+  const isDraggingMarquee = useRef(false);
+
   // Count duplicate file names to provide disambiguation hints
   const fileNameCounts = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -142,6 +168,16 @@ export function PrintQueue({
     return counts;
   }, [items]);
 
+  // Synchronize activeId and rangeAnchorId if files were removed
+  useEffect(() => {
+    if (activeId && !items.some((i) => i.id === activeId)) {
+      setActiveId(items[0]?.id ?? null);
+    }
+    if (rangeAnchorId && !items.some((i) => i.id === rangeAnchorId)) {
+      setRangeAnchorId(null);
+    }
+  }, [items, activeId, rangeAnchorId]);
+
   const handleShowInFolder = async (path: string) => {
     try {
       await showInFolder(path);
@@ -149,6 +185,185 @@ export function PrintQueue({
       message.error(err instanceof Error ? err.message : '打开文件夹失败');
     }
   };
+
+  // Row selection handler
+  const handleRowClick = (id: string, index: number, event: React.MouseEvent) => {
+    const isCtrl = event.ctrlKey || event.metaKey;
+    const isShift = event.shiftKey;
+
+    setActiveId(id);
+
+    if (isShift) {
+      const anchorId = rangeAnchorId ?? items[0]?.id ?? id;
+      const anchorIndex = items.findIndex((item) => item.id === anchorId);
+      const validAnchorIndex = anchorIndex >= 0 ? anchorIndex : index;
+      const startIndex = Math.min(validAnchorIndex, index);
+      const endIndex = Math.max(validAnchorIndex, index);
+      const rangeIds = items.slice(startIndex, endIndex + 1).map((item) => item.id);
+      onSelectionChange(rangeIds);
+    } else if (isCtrl) {
+      const currentSet = new Set(selectedRowKeys.map(String));
+      if (currentSet.has(id)) {
+        currentSet.delete(id);
+      } else {
+        currentSet.add(id);
+      }
+      setRangeAnchorId(id);
+      onSelectionChange(Array.from(currentSet));
+    } else {
+      setRangeAnchorId(id);
+      onSelectionChange([id]);
+    }
+  };
+
+  const handleRowDoubleClick = (id: string) => {
+    setActiveId(id);
+    onOpenSettings(id);
+  };
+
+  // Keyboard navigation
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (items.length === 0) return;
+
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      const currentIndex = activeId ? items.findIndex((i) => i.id === activeId) : -1;
+      let nextIndex = currentIndex;
+      if (e.key === 'ArrowDown') {
+        nextIndex = currentIndex < items.length - 1 ? currentIndex + 1 : items.length - 1;
+      } else {
+        nextIndex = currentIndex > 0 ? currentIndex - 1 : 0;
+      }
+
+      const nextItem = items[nextIndex];
+      if (!nextItem) return;
+
+      setActiveId(nextItem.id);
+
+      if (e.shiftKey) {
+        const anchorId = rangeAnchorId ?? (currentIndex >= 0 ? items[currentIndex].id : nextItem.id);
+        const anchorIndex = items.findIndex((i) => i.id === anchorId);
+        const start = Math.min(anchorIndex >= 0 ? anchorIndex : nextIndex, nextIndex);
+        const end = Math.max(anchorIndex >= 0 ? anchorIndex : nextIndex, nextIndex);
+        onSelectionChange(items.slice(start, end + 1).map((i) => i.id));
+      } else {
+        setRangeAnchorId(nextItem.id);
+        onSelectionChange([nextItem.id]);
+      }
+    } else if (e.key === ' ') {
+      e.preventDefault();
+      if (activeId) {
+        const currentSet = new Set(selectedRowKeys.map(String));
+        if (currentSet.has(activeId)) {
+          currentSet.delete(activeId);
+        } else {
+          currentSet.add(activeId);
+          setRangeAnchorId(activeId);
+        }
+        onSelectionChange(Array.from(currentSet));
+      }
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (activeId) {
+        onOpenSettings(activeId);
+      }
+    } else if (e.key === 'Escape') {
+      setMarqueeBox(null);
+      isDraggingMarquee.current = false;
+      marqueeStartRef.current = null;
+    }
+  };
+
+  // Mouse marquee selection
+  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    const target = e.target as HTMLElement;
+    if (target.closest('button, input, a, .ant-checkbox-wrapper, .ant-dropdown-trigger, .ant-table-header')) {
+      return;
+    }
+    const container = containerRef.current;
+    if (!container) return;
+
+    marqueeStartRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      ctrl: e.ctrlKey || e.metaKey,
+      shift: e.shiftKey,
+    };
+    isDraggingMarquee.current = false;
+  };
+
+  useEffect(() => {
+    const handleWindowMouseMove = (e: MouseEvent) => {
+      const start = marqueeStartRef.current;
+      if (!start || !containerRef.current) return;
+
+      const deltaX = Math.abs(e.clientX - start.x);
+      const deltaY = Math.abs(e.clientY - start.y);
+
+      if (!isDraggingMarquee.current) {
+        if (deltaX > 4 || deltaY > 4) {
+          isDraggingMarquee.current = true;
+        } else {
+          return;
+        }
+      }
+
+      const containerRect = containerRef.current.getBoundingClientRect();
+      const left = Math.min(start.x, e.clientX) - containerRect.left + containerRef.current.scrollLeft;
+      const top = Math.min(start.y, e.clientY) - containerRect.top + containerRef.current.scrollTop;
+      const width = Math.abs(e.clientX - start.x);
+      const height = Math.abs(e.clientY - start.y);
+
+      setMarqueeBox({ left, top, width, height });
+
+      const boxRect = {
+        left: Math.min(start.x, e.clientX),
+        top: Math.min(start.y, e.clientY),
+        right: Math.max(start.x, e.clientX),
+        bottom: Math.max(start.y, e.clientY),
+      };
+
+      const rowElements = containerRef.current.querySelectorAll<HTMLElement>('[data-row-id]');
+      const hitIds: string[] = [];
+      rowElements.forEach((row) => {
+        const rowRect = row.getBoundingClientRect();
+        const intersects = !(
+          boxRect.right < rowRect.left ||
+          boxRect.left > rowRect.right ||
+          boxRect.bottom < rowRect.top ||
+          boxRect.top > rowRect.bottom
+        );
+        if (intersects) {
+          const id = row.getAttribute('data-row-id');
+          if (id) hitIds.push(id);
+        }
+      });
+
+      if (start.ctrl || start.shift) {
+        const currentSet = new Set(selectedRowKeys.map(String));
+        hitIds.forEach((id) => currentSet.add(id));
+        onSelectionChange(Array.from(currentSet));
+      } else {
+        onSelectionChange(hitIds);
+      }
+    };
+
+    const handleWindowMouseUp = () => {
+      marqueeStartRef.current = null;
+      isDraggingMarquee.current = false;
+      setMarqueeBox(null);
+    };
+
+    window.addEventListener('mousemove', handleWindowMouseMove);
+    window.addEventListener('mouseup', handleWindowMouseUp);
+    window.addEventListener('blur', handleWindowMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleWindowMouseMove);
+      window.removeEventListener('mouseup', handleWindowMouseUp);
+      window.removeEventListener('blur', handleWindowMouseUp);
+    };
+  }, [selectedRowKeys, onSelectionChange]);
 
   const columns: ColumnsType<QueueItem> = [
     {
@@ -242,22 +457,38 @@ export function PrintQueue({
     {
       title: '操作',
       key: 'actions',
-      width: 100,
+      width: 132,
       align: 'center',
       render: (_, record) => (
         <Space size={4}>
           <Button
             size="small"
+            icon={<Eye size={13} />}
+            onClick={(e) => {
+              e.stopPropagation();
+              onPreview?.(record);
+            }}
+            title="预览文件"
+            aria-label="预览文件"
+          />
+          <Button
+            size="small"
             icon={<Settings2 size={13} />}
             disabled={isPrinting}
-            onClick={() => onOpenSettings(record.id)}
-            title="设置此文件的打印参数（色彩/单双面/份数/页码）"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenSettings(record.id);
+            }}
+            title="设置此文件的打印参数（也可双击行打开）"
             aria-label="设置此文件参数"
           />
           <Button
             size="small"
             icon={<FolderOpen size={13} />}
-            onClick={() => void handleShowInFolder(record.path)}
+            onClick={(e) => {
+              e.stopPropagation();
+              void handleShowInFolder(record.path);
+            }}
             title="在系统资源管理器中打开并定位文件"
             aria-label="在文件夹中显示"
           />
@@ -266,7 +497,10 @@ export function PrintQueue({
             danger
             icon={<Trash2 size={13} />}
             disabled={isPrinting}
-            onClick={() => onRemove(record.id)}
+            onClick={(e) => {
+              e.stopPropagation();
+              onRemove(record.id);
+            }}
             title="从列表中移除此文件"
             aria-label="移除文件"
           />
@@ -303,7 +537,24 @@ export function PrintQueue({
   }
 
   return (
-    <div className="queue-table-wrap">
+    <div
+      ref={containerRef}
+      className={`queue-table-wrap${marqueeBox ? ' is-marquee-active' : ''}`}
+      tabIndex={0}
+      onKeyDown={handleKeyDown}
+      onMouseDown={handleMouseDown}
+    >
+      {marqueeBox && (
+        <div
+          className="queue-marquee-box"
+          style={{
+            left: marqueeBox.left,
+            top: marqueeBox.top,
+            width: marqueeBox.width,
+            height: marqueeBox.height,
+          }}
+        />
+      )}
       <Table
         rowKey="id"
         size="small"
@@ -313,12 +564,39 @@ export function PrintQueue({
         className="queue-compact-table"
         rowSelection={{
           selectedRowKeys,
-          onChange: onSelectionChange,
+          onChange: (newKeys) => {
+            onSelectionChange(newKeys);
+            if (newKeys.length > 0) {
+              const lastKey = String(newKeys[newKeys.length - 1]);
+              setActiveId(lastKey);
+              setRangeAnchorId(lastKey);
+            }
+          },
           getCheckboxProps: (record) => ({
             disabled: isPrinting,
             'aria-label': `选择 ${record.fileName}`,
           }),
         }}
+        onRow={(record, rowIndex) => ({
+          'data-row-id': record.id,
+          className: `queue-table-row${
+            selectedRowKeys.includes(record.id) ? ' is-selected' : ''
+          }${activeId === record.id ? ' is-active' : ''}`,
+          onClick: (event: React.MouseEvent) => {
+            const target = event.target as HTMLElement;
+            if (target.closest('button, input, a, .ant-checkbox-wrapper, .ant-dropdown-trigger')) {
+              return;
+            }
+            handleRowClick(record.id, rowIndex ?? 0, event);
+          },
+          onDoubleClick: (event: React.MouseEvent) => {
+            const target = event.target as HTMLElement;
+            if (target.closest('button, input, a, .ant-checkbox-wrapper, .ant-dropdown-trigger')) {
+              return;
+            }
+            handleRowDoubleClick(record.id);
+          },
+        })}
       />
     </div>
   );

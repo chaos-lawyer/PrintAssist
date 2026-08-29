@@ -14,8 +14,9 @@ use windows::Win32::Foundation::{HANDLE, HWND};
 #[cfg(windows)]
 use windows::Win32::Graphics::Gdi::{
     DEVMODEW, DMCOLOR_COLOR, DMCOLOR_MONOCHROME, DMDUP_HORIZONTAL, DMDUP_SIMPLEX, DMDUP_VERTICAL,
-    DMORIENT_LANDSCAPE, DMORIENT_PORTRAIT, DM_COLOR, DM_DEFAULTSOURCE, DM_DUPLEX, DM_IN_BUFFER,
-    DM_ORIENTATION, DM_OUT_BUFFER, DM_PAPERLENGTH, DM_PAPERSIZE, DM_PAPERWIDTH, DM_PRINTQUALITY,
+    DMORIENT_LANDSCAPE, DMORIENT_PORTRAIT, DM_COLLATE, DM_COLOR, DM_DEFAULTSOURCE, DM_DUPLEX,
+    DM_IN_BUFFER, DM_ORIENTATION, DM_OUT_BUFFER, DM_PAPERLENGTH, DM_PAPERSIZE, DM_PAPERWIDTH,
+    DM_PRINTQUALITY, DMCOLLATE_FALSE, DMCOLLATE_TRUE,
 };
 #[cfg(windows)]
 use windows::Win32::Graphics::Printing::{ClosePrinter, DocumentPropertiesW, OpenPrinterW};
@@ -163,8 +164,21 @@ pub fn parse_devmode_standard_fields(
                 (None, None)
             };
 
+            let collate = if (fields & DM_COLLATE).0 != 0 {
+                let code = devmode.Anonymous1.Anonymous1.dmCollate;
+                if code == DMCOLLATE_TRUE as i16 {
+                    Some(true)
+                } else if code == DMCOLLATE_FALSE as i16 {
+                    Some(false)
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
             (
-                p_code, p_width, p_length, orient, src_code, quality, color, sides, flip,
+                p_code, p_width, p_length, orient, src_code, quality, color, sides, flip, collate,
             )
         };
 
@@ -189,6 +203,7 @@ pub fn parse_devmode_standard_fields(
             flip_mode,
             orientation,
             print_quality,
+            collate,
             driver_extra_bytes,
         })
     }
@@ -205,13 +220,14 @@ pub fn parse_devmode_standard_fields(
     }
 }
 
-/// Overwrites color, duplex, flip, and paper source settings onto an existing DEVMODE buffer without corrupting private data.
+/// Overwrites color, duplex, flip, paper source, and collate settings onto an existing DEVMODE buffer without corrupting private data.
 pub fn apply_settings_to_devmode(
     devmode_bytes: &mut [u8],
     color_mode: Option<&str>,
     sides_mode: Option<&str>,
     flip_mode: Option<&str>,
     source_code: Option<i16>,
+    collate: Option<bool>,
 ) -> Result<(), String> {
     validate_devmode_buffer(devmode_bytes)?;
 
@@ -250,12 +266,21 @@ pub fn apply_settings_to_devmode(
             }
         }
 
+        if let Some(collate_val) = collate {
+            devmode.dmFields |= DM_COLLATE;
+            devmode.Anonymous1.Anonymous1.dmCollate = if collate_val {
+                DMCOLLATE_TRUE as i16
+            } else {
+                DMCOLLATE_FALSE as i16
+            };
+        }
+
         Ok(())
     }
 
     #[cfg(not(windows))]
     {
-        let _ = (color_mode, sides_mode, flip_mode, source_code);
+        let _ = (color_mode, sides_mode, flip_mode, source_code, collate);
         Err("非 Windows 平台不支持 DEVMODE 修改".to_string())
     }
 }
@@ -329,6 +354,29 @@ pub fn query_default_devmode(
     Ok(buffer)
 }
 
+/// Helper to obtain a printer's default DEVMODE by name.
+#[cfg(windows)]
+pub fn get_printer_default_devmode(printer_name: &str) -> Result<Vec<u8>, String> {
+    let printer_wide = null_terminated_wide(printer_name);
+    let mut printer_handle = HANDLE::default();
+    unsafe {
+        OpenPrinterW(PCWSTR(printer_wide.as_ptr()), &mut printer_handle, None)
+            .map_err(|error| format!("打开打印机 “{printer_name}” 失败：{error}"))?;
+    }
+
+    struct PrinterGuard(HANDLE);
+    impl Drop for PrinterGuard {
+        fn drop(&mut self) {
+            unsafe {
+                let _ = ClosePrinter(self.0);
+            }
+        }
+    }
+    let _printer_guard = PrinterGuard(printer_handle);
+
+    query_default_devmode(printer_handle, printer_name)
+}
+
 /// Rebuilds a DEVMODE from the printer driver's current defaults while preserving
 /// the standard settings that can be safely migrated from a saved profile.
 #[cfg(windows)]
@@ -356,7 +404,7 @@ pub fn rebuild_devmode_from_settings(
     let _printer_guard = PrinterGuard(printer_handle);
 
     let mut devmode = query_default_devmode(printer_handle, printer_name)?;
-    apply_settings_to_devmode(&mut devmode, color_mode, sides_mode, flip_mode, None)?;
+    apply_settings_to_devmode(&mut devmode, color_mode, sides_mode, flip_mode, None, None)?;
     validate_devmode_with_driver(printer_handle, printer_name, &devmode)
 }
 
@@ -467,8 +515,8 @@ mod tests {
         assert_eq!(settings.paper_name, Some("A4".to_string()));
         assert_eq!(settings.driver_extra_bytes, 128);
 
-        // Apply override: change to monochrome + simplex
-        apply_settings_to_devmode(&mut full_buffer, Some("monochrome"), Some("simplex"), None, None)
+        // Apply override: change to monochrome + simplex + collate
+        apply_settings_to_devmode(&mut full_buffer, Some("monochrome"), Some("simplex"), None, None, Some(true))
             .expect("apply overrides");
 
         let updated =
@@ -479,6 +527,7 @@ mod tests {
         assert_eq!(updated.sides_mode, Some("simplex".to_string()));
         assert_eq!(updated.flip_mode, None);
         assert_eq!(updated.paper_name, Some("A4".to_string()));
+        assert_eq!(updated.collate, Some(true));
 
         // Check that driver extra bytes remained intact
         assert_eq!(&full_buffer[devmode_size..], extra_bytes.as_slice());

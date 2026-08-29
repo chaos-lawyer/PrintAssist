@@ -16,6 +16,7 @@ export interface PrintSettings {
   sidesMode: SidesMode;
   flipMode: FlipMode;
   copies: number;
+  collate: boolean;
   sourceCode?: number;
   sourceName?: string;
   scaleMode?: PageScaleMode;
@@ -32,6 +33,7 @@ export interface FileSettingsOverride {
   sidesMode?: SidesMode;
   flipMode?: FlipMode;
   copies?: number;
+  collate?: boolean;
   sourceCode?: number;
   sourceName?: string;
   scaleMode?: PageScaleMode;
@@ -45,6 +47,7 @@ export function createDefaultGlobalSettings(printerName = ''): PrintSettings {
     sidesMode: 'duplex',
     flipMode: 'longEdge',
     copies: 1,
+    collate: true,
     scaleMode: 'actualSize',
     pageRange: {
       mode: 'all',
@@ -111,6 +114,10 @@ export function applyDriverSettings(
     next.sidesMode = 'simplex';
   }
 
+  if (driverSettings.collate !== undefined) {
+    next.collate = driverSettings.collate;
+  }
+
   return next;
 }
 
@@ -160,6 +167,7 @@ export function mergePrintSettings(
     sidesMode: fileOverride.sidesMode ?? globalSettings.sidesMode,
     flipMode: fileOverride.flipMode ?? globalSettings.flipMode,
     copies: fileOverride.copies ?? globalSettings.copies,
+    collate: fileOverride.collate !== undefined ? fileOverride.collate : globalSettings.collate,
     sourceCode: fileOverride.sourceCode !== undefined ? fileOverride.sourceCode : globalSettings.sourceCode,
     sourceName: fileOverride.sourceName !== undefined ? fileOverride.sourceName : globalSettings.sourceName,
     scaleMode: fileOverride.scaleMode ?? globalSettings.scaleMode,

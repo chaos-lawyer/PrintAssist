@@ -26,6 +26,13 @@ export interface PaperSourceOption {
   name: string;
 }
 
+export interface PaperSourceCapability {
+  status: 'available' | 'unsupported' | 'unavailable';
+  sources: PaperSourceOption[];
+  defaultSourceCode?: number;
+  detail?: string;
+}
+
 export interface PrinterDriverSettings {
   printerName: string;
   paperCode?: number;
@@ -39,6 +46,7 @@ export interface PrinterDriverSettings {
   flipMode?: string;
   orientation?: string;
   printQuality?: number;
+  collate?: boolean;
   driverExtraBytes: number;
 }
 

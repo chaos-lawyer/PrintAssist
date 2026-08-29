@@ -13,7 +13,7 @@ mod win32;
 #[cfg(windows)]
 pub use win32::{
     list_system_printers_sync, open_printer_properties_sync, query_bin_names_map,
-    query_paper_names_map, PrinterPropertiesOutcome,
+    query_paper_names_map, query_paper_source_capability, PrinterPropertiesOutcome,
 };
 
 #[cfg(not(windows))]
@@ -52,4 +52,17 @@ pub fn query_bin_names_map(
     _port_name: Option<&str>,
 ) -> std::collections::HashMap<i16, String> {
     std::collections::HashMap::new()
+}
+
+#[cfg(not(windows))]
+pub fn query_paper_source_capability(
+    _printer_name: &str,
+    _port_name: Option<&str>,
+) -> crate::contracts::PaperSourceCapability {
+    crate::contracts::PaperSourceCapability {
+        status: "unsupported".to_string(),
+        sources: Vec::new(),
+        default_source_code: None,
+        detail: None,
+    }
 }

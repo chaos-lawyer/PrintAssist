@@ -77,6 +77,7 @@ pub fn run() {
             commands::pick_folder_files,
             commands::expand_file_paths,
             commands::run_print_batch,
+            commands::cancel_print_batch,
             commands::check_for_app_update,
             commands::download_and_install_update,
             commands::open_release_page,

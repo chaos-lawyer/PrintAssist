@@ -1,6 +1,8 @@
 import {
   Button,
+  Checkbox,
   ConfigProvider,
+  Dropdown,
   Layout,
   Modal,
   Progress,
@@ -8,10 +10,20 @@ import {
   Typography,
   message,
 } from 'antd';
-import { FilePlus2, FolderPlus, Printer, Trash2 } from 'lucide-react';
+import {
+  ArrowDownUp,
+  ArrowUpDown,
+  Clock,
+  FilePlus2,
+  FolderPlus,
+  Printer,
+  Settings2,
+  Trash2,
+} from 'lucide-react';
 import { useCallback, useEffect, useMemo, useReducer, useState } from 'react';
 import type { DragEvent } from 'react';
 import {
+  cancelPrintBatch,
   expandFilePaths,
   isTauriRuntime,
   listSavedPrinterProfiles,
@@ -26,6 +38,9 @@ import {
   subscribePrintItemEvents,
 } from './api/nativeBridge';
 import { AppLogo } from './components/AppLogo';
+import { PrintHistoryModal } from './features/history/PrintHistoryModal';
+import { savePrintHistoryRecord } from './features/history/historyStorage';
+import { FilePreviewModal } from './features/preview/FilePreviewModal';
 import {
   applyDriverSettings,
   applyLoadedPersistentProfile,
@@ -37,7 +52,7 @@ import {
   sanitizeSettingsForPrinter,
   type PrintSettings,
 } from './domain/printSettings';
-import { createEmptyQueueState } from './domain/queueTypes';
+import { createEmptyQueueState, type QueueItem } from './domain/queueTypes';
 import { parsePageRangeExpression } from './domain/pageRange';
 import { PrintQueue } from './features/queue/PrintQueue';
 import { createPrintSummary, queueReducer } from './features/queue/queueReducer';
@@ -71,9 +86,19 @@ export function App() {
     createDefaultGlobalSettings(),
   );
   const [settingsItemId, setSettingsItemId] = useState<string | null>(null);
+  const [isBatchSettingsOpen, setIsBatchSettingsOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [previewItem, setPreviewItem] = useState<QueueItem | null>(null);
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
   const [allowAssociationFallback, setAllowAssociationFallback] = useState(false);
+  const [autoClearOnSuccess, setAutoClearOnSuccess] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('printassist_auto_clear_on_success') === 'true';
+    } catch {
+      return false;
+    }
+  });
 
   const selectedPrinter = useMemo(
     () => printers.find((printer) => printer.name === globalSettings.printerName),
@@ -81,6 +106,10 @@ export function App() {
   );
   const availability = evaluateSettingAvailability(selectedPrinter);
   const settingsItem = queueState.items.find((item) => item.id === settingsItemId) ?? null;
+  const selectedItems = useMemo(
+    () => queueState.items.filter((item) => selectedRowKeys.includes(item.id)),
+    [queueState.items, selectedRowKeys],
+  );
 
   const activeProfile = useMemo(
     () => savedProfiles.find((p) => p.id === globalSettings.persistentProfileId),
@@ -396,6 +425,7 @@ export function App() {
           sidesMode: resolved.sidesMode,
           flipMode: resolved.flipMode,
           copies: resolved.copies,
+          collate: resolved.collate,
           sourceCode: resolved.sourceCode,
           sourceName: resolved.sourceName,
           scaleMode: resolved.scaleMode,
@@ -441,20 +471,37 @@ export function App() {
         items: payloads.map((item) => ({ ...item, allowAssociationFallback: true })),
       });
       dispatch({ type: 'finish_print', summary: createPrintSummary(batchResult.results) });
+      
+      // Save print history record
+      savePrintHistoryRecord({
+        printerName: globalSettings.printerName,
+        totalFiles: batchResult.results.length,
+        succeededCount: batchResult.succeeded,
+        failedCount: batchResult.failed,
+        skippedCount: batchResult.skipped,
+        files: batchResult.results.map((r) => ({
+          fileName: r.fileName,
+          path: r.path,
+          status: r.status,
+          message: r.message,
+        })),
+      });
+
       if (batchResult.failed > 0) {
         message.warning(`完成：成功 ${batchResult.succeeded}，失败 ${batchResult.failed}`);
       } else {
-        message.success(`全部完成：成功 ${batchResult.succeeded}`);
-        Modal.confirm({
-          title: '打印全部成功',
-          content: `本批 ${batchResult.succeeded} 个文件均已打印成功。是否清空当前批次列表？清空后可继续添加新文件。`,
-          okText: '清空列表',
-          cancelText: '暂时保留',
-          onOk: () => {
-            dispatch({ type: 'clear_queue' });
-            message.success('已清空当前批次');
-          },
-        });
+        if (autoClearOnSuccess) {
+          const succeededIds = batchResult.results
+            .filter((item) => item.status === 'succeeded')
+            .map((item) => item.queueItemId);
+          if (succeededIds.length > 0) {
+            dispatch({ type: 'batch_remove', ids: succeededIds });
+            setSelectedRowKeys([]);
+          }
+          message.success(`已打印 ${batchResult.succeeded} 个文件并清空列表`);
+        } else {
+          message.success(`全部完成：成功 ${batchResult.succeeded}`);
+        }
       }
     } catch (error) {
       dispatch({
@@ -470,6 +517,15 @@ export function App() {
         ),
       });
       message.error(error instanceof Error ? error.message : '打印执行失败');
+    }
+  };
+
+  const handleCancelPrint = async () => {
+    try {
+      await cancelPrintBatch();
+      message.info('已发送取消请求，正在跳过剩余文件...');
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '取消打印失败');
     }
   };
 
@@ -644,11 +700,23 @@ export function App() {
               </Typography.Text>
             </div>
           </div>
+          <Space>
+            <Button
+              type="text"
+              icon={<Clock size={15} />}
+              onClick={() => setHistoryOpen(true)}
+            >
+              打印历史
+            </Button>
+          </Space>
         </Header>
         <Layout className="app-body">
           <Content
             className={`queue-panel${isDragOver ? ' is-drag-over' : ''}`}
             onDragOver={(event) => {
+              if (!event.dataTransfer?.types?.includes('Files')) {
+                return;
+              }
               event.preventDefault();
               setIsDragOver(true);
             }}
@@ -690,6 +758,16 @@ export function App() {
                 </Typography.Title>
               </div>
               <Space size={8}>
+                {selectedRowKeys.length > 1 && (
+                  <Button
+                    type="text"
+                    icon={<Settings2 size={14} />}
+                    disabled={queueState.isPrinting}
+                    onClick={() => setIsBatchSettingsOpen(true)}
+                  >
+                    批量设置（{selectedRowKeys.length}）
+                  </Button>
+                )}
                 {selectedRowKeys.length > 0 && (
                   <Button
                     type="text"
@@ -701,6 +779,48 @@ export function App() {
                     移除选中（{selectedRowKeys.length}）
                   </Button>
                 )}
+                <Dropdown
+                  disabled={queueState.isPrinting || queueState.items.length <= 1}
+                  menu={{
+                    items: [
+                      {
+                        key: 'name-asc',
+                        label: '按文件名正序 (A → Z)',
+                        onClick: () =>
+                          dispatch({ type: 'sort_queue', by: 'fileName', direction: 'asc' }),
+                      },
+                      {
+                        key: 'name-desc',
+                        label: '按文件名倒序 (Z → A)',
+                        onClick: () =>
+                          dispatch({ type: 'sort_queue', by: 'fileName', direction: 'desc' }),
+                      },
+                      {
+                        key: 'kind',
+                        label: '按文件类型排序',
+                        onClick: () =>
+                          dispatch({ type: 'sort_queue', by: 'kind', direction: 'asc' }),
+                      },
+                      {
+                        key: 'pages',
+                        label: '按页数从多到少',
+                        onClick: () =>
+                          dispatch({ type: 'sort_queue', by: 'pageCount', direction: 'desc' }),
+                      },
+                      { type: 'divider' },
+                      {
+                        key: 'reverse',
+                        label: '一键反转队列顺序 (倒序出纸正向堆叠)',
+                        icon: <ArrowDownUp size={13} />,
+                        onClick: () => dispatch({ type: 'reverse_queue' }),
+                      },
+                    ],
+                  }}
+                >
+                  <Button type="text" icon={<ArrowUpDown size={14} />}>
+                    排序
+                  </Button>
+                </Dropdown>
                 <Button
                   type="text"
                   danger
@@ -717,6 +837,18 @@ export function App() {
                 dispatch({ type: 'retry_failed' });
                 void executePrint(true);
               }}
+              onClearSucceeded={() => {
+                const succeededIds = queueState.items
+                  .filter((item) => item.status === 'succeeded')
+                  .map((item) => item.id);
+                if (succeededIds.length > 0) {
+                  dispatch({ type: 'batch_remove', ids: succeededIds });
+                  setSelectedRowKeys((prev) =>
+                    prev.filter((k) => !succeededIds.includes(k as string)),
+                  );
+                  message.success(`已移除 ${succeededIds.length} 个成功文件`);
+                }
+              }}
             />
             <div className="queue-body">
               <PrintQueue
@@ -730,6 +862,7 @@ export function App() {
                   setSelectedRowKeys((prev) => prev.filter((k) => k !== id));
                 }}
                 onOpenSettings={(id) => setSettingsItemId(id)}
+                onPreview={(item) => setPreviewItem(item)}
                 onAddFiles={() => void handlePickFiles()}
               />
             </div>
@@ -768,6 +901,13 @@ export function App() {
                       status="active"
                       style={{ width: 130, margin: 0 }}
                     />
+                    <Button
+                      size="small"
+                      danger
+                      onClick={() => void handleCancelPrint()}
+                    >
+                      取消剩余
+                    </Button>
                   </div>
                 ) : (
                   <span className="queue-footer-count">
@@ -778,7 +918,22 @@ export function App() {
                   </span>
                 )}
               </div>
-              <Space size={10} className="queue-footer-actions">
+              <Space size={12} className="queue-footer-actions">
+                <Checkbox
+                  checked={autoClearOnSuccess}
+                  disabled={queueState.isPrinting}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setAutoClearOnSuccess(checked);
+                    try {
+                      localStorage.setItem('printassist_auto_clear_on_success', String(checked));
+                    } catch {
+                      // ignore
+                    }
+                  }}
+                >
+                  全部打印成功后自动清空列表
+                </Checkbox>
                 <Button
                   icon={<FilePlus2 size={15} />}
                   disabled={queueState.isPrinting}
@@ -858,18 +1013,41 @@ export function App() {
         </Layout>
       </Layout>
       <FileSettingsDrawer
-        open={Boolean(settingsItem)}
+        open={Boolean(settingsItem) || isBatchSettingsOpen}
         item={settingsItem}
+        batchItems={isBatchSettingsOpen ? selectedItems : undefined}
         globalSettings={globalSettings}
         colorEnabled={availability.colorEnabled}
         duplexEnabled={availability.duplexEnabled}
-        onClose={() => setSettingsItemId(null)}
+        onClose={() => {
+          setSettingsItemId(null);
+          setIsBatchSettingsOpen(false);
+        }}
         onSave={(override) => {
           if (!settingsItem) {
             return;
           }
           dispatch({ type: 'update_override', id: settingsItem.id, override });
           message.success('已保存单文件设置');
+        }}
+        onBatchSave={(override) => {
+          dispatch({
+            type: 'batch_set_override',
+            ids: selectedRowKeys as string[],
+            override,
+          });
+        }}
+      />
+      <FilePreviewModal
+        open={Boolean(previewItem)}
+        item={previewItem}
+        onClose={() => setPreviewItem(null)}
+      />
+      <PrintHistoryModal
+        open={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        onReloadFiles={(paths) => {
+          dispatch({ type: 'append_files', paths });
         }}
       />
       <SavePrinterProfileModal

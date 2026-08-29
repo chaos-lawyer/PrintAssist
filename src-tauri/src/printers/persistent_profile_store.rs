@@ -413,7 +413,7 @@ impl PersistentPrinterProfileStore {
         &self,
         printer_name: &str,
         ordered_profile_ids: &[String],
-    ) -> Result<(), String> {
+    ) -> Result<Vec<String>, String> {
         let printer_name = printer_name.trim();
         if printer_name.is_empty() {
             return Err("打印机名称不能为空".to_string());
@@ -465,7 +465,8 @@ impl PersistentPrinterProfileStore {
                 .ok_or_else(|| format!("未找到 ID 为 {profile_id} 的配置"))?;
         }
 
-        self.save_index_internal(&lock)
+        self.save_index_internal(&lock)?;
+        Ok(ordered_profile_ids.to_vec())
     }
 
     pub fn load_devmode_bytes(&self, profile_id: &str) -> Result<Vec<u8>, String> {
@@ -873,6 +874,7 @@ mod tests {
             flip_mode: Some("longEdge".to_string()),
             orientation: Some("portrait".to_string()),
             print_quality: Some(600),
+            collate: Some(true),
             driver_extra_bytes: 512,
         }
     }

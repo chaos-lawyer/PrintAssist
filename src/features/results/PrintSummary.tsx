@@ -4,9 +4,10 @@ import type { PrintJobSummary } from '../../domain/queueTypes';
 interface PrintSummaryProps {
   summary: PrintJobSummary | null;
   onRetryFailed: () => void;
+  onClearSucceeded?: () => void;
 }
 
-export function PrintSummary({ summary, onRetryFailed }: PrintSummaryProps) {
+export function PrintSummary({ summary, onRetryFailed, onClearSucceeded }: PrintSummaryProps) {
   if (!summary) {
     return null;
   }
@@ -21,15 +22,22 @@ export function PrintSummary({ summary, onRetryFailed }: PrintSummaryProps) {
         message={`打印完成：成功 ${summary.succeeded}，失败 ${summary.failed}，跳过 ${summary.skipped}`}
         description={
           summary.failed > 0
-            ? '单项失败不会阻断整批任务。可仅重试失败项。'
-            : '全部成功。确认后可清空列表，避免再次点击「开始打印」时误以为仍有待打文件。'
+            ? '单项失败不会阻断整批任务。可重试失败项，或先移除已成功项。'
+            : '本批任务已全部打印成功。'
         }
         action={
-          summary.failed > 0 ? (
-            <Button size="small" type="primary" onClick={onRetryFailed}>
-              仅重试失败项
-            </Button>
-          ) : undefined
+          <Space size={8}>
+            {summary.failed > 0 && (
+              <Button size="small" type="primary" onClick={onRetryFailed}>
+                仅重试失败项
+              </Button>
+            )}
+            {summary.succeeded > 0 && onClearSucceeded && (
+              <Button size="small" onClick={onClearSucceeded}>
+                {summary.failed > 0 ? '移除成功项' : '清空列表'}
+              </Button>
+            )}
+          </Space>
         }
       />
 

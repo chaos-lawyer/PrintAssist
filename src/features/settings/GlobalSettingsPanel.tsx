@@ -2,7 +2,7 @@ import { Alert, Button, Input, InputNumber, Segmented, Select, Space, Tooltip, T
 import { ChevronDown, RefreshCw, SlidersHorizontal } from 'lucide-react';
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import type { PaperSourceOption, SavedPrinterProfileSummary, SystemPrinter } from '../../shared/contracts/printer';
+import type { PaperSourceCapability, SavedPrinterProfileSummary, SystemPrinter } from '../../shared/contracts/printer';
 import { listPrinterPaperSources } from '../../api/nativeBridge';
 import type { ColorMode, FlipMode, PageScaleMode, PrintSettings, SidesMode } from '../../domain/printSettings';
 import { evaluateSettingAvailability } from '../../domain/printSettings';
@@ -72,25 +72,32 @@ export function GlobalSettingsPanel({
       reason.includes('错误') ||
       reason.includes('尚未选择'),
   );
-  const [paperSources, setPaperSources] = useState<PaperSourceOption[]>([]);
+  const [paperCapability, setPaperCapability] = useState<PaperSourceCapability | null>(null);
   const [loadingPaperSources, setLoadingPaperSources] = useState(false);
 
   useEffect(() => {
     if (!settings.printerName) {
-      setPaperSources([]);
+      setPaperCapability(null);
       return;
     }
     let cancelled = false;
     setLoadingPaperSources(true);
     void listPrinterPaperSources(settings.printerName)
-      .then((sources) => {
+      .then((cap) => {
         if (!cancelled) {
-          setPaperSources(sources);
+          setPaperCapability(cap);
+          const validCodes = new Set(cap.sources.map((s) => s.code));
+          if (
+            settings.sourceCode !== undefined &&
+            (cap.status !== 'available' || !validCodes.has(settings.sourceCode))
+          ) {
+            onChange({ ...settings, sourceCode: undefined, sourceName: undefined });
+          }
         }
       })
       .catch(() => {
         if (!cancelled) {
-          setPaperSources([]);
+          setPaperCapability({ status: 'unavailable', sources: [] });
         }
       })
       .finally(() => {
@@ -101,7 +108,7 @@ export function GlobalSettingsPanel({
     return () => {
       cancelled = true;
     };
-  }, [settings.printerName]);
+  }, [settings.printerName, onChange, settings]);
 
   const [printerSelectOpen, setPrinterSelectOpen] = useState(false);
   const [profileSelectOpen, setProfileSelectOpen] = useState(false);
@@ -719,34 +726,36 @@ export function GlobalSettingsPanel({
           </Typography.Text>
         )}
 
-        <div className="setting-row">
-          <span className="setting-row-label" id="paper-tray-label">
-            纸盘
-          </span>
-          <Select
-            className="setting-select"
-            size="small"
-            style={{ flex: 1 }}
-            loading={loadingPaperSources}
-            placeholder="自动选择"
-            value={settings.sourceCode ?? -1}
-            onChange={(val) => {
-              if (val === -1) {
-                onChange({ ...settings, sourceCode: undefined, sourceName: undefined });
-              } else {
-                const found = paperSources.find((s) => s.code === val);
-                onChange({ ...settings, sourceCode: val, sourceName: found?.name });
-              }
-            }}
-            options={[
-              { label: '自动选择 / 默认纸盘', value: -1 },
-              ...paperSources.map((s) => ({
-                label: s.name,
-                value: s.code,
-              })),
-            ]}
-          />
-        </div>
+        {paperCapability?.status === 'available' && paperCapability.sources.length >= 2 && (
+          <div className="setting-row">
+            <span className="setting-row-label" id="paper-tray-label">
+              纸盘
+            </span>
+            <Select
+              className="setting-select"
+              size="small"
+              style={{ flex: 1 }}
+              loading={loadingPaperSources}
+              placeholder="自动选择"
+              value={settings.sourceCode ?? -1}
+              onChange={(val) => {
+                if (val === -1) {
+                  onChange({ ...settings, sourceCode: undefined, sourceName: undefined });
+                } else {
+                  const found = paperCapability.sources.find((s) => s.code === val);
+                  onChange({ ...settings, sourceCode: val, sourceName: found?.name });
+                }
+              }}
+              options={[
+                { label: '自动选择 / 默认纸盘', value: -1 },
+                ...paperCapability.sources.map((s) => ({
+                  label: s.name,
+                  value: s.code,
+                })),
+              ]}
+            />
+          </div>
+        )}
 
         <div className="setting-row">
           <span className="setting-row-label" id="scale-mode-label">
@@ -792,6 +801,28 @@ export function GlobalSettingsPanel({
             <Typography.Text type="secondary">份</Typography.Text>
           </div>
         </div>
+
+        {settings.copies > 1 && (
+          <div className="setting-row">
+            <span className="setting-row-label">分发</span>
+            <Segmented
+              className="setting-segmented"
+              size="small"
+              block
+              value={settings.collate ? 'collated' : 'uncollated'}
+              options={[
+                { label: '逐份出纸 (成套)', value: 'collated' },
+                { label: '逐页出纸 (堆叠)', value: 'uncollated' },
+              ]}
+              onChange={(value) =>
+                onChange({
+                  ...settings,
+                  collate: value === 'collated',
+                })
+              }
+            />
+          </div>
+        )}
 
         <div className="setting-row">
           <span className="setting-row-label" id="page-range-label">
