@@ -24,8 +24,22 @@ function getStorage(): {
   setItem: (k: string, v: string) => void;
   removeItem: (k: string) => void;
 } {
+  const isStorageLike = (value: unknown): value is {
+    getItem: (k: string) => string | null;
+    setItem: (k: string, v: string) => void;
+    removeItem: (k: string) => void;
+  } => {
+    if (!value || typeof value !== 'object') return false;
+    const candidate = value as Record<string, unknown>;
+    return (
+      typeof candidate.getItem === 'function' &&
+      typeof candidate.setItem === 'function' &&
+      typeof candidate.removeItem === 'function'
+    );
+  };
+
   try {
-    if (typeof window !== 'undefined' && window.localStorage) {
+    if (typeof window !== 'undefined' && isStorageLike(window.localStorage)) {
       return window.localStorage;
     }
   } catch {
@@ -33,7 +47,7 @@ function getStorage(): {
   }
 
   try {
-    if (typeof localStorage !== 'undefined') {
+    if (typeof localStorage !== 'undefined' && isStorageLike(localStorage)) {
       return localStorage;
     }
   } catch {
