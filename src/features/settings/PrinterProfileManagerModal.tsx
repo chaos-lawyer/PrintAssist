@@ -1,39 +1,45 @@
 import {
-  Alert,
   Button,
   Drawer,
-  Dropdown,
   Empty,
   Input,
   Modal,
-  Popconfirm,
   Space,
   Tag,
   Typography,
   message,
 } from 'antd';
 import {
-  ArrowDown,
-  ArrowDownToLine,
-  ArrowUp,
-  ArrowUpToLine,
-  Check,
   Copy,
   Download,
   Edit2,
-  FileCheck,
+  GripVertical,
   MoreHorizontal,
   RefreshCw,
   Star,
   Trash2,
-  Upload,
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import {
+  DndContext,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  SortableContext,
+  arrayMove,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import {
   deletePrinterProfile,
   duplicatePrinterProfile,
   exportPrinterProfile,
-  importPrinterProfile,
   loadPrinterProfile,
   rebuildPrinterProfile,
   renamePrinterProfile,
@@ -66,6 +72,12 @@ export function reorderProfileList(
   return updated;
 }
 
+interface MenuState {
+  profile: SavedPrinterProfileSummary;
+  top: number;
+  left: number;
+}
+
 interface PrinterProfileManagerModalProps {
   open: boolean;
   currentPrinterName: string;
@@ -74,6 +86,142 @@ interface PrinterProfileManagerModalProps {
   onClose: () => void;
   onRefreshProfiles: () => Promise<unknown>;
   onApplyProfile: (loaded: LoadedPrinterProfileResult) => void;
+}
+
+interface SortableProfileCardProps {
+  profile: SavedPrinterProfileSummary;
+  isActive: boolean;
+  loadingAction: string | null;
+  onApply: (profile: SavedPrinterProfileSummary) => void;
+  onToggleDefault: (profile: SavedPrinterProfileSummary) => void;
+  onOpenMenu: (profile: SavedPrinterProfileSummary, e: React.MouseEvent<HTMLElement>) => void;
+  onRebuild: (profile: SavedPrinterProfileSummary) => void;
+  onKeyboardMove: (profile: SavedPrinterProfileSummary, direction: 'up' | 'down' | 'top' | 'bottom') => void;
+  renderCompatibilityTag: (compatibility: PrinterProfileCompatibility) => React.ReactNode;
+}
+
+function SortableProfileCard({
+  profile,
+  isActive,
+  loadingAction,
+  onApply,
+  onToggleDefault,
+  onOpenMenu,
+  onRebuild,
+  onKeyboardMove,
+  renderCompatibilityTag,
+}: SortableProfileCardProps) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: profile.id });
+
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    zIndex: isDragging ? 100 : undefined,
+  };
+
+  const isCompatible = profile.compatibility === 'compatible';
+  const isDriverChanged = profile.compatibility === 'driverChanged';
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (!e.altKey) return;
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      onKeyboardMove(profile, 'up');
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      onKeyboardMove(profile, 'down');
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      onKeyboardMove(profile, 'top');
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      onKeyboardMove(profile, 'bottom');
+    }
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`profile-card${isActive ? ' is-active' : ''}${
+        !isCompatible ? ' is-incompatible' : ''
+      }${isDragging ? ' is-dragging' : ''}`}
+    >
+      <div className="profile-card-header">
+        <div className="profile-card-title-row">
+          <button
+            type="button"
+            className="profile-drag-handle"
+            title="拖动调整配置顺序（Alt+上下键键盘排序）"
+            aria-label={`拖动调整配置“${profile.name}”的顺序`}
+            onKeyDown={handleKeyDown}
+            {...attributes}
+            {...listeners}
+          >
+            <GripVertical size={14} />
+          </button>
+          <span className="profile-card-name">{profile.name}</span>
+          {profile.isDefault && <Tag color="gold">默认</Tag>}
+          {isActive && <Tag color="processing">正在使用</Tag>}
+          {renderCompatibilityTag(profile.compatibility)}
+        </div>
+        <div className="profile-card-actions">
+          <Button
+            size="small"
+            type={isActive ? 'default' : 'primary'}
+            disabled={!isCompatible || Boolean(loadingAction)}
+            loading={loadingAction === `apply-${profile.id}`}
+            onClick={() => onApply(profile)}
+          >
+            {isActive ? '已应用' : '应用'}
+          </Button>
+
+          <Button
+            size="small"
+            icon={<Star size={13} fill={profile.isDefault ? '#faad14' : 'none'} />}
+            disabled={Boolean(loadingAction)}
+            loading={loadingAction === `default-${profile.id}`}
+            onClick={() => onToggleDefault(profile)}
+            title={profile.isDefault ? '取消默认' : '设为默认'}
+          />
+
+          <Button
+            size="small"
+            icon={<MoreHorizontal size={13} />}
+            disabled={Boolean(loadingAction)}
+            title="更多操作"
+            onClick={(e) => onOpenMenu(profile, e)}
+          />
+        </div>
+      </div>
+
+      <div className="profile-card-summary">{profile.summary}</div>
+
+      {isDriverChanged && (
+        <div className="profile-card-warning-box">
+          <span>驱动已更新，旧私有数据不可用。</span>
+          <Button
+            size="small"
+            type="link"
+            icon={<RefreshCw size={12} />}
+            loading={loadingAction === `rebuild-${profile.id}`}
+            onClick={() => onRebuild(profile)}
+          >
+            按标准字段重建
+          </Button>
+        </div>
+      )}
+
+      {profile.note && <div className="profile-card-note">备注：{profile.note}</div>}
+    </div>
+  );
 }
 
 export function PrinterProfileManagerModal({
@@ -91,10 +239,61 @@ export function PrinterProfileManagerModal({
   const [newName, setNewName] = useState('');
   const [actionType, setActionType] = useState<'rename' | 'duplicate'>('rename');
   const [localProfiles, setLocalProfiles] = useState<SavedPrinterProfileSummary[]>(profiles);
+  const [menuState, setMenuState] = useState<MenuState | null>(null);
+  const [announcement, setAnnouncement] = useState<string>('');
+
+  const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setLocalProfiles(profiles);
   }, [profiles]);
+
+  // Close context menu on drawer close
+  useEffect(() => {
+    if (!open) {
+      setMenuState(null);
+    }
+  }, [open]);
+
+  // Click outside and escape key handling for context menu
+  useEffect(() => {
+    if (!menuState) return;
+
+    const handleMouseDown = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuState(null);
+      }
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setMenuState(null);
+      }
+    };
+
+    const handleScroll = () => {
+      setMenuState(null);
+    };
+
+    document.addEventListener('mousedown', handleMouseDown);
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('scroll', handleScroll, true);
+
+    return () => {
+      document.removeEventListener('mousedown', handleMouseDown);
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('scroll', handleScroll, true);
+    };
+  }, [menuState]);
+
+  // Sensor configuration with activation distance of 5px
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 5,
+      },
+    }),
+  );
 
   const renderCompatibilityTag = (compatibility: PrinterProfileCompatibility) => {
     switch (compatibility) {
@@ -157,6 +356,18 @@ export function PrinterProfileManagerModal({
     }
   };
 
+  const confirmDelete = (profile: SavedPrinterProfileSummary) => {
+    setMenuState(null);
+    Modal.confirm({
+      title: `确定要删除配置“${profile.name}”吗？`,
+      content: '删除后无法恢复。',
+      okText: '删除',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: () => handleDelete(profile),
+    });
+  };
+
   const handleRebuild = async (profile: SavedPrinterProfileSummary) => {
     setLoadingAction(`rebuild-${profile.id}`);
     try {
@@ -172,12 +383,12 @@ export function PrinterProfileManagerModal({
   };
 
   const handleExport = async (profile: SavedPrinterProfileSummary) => {
+    setMenuState(null);
     try {
       const defaultFileName = `${profile.printerName}-${profile.name}.paprofile`.replace(
         /[\\/:*?"<>|]/g,
         '_',
       );
-      // We can use Tauri dialog or save to download/temp
       const targetPath = `${defaultFileName}`;
       await exportPrinterProfile(profile.id, targetPath);
       message.success(`已成功导出配置到 ${targetPath}`);
@@ -190,6 +401,7 @@ export function PrinterProfileManagerModal({
     profile: SavedPrinterProfileSummary,
     type: 'rename' | 'duplicate',
   ) => {
+    setMenuState(null);
     setTargetProfile(profile);
     setActionType(type);
     setNewName(type === 'duplicate' ? `${profile.name} (副本)` : profile.name);
@@ -218,12 +430,44 @@ export function PrinterProfileManagerModal({
     }
   };
 
-  const handleMove = async (
+  const persistReorder = async (nextList: SavedPrinterProfileSummary[], profileName: string, newIdx: number) => {
+    const previousList = localProfiles;
+    setLocalProfiles(nextList);
+    setAnnouncement(`已将“${profileName}”移动到第 ${newIdx + 1} 位`);
+
+    try {
+      const nextIds = nextList.map((p) => p.id);
+      const authoritativeIds = await reorderPrinterProfiles(currentPrinterName, nextIds);
+      const byId = new Map(nextList.map((p) => [p.id, p]));
+      setLocalProfiles(
+        authoritativeIds.map((id) => byId.get(id)).filter(Boolean) as SavedPrinterProfileSummary[],
+      );
+      await onRefreshProfiles();
+    } catch (error) {
+      setLocalProfiles(previousList);
+      message.error(error instanceof Error ? error.message : '调整配置顺序失败');
+    }
+  };
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+
+    const oldIndex = localProfiles.findIndex((p) => p.id === active.id);
+    const newIndex = localProfiles.findIndex((p) => p.id === over.id);
+    if (oldIndex < 0 || newIndex < 0) return;
+
+    const movedProfile = localProfiles[oldIndex];
+    const nextList = arrayMove(localProfiles, oldIndex, newIndex);
+    void persistReorder(nextList, movedProfile.name, newIndex);
+  };
+
+  const handleKeyboardMove = (
     profile: SavedPrinterProfileSummary,
     direction: 'up' | 'down' | 'top' | 'bottom',
   ) => {
     const currentIndex = localProfiles.findIndex((p) => p.id === profile.id);
-    if (currentIndex < 0 || loadingAction) return;
+    if (currentIndex < 0) return;
 
     let targetIndex = currentIndex;
     if (direction === 'up') targetIndex = currentIndex - 1;
@@ -231,26 +475,28 @@ export function PrinterProfileManagerModal({
     else if (direction === 'top') targetIndex = 0;
     else if (direction === 'bottom') targetIndex = localProfiles.length - 1;
 
-    if (targetIndex === currentIndex || targetIndex < 0 || targetIndex >= localProfiles.length) return;
-
-    const previousList = localProfiles;
-    const nextList = reorderProfileList(localProfiles, currentIndex, targetIndex);
-    setLocalProfiles(nextList);
-    const nextIds = nextList.map((p) => p.id);
-
-    setLoadingAction(`reorder-${profile.id}`);
-    try {
-      const authoritativeIds = await reorderPrinterProfiles(currentPrinterName, nextIds);
-      const byId = new Map(nextList.map((p) => [p.id, p]));
-      setLocalProfiles(authoritativeIds.map((id) => byId.get(id)).filter(Boolean) as SavedPrinterProfileSummary[]);
-      await onRefreshProfiles();
-      message.success(`已将“${profile.name}”移动到第 ${targetIndex + 1} 位`);
-    } catch (error) {
-      setLocalProfiles(previousList);
-      message.error(error instanceof Error ? error.message : '调整配置顺序失败');
-    } finally {
-      setLoadingAction(null);
+    if (targetIndex === currentIndex || targetIndex < 0 || targetIndex >= localProfiles.length) {
+      return;
     }
+
+    const nextList = reorderProfileList(localProfiles, currentIndex, targetIndex);
+    void persistReorder(nextList, profile.name, targetIndex);
+  };
+
+  const handleOpenMenu = (
+    profile: SavedPrinterProfileSummary,
+    e: React.MouseEvent<HTMLElement>,
+  ) => {
+    e.stopPropagation();
+    const rect = e.currentTarget.getBoundingClientRect();
+    const viewportHeight = window.innerHeight;
+    const preferTop = viewportHeight - rect.bottom < 170;
+
+    setMenuState({
+      profile,
+      top: preferTop ? Math.max(10, rect.top - 165) : rect.bottom + 4,
+      left: Math.max(10, rect.right - 140),
+    });
   };
 
   return (
@@ -266,153 +512,94 @@ export function PrinterProfileManagerModal({
         onClose={onClose}
         destroyOnClose
       >
+        <div aria-live="polite" style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0,0,0,0)' }}>
+          {announcement}
+        </div>
+
         {localProfiles.length === 0 ? (
           <Empty description="当前打印机暂未保存任何配置，可在主面板调整参数后点击“保存”" />
         ) : (
           <div className="profile-manager-list">
             <Typography.Text type="secondary" className="profile-sort-hint">
-              点击上移/下移按钮或更多菜单调整配置顺序；顺序会同步到主界面的配置下拉菜单。
+              可拖动手柄调整配置顺序（支持 Alt+上下键 键盘排序）；顺序会同步到主界面的配置下拉菜单。
             </Typography.Text>
-            {localProfiles.map((profile, index) => {
-              const isActive = activeProfileId === profile.id;
-              const isCompatible = profile.compatibility === 'compatible';
-              const isDriverChanged = profile.compatibility === 'driverChanged';
-              const isFirst = index === 0;
-              const isLast = index === localProfiles.length - 1;
 
-              return (
-                <div
-                  key={profile.id}
-                  className={`profile-card${isActive ? ' is-active' : ''}${
-                    !isCompatible ? ' is-incompatible' : ''
-                  }`}
-                >
-                  <div className="profile-card-header">
-                    <div className="profile-card-title-row">
-                      <span className="profile-card-name">{profile.name}</span>
-                      {profile.isDefault && <Tag color="gold">默认</Tag>}
-                      {isActive && <Tag color="processing">正在使用</Tag>}
-                      {renderCompatibilityTag(profile.compatibility)}
-                    </div>
-                    <div className="profile-card-actions">
-                      <Button
-                        size="small"
-                        icon={<ArrowUp size={13} />}
-                        disabled={isFirst || Boolean(loadingAction)}
-                        onClick={() => void handleMove(profile, 'up')}
-                        title="上移一位"
-                        aria-label={`将“${profile.name}”上移一位`}
-                      />
-                      <Button
-                        size="small"
-                        icon={<ArrowDown size={13} />}
-                        disabled={isLast || Boolean(loadingAction)}
-                        onClick={() => void handleMove(profile, 'down')}
-                        title="下移一位"
-                        aria-label={`将“${profile.name}”下移一位`}
-                      />
-
-                      <Button
-                        size="small"
-                        type={isActive ? 'default' : 'primary'}
-                        disabled={!isCompatible || Boolean(loadingAction)}
-                        loading={loadingAction === `apply-${profile.id}`}
-                        onClick={() => void handleApply(profile)}
-                      >
-                        {isActive ? '已应用' : '应用'}
-                      </Button>
-
-                      <Button
-                        size="small"
-                        icon={<Star size={13} fill={profile.isDefault ? '#faad14' : 'none'} />}
-                        disabled={Boolean(loadingAction)}
-                        loading={loadingAction === `default-${profile.id}`}
-                        onClick={() => void handleToggleDefault(profile)}
-                        title={profile.isDefault ? '取消默认' : '设为默认'}
-                      />
-
-                      <Dropdown
-                        menu={{
-                          items: [
-                            {
-                              key: 'rename',
-                              label: '重命名',
-                              icon: <Edit2 size={13} />,
-                              onClick: () => openRenameOrDuplicate(profile, 'rename'),
-                            },
-                            {
-                              key: 'duplicate',
-                              label: '复制配置',
-                              icon: <Copy size={13} />,
-                              onClick: () => openRenameOrDuplicate(profile, 'duplicate'),
-                            },
-                            {
-                              key: 'top',
-                              label: '移至顶部',
-                              icon: <ArrowUpToLine size={13} />,
-                              disabled: isFirst,
-                              onClick: () => void handleMove(profile, 'top'),
-                            },
-                            {
-                              key: 'bottom',
-                              label: '移至底部',
-                              icon: <ArrowDownToLine size={13} />,
-                              disabled: isLast,
-                              onClick: () => void handleMove(profile, 'bottom'),
-                            },
-                            {
-                              key: 'export',
-                              label: '导出配置',
-                              icon: <Download size={13} />,
-                              onClick: () => void handleExport(profile),
-                            },
-                            {
-                              type: 'divider',
-                            },
-                            {
-                              key: 'delete',
-                              label: '删除配置',
-                              danger: true,
-                              icon: <Trash2 size={13} />,
-                              onClick: () => void handleDelete(profile),
-                            },
-                          ],
-                        }}
-                      >
-                        <Button
-                          size="small"
-                          icon={<MoreHorizontal size={13} />}
-                          disabled={Boolean(loadingAction)}
-                          title="更多操作"
-                        />
-                      </Dropdown>
-                    </div>
-                  </div>
-
-                  <div className="profile-card-summary">{profile.summary}</div>
-
-                  {isDriverChanged && (
-                    <div className="profile-card-warning-box">
-                      <span>驱动已更新，旧私有数据不可用。</span>
-                      <Button
-                        size="small"
-                        type="link"
-                        icon={<RefreshCw size={12} />}
-                        loading={loadingAction === `rebuild-${profile.id}`}
-                        onClick={() => void handleRebuild(profile)}
-                      >
-                        按标准字段重建
-                      </Button>
-                    </div>
-                  )}
-
-                  {profile.note && <div className="profile-card-note">备注：{profile.note}</div>}
-                </div>
-              );
-            })}
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragEnd={handleDragEnd}
+            >
+              <SortableContext
+                items={localProfiles.map((p) => p.id)}
+                strategy={verticalListSortingStrategy}
+              >
+                {localProfiles.map((profile) => (
+                  <SortableProfileCard
+                    key={profile.id}
+                    profile={profile}
+                    isActive={activeProfileId === profile.id}
+                    loadingAction={loadingAction}
+                    onApply={handleApply}
+                    onToggleDefault={handleToggleDefault}
+                    onOpenMenu={handleOpenMenu}
+                    onRebuild={handleRebuild}
+                    onKeyboardMove={handleKeyboardMove}
+                    renderCompatibilityTag={renderCompatibilityTag}
+                  />
+                ))}
+              </SortableContext>
+            </DndContext>
           </div>
         )}
       </Drawer>
+
+      {/* Fixed-position safe context menu */}
+      {menuState &&
+        createPortal(
+          <div
+            ref={menuRef}
+            className="profile-context-menu"
+            style={{
+              top: menuState.top,
+              left: menuState.left,
+            }}
+          >
+            <button
+              type="button"
+              className="profile-context-menu-item"
+              onClick={() => openRenameOrDuplicate(menuState.profile, 'rename')}
+            >
+              <Edit2 size={13} />
+              <span>重命名</span>
+            </button>
+            <button
+              type="button"
+              className="profile-context-menu-item"
+              onClick={() => openRenameOrDuplicate(menuState.profile, 'duplicate')}
+            >
+              <Copy size={13} />
+              <span>复制配置</span>
+            </button>
+            <button
+              type="button"
+              className="profile-context-menu-item"
+              onClick={() => void handleExport(menuState.profile)}
+            >
+              <Download size={13} />
+              <span>导出配置</span>
+            </button>
+            <div className="profile-context-menu-divider" />
+            <button
+              type="button"
+              className="profile-context-menu-item is-danger"
+              onClick={() => confirmDelete(menuState.profile)}
+            >
+              <Trash2 size={13} />
+              <span>删除配置</span>
+            </button>
+          </div>,
+          document.body,
+        )}
 
       <Modal
         title={actionType === 'rename' ? '重命名配置' : '复制配置'}

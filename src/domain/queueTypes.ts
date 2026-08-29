@@ -45,10 +45,15 @@ export interface PrintJobSummary {
   results: PrintJobResultItem[];
 }
 
+export type QueueOrder =
+  | { mode: 'manual' }
+  | { mode: 'fileName'; direction: 'asc' | 'desc' };
+
 export interface QueueState {
   items: QueueItem[];
   isPrinting: boolean;
   lastSummary: PrintJobSummary | null;
+  order: QueueOrder;
 }
 
 export function createEmptyQueueState(): QueueState {
@@ -56,5 +61,6 @@ export function createEmptyQueueState(): QueueState {
     items: [],
     isPrinting: false,
     lastSummary: null,
+    order: { mode: 'manual' },
   };
 }

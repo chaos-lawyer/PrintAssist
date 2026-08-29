@@ -90,49 +90,100 @@ describe('queueReducer', () => {
     expect(state.items[0].fileName).toBe('b.pdf');
   });
 
-  it('sorts queue by fileName using natural numeric order', () => {
+  it('toggles filename sort between asc and desc', () => {
     let state = queueReducer(createEmptyQueueState(), {
       type: 'append_files',
       paths: ['file10.pdf', 'file2.pdf', 'file1.pdf'],
     });
 
-    state = queueReducer(state, {
-      type: 'sort_queue',
-      by: 'fileName',
-      direction: 'asc',
-    });
+    // First toggle -> asc
+    state = queueReducer(state, { type: 'toggle_filename_sort' });
     expect(state.items.map((i) => i.fileName)).toEqual(['file1.pdf', 'file2.pdf', 'file10.pdf']);
+    expect(state.order).toEqual({ mode: 'fileName', direction: 'asc' });
 
-    state = queueReducer(state, {
-      type: 'sort_queue',
-      by: 'fileName',
-      direction: 'desc',
-    });
+    // Second toggle -> desc
+    state = queueReducer(state, { type: 'toggle_filename_sort' });
     expect(state.items.map((i) => i.fileName)).toEqual(['file10.pdf', 'file2.pdf', 'file1.pdf']);
+    expect(state.order).toEqual({ mode: 'fileName', direction: 'desc' });
+
+    // Third toggle -> asc again
+    state = queueReducer(state, { type: 'toggle_filename_sort' });
+    expect(state.items.map((i) => i.fileName)).toEqual(['file1.pdf', 'file2.pdf', 'file10.pdf']);
+    expect(state.order).toEqual({ mode: 'fileName', direction: 'asc' });
   });
 
-  it('reverses queue order correctly', () => {
-    let state = queueReducer(createEmptyQueueState(), {
-      type: 'append_files',
-      paths: ['doc1.pdf', 'doc2.pdf', 'doc3.pdf'],
-    });
-
-    state = queueReducer(state, { type: 'reverse_queue' });
-    expect(state.items.map((i) => i.fileName)).toEqual(['doc3.pdf', 'doc2.pdf', 'doc1.pdf']);
-  });
-
-  it('reorders items from source index to target index', () => {
+  it('reorders items by moving IDs relative to a target', () => {
     let state = queueReducer(createEmptyQueueState(), {
       type: 'append_files',
       paths: ['a.pdf', 'b.pdf', 'c.pdf'],
     });
+    const cId = state.items[2].id;
+    const aId = state.items[0].id;
 
     state = queueReducer(state, {
       type: 'reorder_items',
-      sourceIndex: 2,
-      targetIndex: 0,
+      movingIds: [cId],
+      targetId: aId,
+      position: 'before',
     });
     expect(state.items.map((i) => i.fileName)).toEqual(['c.pdf', 'a.pdf', 'b.pdf']);
+    expect(state.order).toEqual({ mode: 'manual' });
+  });
+
+  it('moves multiple selected items together maintaining their relative order', () => {
+    let state = queueReducer(createEmptyQueueState(), {
+      type: 'append_files',
+      paths: ['a.pdf', 'b.pdf', 'c.pdf', 'd.pdf', 'e.pdf'],
+    });
+    const aId = state.items[0].id;
+    const cId = state.items[2].id;
+    const eId = state.items[4].id;
+
+    // Move [a.pdf, c.pdf] after e.pdf
+    state = queueReducer(state, {
+      type: 'reorder_items',
+      movingIds: [aId, cId],
+      targetId: eId,
+      position: 'after',
+    });
+    expect(state.items.map((i) => i.fileName)).toEqual(['b.pdf', 'd.pdf', 'e.pdf', 'a.pdf', 'c.pdf']);
+    expect(state.order).toEqual({ mode: 'manual' });
+  });
+
+  it('auto-sorts appended files when fileName sort is active', () => {
+    let state = queueReducer(createEmptyQueueState(), {
+      type: 'append_files',
+      paths: ['b.pdf', 'a.pdf'],
+    });
+    state = queueReducer(state, { type: 'toggle_filename_sort' });
+    expect(state.items.map((i) => i.fileName)).toEqual(['a.pdf', 'b.pdf']);
+
+    // Append more files - should auto-sort
+    state = queueReducer(state, {
+      type: 'append_files',
+      paths: ['aa.pdf'],
+    });
+    expect(state.items.map((i) => i.fileName)).toEqual(['a.pdf', 'aa.pdf', 'b.pdf']);
+    expect(state.order).toEqual({ mode: 'fileName', direction: 'asc' });
+  });
+
+  it('resets sort order to manual after reorder_items', () => {
+    let state = queueReducer(createEmptyQueueState(), {
+      type: 'append_files',
+      paths: ['a.pdf', 'b.pdf', 'c.pdf'],
+    });
+    state = queueReducer(state, { type: 'toggle_filename_sort' });
+    expect(state.order.mode).toBe('fileName');
+
+    const cId = state.items[2].id;
+    const aId = state.items[0].id;
+    state = queueReducer(state, {
+      type: 'reorder_items',
+      movingIds: [cId],
+      targetId: aId,
+      position: 'before',
+    });
+    expect(state.order).toEqual({ mode: 'manual' });
   });
 
   it('applies batch_set_override to multiple items without erasing other settings', () => {

@@ -11,8 +11,6 @@ import {
   message,
 } from 'antd';
 import {
-  ArrowDownUp,
-  ArrowUpDown,
   Clock,
   FilePlus2,
   FolderPlus,
@@ -778,48 +776,6 @@ export function App() {
                     移除选中（{selectedRowKeys.length}）
                   </Button>
                 )}
-                <Dropdown
-                  disabled={queueState.isPrinting || queueState.items.length <= 1}
-                  menu={{
-                    items: [
-                      {
-                        key: 'name-asc',
-                        label: '按文件名正序 (A → Z)',
-                        onClick: () =>
-                          dispatch({ type: 'sort_queue', by: 'fileName', direction: 'asc' }),
-                      },
-                      {
-                        key: 'name-desc',
-                        label: '按文件名倒序 (Z → A)',
-                        onClick: () =>
-                          dispatch({ type: 'sort_queue', by: 'fileName', direction: 'desc' }),
-                      },
-                      {
-                        key: 'kind',
-                        label: '按文件类型排序',
-                        onClick: () =>
-                          dispatch({ type: 'sort_queue', by: 'kind', direction: 'asc' }),
-                      },
-                      {
-                        key: 'pages',
-                        label: '按页数从多到少',
-                        onClick: () =>
-                          dispatch({ type: 'sort_queue', by: 'pageCount', direction: 'desc' }),
-                      },
-                      { type: 'divider' },
-                      {
-                        key: 'reverse',
-                        label: '一键反转队列顺序 (倒序出纸正向堆叠)',
-                        icon: <ArrowDownUp size={13} />,
-                        onClick: () => dispatch({ type: 'reverse_queue' }),
-                      },
-                    ],
-                  }}
-                >
-                  <Button type="text" icon={<ArrowUpDown size={14} />}>
-                    排序
-                  </Button>
-                </Dropdown>
                 <Button
                   type="text"
                   danger
@@ -855,7 +811,12 @@ export function App() {
                 globalSettings={globalSettings}
                 isPrinting={queueState.isPrinting}
                 selectedRowKeys={selectedRowKeys}
+                sortOrder={queueState.order}
                 onSelectionChange={(keys) => setSelectedRowKeys(keys)}
+                onToggleSort={() => dispatch({ type: 'toggle_filename_sort' })}
+                onReorderItems={(movingIds, targetId, position) =>
+                  dispatch({ type: 'reorder_items', movingIds, targetId, position })
+                }
                 onRemove={(id) => {
                   dispatch({ type: 'remove_item', id });
                   setSelectedRowKeys((prev) => prev.filter((k) => k !== id));

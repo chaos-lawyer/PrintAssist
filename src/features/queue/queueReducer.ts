@@ -4,6 +4,7 @@ import type {
   QueueItem,
   QueueState,
   SupportedDocumentKind,
+  QueueOrder,
 } from '../../domain/queueTypes';
 import { createEmptyQueueState } from '../../domain/queueTypes';
 import type { FileSettingsOverride } from '../../domain/printSettings';
@@ -15,14 +16,15 @@ export type QueueAction =
   | { type: 'clear_queue' }
   | { type: 'update_override'; id: string; override: FileSettingsOverride }
   | { type: 'batch_set_override'; ids: string[]; override: Partial<FileSettingsOverride> }
-  | { type: 'sort_queue'; by: 'fileName' | 'kind' | 'pageCount'; direction: 'asc' | 'desc' }
-  | { type: 'reverse_queue' }
-  | { type: 'reorder_items'; sourceIndex: number; targetIndex: number }
+  | { type: 'toggle_filename_sort' }
+  | { type: 'reorder_items'; movingIds: string[]; targetId: string; position: 'before' | 'after' }
   | { type: 'set_item_status'; id: string; status: QueueItem['status']; errorMessage?: string }
   | { type: 'begin_print' }
   | { type: 'finish_print'; summary: PrintJobSummary }
   | { type: 'retry_failed' }
   | { type: 'move_item'; id: string; direction: 'up' | 'down' };
+
+export { QueueOrder };
 
 const SUPPORTED_EXTENSIONS: Record<string, SupportedDocumentKind> = {
   pdf: 'pdf',
@@ -87,6 +89,17 @@ function normalizePathKey(filePath: string): string {
   return filePath.replace(/\//g, '\\').toLowerCase();
 }
 
+function naturalSort(items: QueueItem[], direction: 'asc' | 'desc'): QueueItem[] {
+  const sorted = [...items].sort((a, b) => {
+    const cmp = a.fileName.localeCompare(b.fileName, 'zh-Hans', {
+      numeric: true,
+      sensitivity: 'base',
+    });
+    return direction === 'desc' ? -cmp : cmp;
+  });
+  return sorted;
+}
+
 export function queueReducer(state: QueueState, action: QueueAction): QueueState {
   switch (action.type) {
     case 'append_files': {
@@ -105,9 +118,13 @@ export function queueReducer(state: QueueState, action: QueueAction): QueueState
         nextItems.push(createQueueItem(filePath));
       }
 
+      const finalItems = state.order.mode === 'fileName'
+        ? naturalSort(nextItems, state.order.direction)
+        : nextItems;
+
       return {
         ...state,
-        items: nextItems,
+        items: finalItems,
         lastSummary: null,
       };
     }
@@ -161,51 +178,36 @@ export function queueReducer(state: QueueState, action: QueueAction): QueueState
       };
     }
 
-    case 'sort_queue': {
-      const sorted = [...state.items].sort((a, b) => {
-        let cmp = 0;
-        if (action.by === 'fileName') {
-          cmp = a.fileName.localeCompare(b.fileName, undefined, {
-            numeric: true,
-            sensitivity: 'base',
-          });
-        } else if (action.by === 'kind') {
-          cmp = a.kind.localeCompare(b.kind);
-        } else if (action.by === 'pageCount') {
-          const aCount = a.pageCount ?? 0;
-          const bCount = b.pageCount ?? 0;
-          cmp = aCount - bCount;
-        }
-        return action.direction === 'desc' ? -cmp : cmp;
-      });
+    case 'toggle_filename_sort': {
+      const nextDirection: 'asc' | 'desc' =
+        state.order.mode === 'fileName' && state.order.direction === 'asc' ? 'desc' : 'asc';
       return {
         ...state,
-        items: sorted,
+        items: naturalSort(state.items, nextDirection),
+        order: { mode: 'fileName', direction: nextDirection },
       };
     }
 
-    case 'reverse_queue':
-      return {
-        ...state,
-        items: [...state.items].reverse(),
-      };
-
     case 'reorder_items': {
-      const { sourceIndex, targetIndex } = action;
-      if (
-        sourceIndex < 0 ||
-        sourceIndex >= state.items.length ||
-        targetIndex < 0 ||
-        targetIndex >= state.items.length
-      ) {
-        return state;
-      }
-      const nextItems = [...state.items];
-      const [moved] = nextItems.splice(sourceIndex, 1);
-      nextItems.splice(targetIndex, 0, moved);
+      const { movingIds, targetId, position } = action;
+      const movingSet = new Set(movingIds);
+      // Extract moving items preserving their relative order
+      const movingItems = state.items.filter((item) => movingSet.has(item.id));
+      const remaining = state.items.filter((item) => !movingSet.has(item.id));
+      if (movingItems.length === 0) return state;
+      // Find target in remaining list
+      const targetIndex = remaining.findIndex((item) => item.id === targetId);
+      if (targetIndex < 0) return state;
+      const insertAt = position === 'after' ? targetIndex + 1 : targetIndex;
+      const nextItems = [
+        ...remaining.slice(0, insertAt),
+        ...movingItems,
+        ...remaining.slice(insertAt),
+      ];
       return {
         ...state,
         items: nextItems,
+        order: { mode: 'manual' },
       };
     }
 
@@ -291,6 +293,7 @@ export function queueReducer(state: QueueState, action: QueueAction): QueueState
       return {
         ...state,
         items: nextItems,
+        order: { mode: 'manual' },
       };
     }
 

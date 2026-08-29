@@ -6,6 +6,7 @@ import type { PaperSourceCapability, SavedPrinterProfileSummary, SystemPrinter }
 import { listPrinterPaperSources } from '../../api/nativeBridge';
 import type { ColorMode, FlipMode, PageScaleMode, PrintSettings, SidesMode } from '../../domain/printSettings';
 import { evaluateSettingAvailability } from '../../domain/printSettings';
+import { SettingSelect } from '../../components/SettingSelect';
 
 interface PrinterMenuPosition {
   top: number;
@@ -129,12 +130,12 @@ export function GlobalSettingsPanel({
     (profile) => profile.id === settings.persistentProfileId,
   );
   const selectedProfileLabel = activeSavedProfile
-    ? `${activeSavedProfile.name}${settings.profileDirty ? ' *' : ''}`
+    ? activeSavedProfile.name
     : settings.persistentProfileName
-      ? `${settings.persistentProfileName}${settings.profileDirty ? ' *' : ''}`
+      ? settings.persistentProfileName
       : loadingProfiles
         ? '正在读取保存的配置…'
-        : '未保存的当前配置';
+        : '不使用已保存配置';
 
   const updatePrinterMenuPosition = useCallback(() => {
     const triggerElement = printerTriggerRef.current;
@@ -460,8 +461,7 @@ export function GlobalSettingsPanel({
               }}
               onMouseEnter={() => setProfileActiveIndex(0)}
             >
-              <span className="printer-picker-option-name">未保存的当前配置</span>
-              <span className="printer-picker-option-meta">使用当前面板中的打印参数</span>
+              <span className="printer-picker-option-name">不使用已保存配置</span>
             </button>
             {savedProfiles.map((profile, index) => {
               const optionIndex = index + 1;
@@ -474,19 +474,17 @@ export function GlobalSettingsPanel({
                   type="button"
                   role="option"
                   aria-selected={isSelected}
-                  className={`printer-picker-option${isSelected ? ' is-selected' : ''}${isFocused ? ' is-focused' : ''}`}
+                  aria-disabled={profile.compatibility !== 'compatible' ? 'true' : undefined}
+                  className={`printer-picker-option${isSelected ? ' is-selected' : ''}${isFocused ? ' is-focused' : ''}${profile.compatibility !== 'compatible' ? ' is-disabled' : ''}`}
+                  title={profile.compatibility !== 'compatible' ? (profile.compatibility === 'driverChanged' ? '驱动已更新，需在管理界面重建' : '配置不兼容') : undefined}
                   onClick={() => {
+                    if (profile.compatibility !== 'compatible') return;
                     onSelectProfile?.(profile.id);
                     setProfileSelectOpen(false);
                   }}
                   onMouseEnter={() => setProfileActiveIndex(optionIndex)}
                 >
-                  <span className="printer-picker-option-name">
-                    {profile.name}
-                    {profile.isDefault ? '（默认）' : ''}
-                    {profile.compatibility !== 'compatible' ? ' [需重建]' : ''}
-                  </span>
-                  <span className="printer-picker-option-meta">{profile.summary}</span>
+                  <span className="printer-picker-option-name">{profile.name}</span>
                 </button>
               );
             })}
@@ -634,12 +632,7 @@ export function GlobalSettingsPanel({
         </div>
       </div>
 
-      {settings.driverSummary && (
-        <div className="driver-config-summary" title={settings.driverSummary}>
-          <span className="driver-config-summary-tag">驱动配置</span>
-          <span className="driver-config-summary-text">{settings.driverSummary}</span>
-        </div>
-      )}
+
 
       <div className="settings-controls">
         <div className="setting-row">
@@ -731,12 +724,17 @@ export function GlobalSettingsPanel({
             <span className="setting-row-label" id="paper-tray-label">
               纸盘
             </span>
-            <select
-              className="setting-custom-select"
-              aria-labelledby="paper-tray-label"
+            <SettingSelect
+              ariaLabelledBy="paper-tray-label"
               value={settings.sourceCode ?? -1}
-              onChange={(e) => {
-                const val = Number(e.target.value);
+              options={[
+                { value: -1, label: '自动选择 / 默认纸盘' },
+                ...paperCapability.sources.map((s) => ({
+                  value: s.code,
+                  label: s.name,
+                })),
+              ]}
+              onChange={(val) => {
                 if (val === -1) {
                   onChange({ ...settings, sourceCode: undefined, sourceName: undefined });
                 } else {
@@ -744,14 +742,7 @@ export function GlobalSettingsPanel({
                   onChange({ ...settings, sourceCode: val, sourceName: found?.name });
                 }
               }}
-            >
-              <option value={-1}>自动选择 / 默认纸盘</option>
-              {paperCapability.sources.map((s) => (
-                <option key={s.code} value={s.code}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
+            />
           </div>
         )}
 
@@ -759,21 +750,21 @@ export function GlobalSettingsPanel({
           <span className="setting-row-label" id="scale-mode-label">
             缩放
           </span>
-          <select
-            className="setting-custom-select"
-            aria-labelledby="scale-mode-label"
+          <SettingSelect
+            ariaLabelledBy="scale-mode-label"
             value={settings.scaleMode ?? 'actualSize'}
-            onChange={(e) =>
+            options={[
+              { value: 'actualSize', label: '实际大小 (100%)' },
+              { value: 'shrinkOversized', label: '仅缩小过大页' },
+              { value: 'fitPrintable', label: '适应可打印区域' },
+            ]}
+            onChange={(val) =>
               onChange({
                 ...settings,
-                scaleMode: e.target.value as PageScaleMode,
+                scaleMode: val as PageScaleMode,
               })
             }
-          >
-            <option value="actualSize">实际大小 (100%)</option>
-            <option value="shrinkOversized">仅缩小过大页</option>
-            <option value="fitPrintable">适应可打印区域</option>
-          </select>
+          />
         </div>
 
         <div className="setting-row setting-row-copies">

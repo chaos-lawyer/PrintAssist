@@ -1,6 +1,6 @@
 {
   "name": "print-assist",
-  "version": "1.1.12",
+  "version": "1.1.13",
   "private": true,
   "type": "module",
   "scripts": {
@@ -17,6 +17,9 @@
     "printer:probe": "cargo run --manifest-path src-tauri/Cargo.toml --bin printer_probe"
   },
   "dependencies": {
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
     "@tauri-apps/api": "2.0.3",
     "antd": "6.5.1",
     "lucide-react": "1.25.0",

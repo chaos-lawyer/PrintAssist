@@ -4,7 +4,6 @@ import {
   Input,
   InputNumber,
   Radio,
-  Select,
   Space,
   Tag,
   Tooltip,
@@ -12,6 +11,7 @@ import {
   message,
 } from 'antd';
 import { useEffect, useState } from 'react';
+import { SettingSelect } from '../../components/SettingSelect';
 import type { QueueItem } from '../../domain/queueTypes';
 import type { PaperSourceCapability } from '../../shared/contracts/printer';
 import { listPrinterPaperSources } from '../../api/nativeBridge';
@@ -412,11 +412,16 @@ export function FileSettingsDrawer({
             <Typography.Text strong>纸盘</Typography.Text>
             {renderStatus(isSourceOverridden, () => handleResetField('source'))}
           </div>
-          <select
-            className="setting-custom-select"
+          <SettingSelect
             value={effective.sourceCode ?? -1}
-            onChange={(e) => {
-              const val = Number(e.target.value);
+            options={[
+              { value: -1, label: '自动选择 / 默认纸盘' },
+              ...paperCapability.sources.map((s) => ({
+                value: s.code,
+                label: s.name,
+              })),
+            ]}
+            onChange={(val) => {
               if (val === -1) {
                 handleResetField('source');
               } else {
@@ -428,14 +433,7 @@ export function FileSettingsDrawer({
                 }));
               }
             }}
-          >
-            <option value={-1}>自动选择 / 默认纸盘</option>
-            {paperCapability.sources.map((s) => (
-              <option key={s.code} value={s.code}>
-                {s.name}
-              </option>
-            ))}
-          </select>
+          />
         </div>
       )}
 
@@ -444,18 +442,18 @@ export function FileSettingsDrawer({
           <Typography.Text strong>页面缩放</Typography.Text>
           {renderStatus(isScaleOverridden, () => handleResetField('scale'))}
         </div>
-        <select
-          className="setting-custom-select"
+        <SettingSelect
           value={effective.scaleMode ?? 'actualSize'}
-          onChange={(e) => {
-            const nextMode = e.target.value as PageScaleMode;
+          options={[
+            { value: 'actualSize', label: '实际大小 (100%)' },
+            { value: 'shrinkOversized', label: '仅缩小过大页' },
+            { value: 'fitPrintable', label: '适应可打印区域' },
+          ]}
+          onChange={(val) => {
+            const nextMode = val as PageScaleMode;
             setDraftOverride((prev) => ({ ...prev, scaleMode: nextMode }));
           }}
-        >
-          <option value="actualSize">实际大小 (100%)</option>
-          <option value="shrinkOversized">仅缩小过大页</option>
-          <option value="fitPrintable">适应可打印区域</option>
-        </select>
+        />
       </div>
 
       <div className="drawer-field">
