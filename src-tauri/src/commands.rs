@@ -621,7 +621,6 @@ pub fn cancel_print_batch() -> Result<(), String> {
     Ok(())
 }
 
-
 #[tauri::command]
 pub async fn check_for_app_update(proxy: Option<ProxyConfig>) -> Result<UpdateCheckResult, String> {
     let mut client_builder = reqwest::Client::builder().user_agent("PrintAssist-Updater");

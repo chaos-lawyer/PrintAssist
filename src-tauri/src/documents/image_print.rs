@@ -20,8 +20,7 @@ use windows::Win32::Graphics::Gdi::{
     BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DEVMODEW, DIB_RGB_COLORS, DMORIENT_LANDSCAPE,
     DMORIENT_PORTRAIT, DM_IN_BUFFER, DM_ORIENTATION, DM_OUT_BUFFER, HALFTONE, HBITMAP, HDC,
     HORZRES, LOGPIXELSX, LOGPIXELSY, PHYSICALHEIGHT, PHYSICALOFFSETX, PHYSICALOFFSETY,
-    PHYSICALWIDTH, SRCCOPY,
-    VERTRES,
+    PHYSICALWIDTH, SRCCOPY, VERTRES,
 };
 use windows::Win32::Graphics::Imaging::{
     CLSID_WICImagingFactory, GUID_WICPixelFormat32bppBGRA, IWICBitmapFrameDecode, IWICBitmapSource,
@@ -490,11 +489,7 @@ fn set_page_orientation_from_content(
     devmode.Anonymous1.Anonymous1.dmOrientation = requested_orientation as i16;
 }
 
-fn draw_image_on_page(
-    hdc: HDC,
-    image: &DecodedImage,
-    mode: PageScaleMode,
-) -> Result<(), String> {
+fn draw_image_on_page(hdc: HDC, image: &DecodedImage, mode: PageScaleMode) -> Result<(), String> {
     let dest = compute_page_destination_rect(hdc, image, mode);
 
     let hbitmap = create_dib_bitmap(hdc, image)?;
@@ -541,11 +536,7 @@ fn draw_image_on_page(
 /// - ActualSize: 100% physical mapping, content placed at paper center/margins without shrinking
 /// - ShrinkOversized: scales down if content exceeds printable area, keeps 1:1 if it fits
 /// - FitPrintable: stretches/fits proportionally to fill printable area
-pub fn compute_page_destination_rect(
-    hdc: HDC,
-    image: &DecodedImage,
-    mode: PageScaleMode,
-) -> RECT {
+pub fn compute_page_destination_rect(hdc: HDC, image: &DecodedImage, mode: PageScaleMode) -> RECT {
     let printable_w = unsafe { GetDeviceCaps(hdc, HORZRES) }.max(1) as f64;
     let printable_h = unsafe { GetDeviceCaps(hdc, VERTRES) }.max(1) as f64;
     let phys_w = unsafe { GetDeviceCaps(hdc, PHYSICALWIDTH) };
@@ -597,7 +588,12 @@ pub fn compute_page_destination_rect(
                     }
                 }
             } else {
-                compute_destination_rect(printable_w as u32, printable_h as u32, image.width, image.height)
+                compute_destination_rect(
+                    printable_w as u32,
+                    printable_h as u32,
+                    image.width,
+                    image.height,
+                )
             }
         }
         PageScaleMode::ShrinkOversized => {
@@ -615,9 +611,12 @@ pub fn compute_page_destination_rect(
                 bottom: top + draw_h as i32,
             }
         }
-        PageScaleMode::FitPrintable => {
-            compute_destination_rect(printable_w as u32, printable_h as u32, image.width, image.height)
-        }
+        PageScaleMode::FitPrintable => compute_destination_rect(
+            printable_w as u32,
+            printable_h as u32,
+            image.width,
+            image.height,
+        ),
     }
 }
 
@@ -865,10 +864,22 @@ mod tests {
 
     #[test]
     fn parses_page_scale_mode_correctly() {
-        assert_eq!(PageScaleMode::from_str_opt(Some("actualSize")), PageScaleMode::ActualSize);
-        assert_eq!(PageScaleMode::from_str_opt(Some("shrinkOversized")), PageScaleMode::ShrinkOversized);
-        assert_eq!(PageScaleMode::from_str_opt(Some("fitPrintable")), PageScaleMode::FitPrintable);
+        assert_eq!(
+            PageScaleMode::from_str_opt(Some("actualSize")),
+            PageScaleMode::ActualSize
+        );
+        assert_eq!(
+            PageScaleMode::from_str_opt(Some("shrinkOversized")),
+            PageScaleMode::ShrinkOversized
+        );
+        assert_eq!(
+            PageScaleMode::from_str_opt(Some("fitPrintable")),
+            PageScaleMode::FitPrintable
+        );
         assert_eq!(PageScaleMode::from_str_opt(None), PageScaleMode::ActualSize);
-        assert_eq!(PageScaleMode::from_str_opt(Some("unknown")), PageScaleMode::ActualSize);
+        assert_eq!(
+            PageScaleMode::from_str_opt(Some("unknown")),
+            PageScaleMode::ActualSize
+        );
     }
 }

@@ -473,7 +473,9 @@ pub fn query_paper_source_capability(
             status: "unavailable".to_string(),
             sources: Vec::new(),
             default_source_code: None,
-            detail: Some(format!("DeviceCapabilitiesW(DC_BINS) 调用失败，返回码 {count}")),
+            detail: Some(format!(
+                "DeviceCapabilitiesW(DC_BINS) 调用失败，返回码 {count}"
+            )),
         };
     }
 
@@ -503,7 +505,9 @@ pub fn query_paper_source_capability(
             status: "unavailable".to_string(),
             sources: Vec::new(),
             default_source_code: None,
-            detail: Some(format!("DeviceCapabilitiesW 读取纸盘代码失败，返回码 {codes_ret}")),
+            detail: Some(format!(
+                "DeviceCapabilitiesW 读取纸盘代码失败，返回码 {codes_ret}"
+            )),
         };
     }
 
@@ -523,7 +527,9 @@ pub fn query_paper_source_capability(
             status: "unavailable".to_string(),
             sources: Vec::new(),
             default_source_code: None,
-            detail: Some(format!("DeviceCapabilitiesW 读取纸盘名称失败，返回码 {names_ret}")),
+            detail: Some(format!(
+                "DeviceCapabilitiesW 读取纸盘名称失败，返回码 {names_ret}"
+            )),
         };
     }
 

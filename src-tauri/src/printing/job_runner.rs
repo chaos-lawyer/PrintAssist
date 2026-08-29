@@ -257,7 +257,13 @@ fn print_item_windows(
             } else {
                 path.to_path_buf()
             };
-            print_pdf_preserving_orientation(&pdf_path, printer, copies, active_devmode.as_deref(), scale_mode)
+            print_pdf_preserving_orientation(
+                &pdf_path,
+                printer,
+                copies,
+                active_devmode.as_deref(),
+                scale_mode,
+            )
         }
 
         DocumentKind::Word | DocumentKind::Excel | DocumentKind::PowerPoint => {
@@ -332,7 +338,9 @@ fn print_pdf_preserving_orientation(
     devmode: Option<&[u8]>,
     scale_mode: Option<&str>,
 ) -> Result<(), String> {
-    crate::documents::pdf_print::print_pdf_to_printer(pdf_path, printer, copies, devmode, scale_mode)
+    crate::documents::pdf_print::print_pdf_to_printer(
+        pdf_path, printer, copies, devmode, scale_mode,
+    )
 }
 
 #[cfg(not(windows))]

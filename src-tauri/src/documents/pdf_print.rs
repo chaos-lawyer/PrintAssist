@@ -126,7 +126,12 @@ fn render_single_page(
         destination_pixels_for_page_size(size, target_dpi, MAX_RENDER_EDGE_PX, PDF_DIP_DPI);
 
     if let Some(context) = d2d_context {
-        match context.render_page(page, destination_width, destination_height, Some(target_dpi)) {
+        match context.render_page(
+            page,
+            destination_width,
+            destination_height,
+            Some(target_dpi),
+        ) {
             Ok(decoded) => return Ok(decoded),
             Err(_d2d_error) => {
                 // Fall through to stream-based path.
