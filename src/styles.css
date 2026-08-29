@@ -1063,36 +1063,37 @@ button,
   padding: 8px 10px;
 }
 
-.queue-column-header-sort-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  background: transparent;
-  border: none;
-  padding: 2px 6px;
-  margin: -2px -6px;
-  border-radius: var(--radius-sm);
-  color: var(--color-text-secondary);
-  font-size: 12px;
-  font-weight: 650;
+.queue-compact-table .ant-table-thead > tr > th.queue-th-sortable {
   cursor: pointer;
   user-select: none;
   transition: background-color var(--motion-fast), color var(--motion-fast);
 }
 
-.queue-column-header-sort-btn:hover {
-  background-color: rgba(0, 0, 0, 0.05);
+.queue-compact-table .ant-table-thead > tr > th.queue-th-sortable:hover {
+  background-color: #eef2f6 !important;
   color: var(--color-text);
 }
 
-.queue-column-header-sort-btn:focus-visible {
+.queue-compact-table .ant-table-thead > tr > th.queue-th-sortable:focus-visible {
   outline: 2px solid var(--color-primary);
-  outline-offset: 1px;
+  outline-offset: -2px;
+}
+
+.queue-compact-table .ant-table-thead > tr > th.queue-th-sortable.is-sorted {
+  background-color: #f1f5f9;
+  color: var(--color-text);
+}
+
+.queue-th-sort-wrapper {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
 }
 
 .queue-sort-icon {
   flex-shrink: 0;
-  transition: color var(--motion-fast);
+  transition: color var(--motion-fast), opacity var(--motion-fast), transform var(--motion-fast);
 }
 
 .queue-sort-icon.is-active {
@@ -1102,11 +1103,12 @@ button,
 .queue-sort-icon.is-inactive {
   color: var(--color-text-faint);
   opacity: 0;
-  transition: opacity var(--motion-fast);
+  transform: scale(0.9);
 }
 
-.queue-column-header-sort-btn:hover .queue-sort-icon.is-inactive {
-  opacity: 0.6;
+.queue-compact-table .ant-table-thead > tr > th.queue-th-sortable:hover .queue-sort-icon.is-inactive {
+  opacity: 0.55;
+  transform: scale(1);
 }
 
 .queue-drag-handle {

@@ -634,19 +634,7 @@ export function PrintQueue({
   const columns: ColumnsType<QueueItem> = [
     {
       title: (
-        <button
-          type="button"
-          className="queue-column-header-sort-btn"
-          onClick={onToggleSort}
-          title="点击按文件名排序（正序/倒序切换）"
-          aria-sort={
-            sortOrder?.mode === 'fileName'
-              ? sortOrder.direction === 'asc'
-                ? 'ascending'
-                : 'descending'
-              : 'none'
-          }
-        >
+        <div className="queue-th-sort-wrapper">
           <span>文件</span>
           {sortOrder?.mode === 'fileName' ? (
             sortOrder.direction === 'asc' ? (
@@ -657,10 +645,29 @@ export function PrintQueue({
           ) : (
             <ArrowUpDown size={13} className="queue-sort-icon is-inactive" />
           )}
-        </button>
+        </div>
       ),
       dataIndex: 'fileName',
       key: 'fileName',
+      onHeaderCell: () => ({
+        onClick: () => onToggleSort?.(),
+        onKeyDown: (e: React.KeyboardEvent) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            onToggleSort?.();
+          }
+        },
+        tabIndex: 0,
+        role: 'button',
+        title: '点击排序列：文件名正序/倒序切换',
+        'aria-sort':
+          sortOrder?.mode === 'fileName'
+            ? sortOrder.direction === 'asc'
+              ? 'ascending'
+              : 'descending'
+            : 'none',
+        className: `queue-th-sortable${sortOrder?.mode === 'fileName' ? ' is-sorted' : ''}`,
+      }),
       render: (fileName: string, record) => {
         const isDuplicate = (fileNameCounts[fileName] || 0) > 1;
         const parentDir = isDuplicate ? getParentDirectoryName(record.path) : '';
