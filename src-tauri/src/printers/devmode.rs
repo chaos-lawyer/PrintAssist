@@ -13,10 +13,10 @@ use windows::core::PCWSTR;
 use windows::Win32::Foundation::{HANDLE, HWND};
 #[cfg(windows)]
 use windows::Win32::Graphics::Gdi::{
-    DEVMODEW, DMCOLOR_COLOR, DMCOLOR_MONOCHROME, DMDUP_HORIZONTAL, DMDUP_SIMPLEX, DMDUP_VERTICAL,
-    DMORIENT_LANDSCAPE, DMORIENT_PORTRAIT, DM_COLLATE, DM_COLOR, DM_DEFAULTSOURCE, DM_DUPLEX,
-    DM_IN_BUFFER, DM_ORIENTATION, DM_OUT_BUFFER, DM_PAPERLENGTH, DM_PAPERSIZE, DM_PAPERWIDTH,
-    DM_PRINTQUALITY, DMCOLLATE_FALSE, DMCOLLATE_TRUE,
+    DEVMODEW, DMCOLLATE_FALSE, DMCOLLATE_TRUE, DMCOLOR_COLOR, DMCOLOR_MONOCHROME, DMDUP_HORIZONTAL,
+    DMDUP_SIMPLEX, DMDUP_VERTICAL, DMORIENT_LANDSCAPE, DMORIENT_PORTRAIT, DM_COLLATE, DM_COLOR,
+    DM_DEFAULTSOURCE, DM_DUPLEX, DM_IN_BUFFER, DM_ORIENTATION, DM_OUT_BUFFER, DM_PAPERLENGTH,
+    DM_PAPERSIZE, DM_PAPERWIDTH, DM_PRINTQUALITY,
 };
 #[cfg(windows)]
 use windows::Win32::Graphics::Printing::{ClosePrinter, DocumentPropertiesW, OpenPrinterW};
@@ -92,6 +92,7 @@ pub fn parse_devmode_standard_fields(
             color_mode,
             sides_mode,
             flip_mode,
+            collate,
         ) = unsafe {
             let p_code = if (fields & DM_PAPERSIZE).0 != 0 {
                 Some(devmode.Anonymous1.Anonymous1.dmPaperSize)
@@ -165,10 +166,10 @@ pub fn parse_devmode_standard_fields(
             };
 
             let collate = if (fields & DM_COLLATE).0 != 0 {
-                let code = devmode.Anonymous1.Anonymous1.dmCollate;
-                if code == DMCOLLATE_TRUE as i16 {
+                let code = devmode.dmCollate;
+                if code == DMCOLLATE_TRUE {
                     Some(true)
-                } else if code == DMCOLLATE_FALSE as i16 {
+                } else if code == DMCOLLATE_FALSE {
                     Some(false)
                 } else {
                     None
@@ -268,10 +269,10 @@ pub fn apply_settings_to_devmode(
 
         if let Some(collate_val) = collate {
             devmode.dmFields |= DM_COLLATE;
-            devmode.Anonymous1.Anonymous1.dmCollate = if collate_val {
-                DMCOLLATE_TRUE as i16
+            devmode.dmCollate = if collate_val {
+                DMCOLLATE_TRUE
             } else {
-                DMCOLLATE_FALSE as i16
+                DMCOLLATE_FALSE
             };
         }
 
@@ -516,8 +517,15 @@ mod tests {
         assert_eq!(settings.driver_extra_bytes, 128);
 
         // Apply override: change to monochrome + simplex + collate
-        apply_settings_to_devmode(&mut full_buffer, Some("monochrome"), Some("simplex"), None, None, Some(true))
-            .expect("apply overrides");
+        apply_settings_to_devmode(
+            &mut full_buffer,
+            Some("monochrome"),
+            Some("simplex"),
+            None,
+            None,
+            Some(true),
+        )
+        .expect("apply overrides");
 
         let updated =
             parse_devmode_standard_fields("Test Printer", &full_buffer, Some(&paper_lookup), None)
