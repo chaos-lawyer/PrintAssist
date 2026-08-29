@@ -8,7 +8,6 @@ import {
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import {
-  Eye,
   File,
   FileCode,
   FilePlus2,
@@ -39,7 +38,6 @@ interface PrintQueueProps {
   onSelectionChange: (keys: React.Key[]) => void;
   onRemove: (id: string) => void;
   onOpenSettings: (id: string) => void;
-  onPreview?: (item: QueueItem) => void;
   onAddFiles?: () => void;
   activeId?: string | null;
   onActiveIdChange?: (id: string | null) => void;
@@ -134,7 +132,6 @@ export function PrintQueue({
   onSelectionChange,
   onRemove,
   onOpenSettings,
-  onPreview,
   onAddFiles,
   activeId: propsActiveId,
   onActiveIdChange,
@@ -457,20 +454,10 @@ export function PrintQueue({
     {
       title: '操作',
       key: 'actions',
-      width: 132,
+      width: 100,
       align: 'center',
       render: (_, record) => (
         <Space size={4}>
-          <Button
-            size="small"
-            icon={<Eye size={13} />}
-            onClick={(e) => {
-              e.stopPropagation();
-              onPreview?.(record);
-            }}
-            title="预览文件"
-            aria-label="预览文件"
-          />
           <Button
             size="small"
             icon={<Settings2 size={13} />}

@@ -40,7 +40,6 @@ import {
 import { AppLogo } from './components/AppLogo';
 import { PrintHistoryModal } from './features/history/PrintHistoryModal';
 import { savePrintHistoryRecord } from './features/history/historyStorage';
-import { FilePreviewModal } from './features/preview/FilePreviewModal';
 import {
   applyDriverSettings,
   applyLoadedPersistentProfile,
@@ -88,7 +87,6 @@ export function App() {
   const [settingsItemId, setSettingsItemId] = useState<string | null>(null);
   const [isBatchSettingsOpen, setIsBatchSettingsOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [previewItem, setPreviewItem] = useState<QueueItem | null>(null);
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
   const [allowAssociationFallback, setAllowAssociationFallback] = useState(false);
@@ -700,9 +698,10 @@ export function App() {
               </Typography.Text>
             </div>
           </div>
-          <Space>
+          <Space className="header-actions">
             <Button
               type="text"
+              className="header-history-btn"
               icon={<Clock size={15} />}
               onClick={() => setHistoryOpen(true)}
             >
@@ -862,7 +861,6 @@ export function App() {
                   setSelectedRowKeys((prev) => prev.filter((k) => k !== id));
                 }}
                 onOpenSettings={(id) => setSettingsItemId(id)}
-                onPreview={(item) => setPreviewItem(item)}
                 onAddFiles={() => void handlePickFiles()}
               />
             </div>
@@ -1037,11 +1035,6 @@ export function App() {
             override,
           });
         }}
-      />
-      <FilePreviewModal
-        open={Boolean(previewItem)}
-        item={previewItem}
-        onClose={() => setPreviewItem(null)}
       />
       <PrintHistoryModal
         open={historyOpen}

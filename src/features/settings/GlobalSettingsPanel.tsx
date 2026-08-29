@@ -726,19 +726,17 @@ export function GlobalSettingsPanel({
           </Typography.Text>
         )}
 
-        {paperCapability?.status === 'available' && paperCapability.sources.length >= 2 && (
+        {paperCapability?.status === 'available' && paperCapability.sources.length >= 1 && (
           <div className="setting-row">
             <span className="setting-row-label" id="paper-tray-label">
               纸盘
             </span>
-            <Select
-              className="setting-select"
-              size="small"
-              style={{ flex: 1 }}
-              loading={loadingPaperSources}
-              placeholder="自动选择"
+            <select
+              className="setting-custom-select"
+              aria-labelledby="paper-tray-label"
               value={settings.sourceCode ?? -1}
-              onChange={(val) => {
+              onChange={(e) => {
+                const val = Number(e.target.value);
                 if (val === -1) {
                   onChange({ ...settings, sourceCode: undefined, sourceName: undefined });
                 } else {
@@ -746,14 +744,14 @@ export function GlobalSettingsPanel({
                   onChange({ ...settings, sourceCode: val, sourceName: found?.name });
                 }
               }}
-              options={[
-                { label: '自动选择 / 默认纸盘', value: -1 },
-                ...paperCapability.sources.map((s) => ({
-                  label: s.name,
-                  value: s.code,
-                })),
-              ]}
-            />
+            >
+              <option value={-1}>自动选择 / 默认纸盘</option>
+              {paperCapability.sources.map((s) => (
+                <option key={s.code} value={s.code}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
           </div>
         )}
 
@@ -761,23 +759,21 @@ export function GlobalSettingsPanel({
           <span className="setting-row-label" id="scale-mode-label">
             缩放
           </span>
-          <Select
-            className="setting-select"
-            size="small"
-            style={{ flex: 1 }}
+          <select
+            className="setting-custom-select"
+            aria-labelledby="scale-mode-label"
             value={settings.scaleMode ?? 'actualSize'}
-            onChange={(val) =>
+            onChange={(e) =>
               onChange({
                 ...settings,
-                scaleMode: val as PageScaleMode,
+                scaleMode: e.target.value as PageScaleMode,
               })
             }
-            options={[
-              { label: '实际大小 (100%)', value: 'actualSize' },
-              { label: '仅缩小过大页', value: 'shrinkOversized' },
-              { label: '适应可打印区域', value: 'fitPrintable' },
-            ]}
-          />
+          >
+            <option value="actualSize">实际大小 (100%)</option>
+            <option value="shrinkOversized">仅缩小过大页</option>
+            <option value="fitPrintable">适应可打印区域</option>
+          </select>
         </div>
 
         <div className="setting-row setting-row-copies">
