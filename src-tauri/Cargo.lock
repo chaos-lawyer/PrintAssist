@@ -874,7 +874,7 @@ dependencies = [
 
 [[package]]
 name = "downcast-rs"
-version = "1.2.2"
+version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "75b325c5dbd37f80359721ad39aca5a29fb04c89279657cffdda8736d0c0b9d2"
 
@@ -3017,7 +3017,7 @@ checksum = "925383efa346730478fb4838dbe9137d2a47675ad789c546d150a6e1dd4ab31c"
 
 [[package]]
 name = "print-assist"
-version = "1.2.1"
+version = "1.2.3"
 dependencies = [
  "futures-util",
  "lopdf",
