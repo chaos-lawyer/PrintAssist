@@ -1,8 +1,8 @@
 import {
   Button,
   Collapse,
-  Drawer,
   Empty,
+  Modal,
   Popconfirm,
   Space,
   Tag,
@@ -68,33 +68,39 @@ export function PrintHistoryModal({
   };
 
   return (
-    <Drawer
+    <Modal
       title={
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Clock size={18} />
-          <span>打印任务历史记录</span>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingRight: 28 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Clock size={18} />
+            <span>打印任务历史记录</span>
+          </div>
+          {history.length > 0 && (
+            <Popconfirm
+              title="清空历史记录"
+              description="确定要清空全部打印历史记录吗？"
+              okText="清空"
+              cancelText="取消"
+              okButtonProps={{ danger: true }}
+              onConfirm={handleClear}
+            >
+              <Button size="small" danger icon={<Trash2 size={13} />}>
+                清空历史
+              </Button>
+            </Popconfirm>
+          )}
         </div>
       }
       open={open}
-      onClose={onClose}
-      width={560}
-      extra={
-        history.length > 0 && (
-          <Popconfirm
-            title="清空历史记录"
-            description="确定要清空全部打印历史记录吗？"
-            okText="清空"
-            cancelText="取消"
-            okButtonProps={{ danger: true }}
-            onConfirm={handleClear}
-          >
-            <Button size="small" danger icon={<Trash2 size={13} />}>
-              清空历史
-            </Button>
-          </Popconfirm>
-        )
-      }
+      onCancel={onClose}
+      width={660}
+      centered
+      destroyOnClose
+      maskClosable={false}
+      footer={null}
+      className="print-history-modal"
     >
+      <div className="print-history-modal-body">
       {history.length === 0 ? (
         <Empty
           image={Empty.PRESENTED_IMAGE_SIMPLE}
@@ -243,6 +249,7 @@ export function PrintHistoryModal({
           />
         </div>
       )}
-    </Drawer>
+      </div>
+    </Modal>
   );
 }

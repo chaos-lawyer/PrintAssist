@@ -129,7 +129,7 @@ pub struct PersistentPrinterProfileStore {
 }
 
 impl PersistentPrinterProfileStore {
-    /// Detects if portable mode is active via CLI flag, environment variable, or portable marker file.
+    /// Detects if portable mode is active via CLI flag, environment variable, executable filename, or portable marker file/directory.
     pub fn is_portable_mode(exe_dir: Option<&Path>) -> bool {
         // 1. Explicit CLI arguments
         if std::env::args().any(|arg| arg == "--portable" || arg == "-p") {
@@ -142,16 +142,26 @@ impl PersistentPrinterProfileStore {
         {
             return true;
         }
-        // 3. Explicit marker file in executable directory
+        // 3. Executable filename contains "portable" (case-insensitive)
+        if let Ok(exe_path) = std::env::current_exe() {
+            if let Some(file_name) = exe_path.file_name().and_then(|n| n.to_str()) {
+                if file_name.to_lowercase().contains("portable") {
+                    return true;
+                }
+            }
+        }
+        // 4. Explicit marker file in executable directory
         if let Some(dir) = exe_dir {
             if dir.join("portable.flag").exists()
+                || dir.join("portable.ini").exists()
+                || dir.join("portable.txt").exists()
                 || dir.join("portable").is_file()
                 || dir.join(".portable").exists()
             {
                 return true;
             }
-            // 4. Existing portable data folder from a previous portable run
-            if dir.join("printer-profiles").join("index.json").is_file() {
+            // 5. Existing portable data folder from a previous portable run or manually created
+            if dir.join("printer-profiles").is_dir() || dir.join("data").is_dir() {
                 return true;
             }
         }
@@ -1126,6 +1136,22 @@ mod tests {
         // With portable.flag -> true
         let flag_path = temp_dir.join("portable.flag");
         fs::write(&flag_path, b"").expect("write flag");
+        assert!(PersistentPrinterProfileStore::is_portable_mode(Some(
+            &temp_dir
+        )));
+
+        // Clean up flag and test portable.ini
+        let _ = fs::remove_file(&flag_path);
+        let ini_path = temp_dir.join("portable.ini");
+        fs::write(&ini_path, b"").expect("write ini");
+        assert!(PersistentPrinterProfileStore::is_portable_mode(Some(
+            &temp_dir
+        )));
+
+        // Clean up ini and test printer-profiles dir
+        let _ = fs::remove_file(&ini_path);
+        let profiles_dir = temp_dir.join("printer-profiles");
+        let _ = fs::create_dir_all(&profiles_dir);
         assert!(PersistentPrinterProfileStore::is_portable_mode(Some(
             &temp_dir
         )));

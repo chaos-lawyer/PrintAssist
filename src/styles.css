@@ -1329,10 +1329,11 @@ button,
   margin-top: 8px;
 }
 
-.file-settings-modal .file-settings-modal-body {
+.file-settings-modal .file-settings-modal-body,
+.print-history-modal .print-history-modal-body {
   max-height: 65vh;
   overflow-y: auto;
-  padding: 4px 6px;
+  padding: 6px 8px;
 }
 
 .drawer-file-meta {
