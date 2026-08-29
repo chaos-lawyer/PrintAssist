@@ -272,6 +272,13 @@ export function App() {
 
   useEffect(() => {
     void refreshPrinters();
+    if (isTauriRuntime()) {
+      import('@tauri-apps/api/window')
+        .then(({ getCurrentWindow }) => {
+          getCurrentWindow().maximize().catch(() => {});
+        })
+        .catch(() => {});
+    }
   }, [refreshPrinters]);
 
   const appendPaths = useCallback((paths: string[]) => {

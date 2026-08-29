@@ -1,6 +1,5 @@
 import {
   Button,
-  Drawer,
   Empty,
   Input,
   Modal,
@@ -19,7 +18,7 @@ import {
   Star,
   Trash2,
 } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   DndContext,
@@ -92,11 +91,17 @@ interface SortableProfileCardProps {
   profile: SavedPrinterProfileSummary;
   isActive: boolean;
   loadingAction: string | null;
+  editingProfileId: string | null;
+  editingName: string;
   onApply: (profile: SavedPrinterProfileSummary) => void;
   onToggleDefault: (profile: SavedPrinterProfileSummary) => void;
   onOpenMenu: (profile: SavedPrinterProfileSummary, e: React.MouseEvent<HTMLElement>) => void;
   onRebuild: (profile: SavedPrinterProfileSummary) => void;
   onKeyboardMove: (profile: SavedPrinterProfileSummary, direction: 'up' | 'down' | 'top' | 'bottom') => void;
+  onStartInlineRename: (profile: SavedPrinterProfileSummary) => void;
+  onChangeEditingName: (name: string) => void;
+  onSaveInlineRename: (profileId: string) => void;
+  onCancelInlineRename: () => void;
   renderCompatibilityTag: (compatibility: PrinterProfileCompatibility) => React.ReactNode;
 }
 
@@ -104,11 +109,17 @@ function SortableProfileCard({
   profile,
   isActive,
   loadingAction,
+  editingProfileId,
+  editingName,
   onApply,
   onToggleDefault,
   onOpenMenu,
   onRebuild,
   onKeyboardMove,
+  onStartInlineRename,
+  onChangeEditingName,
+  onSaveInlineRename,
+  onCancelInlineRename,
   renderCompatibilityTag,
 }: SortableProfileCardProps) {
   const {
@@ -128,6 +139,7 @@ function SortableProfileCard({
 
   const isCompatible = profile.compatibility === 'compatible';
   const isDriverChanged = profile.compatibility === 'driverChanged';
+  const isEditing = editingProfileId === profile.id;
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (!e.altKey) return;
@@ -167,10 +179,52 @@ function SortableProfileCard({
           >
             <GripVertical size={14} />
           </button>
-          <span className="profile-card-name">{profile.name}</span>
-          {profile.isDefault && <Tag color="gold">默认</Tag>}
-          {isActive && <Tag color="processing">正在使用</Tag>}
-          {renderCompatibilityTag(profile.compatibility)}
+
+          {isEditing ? (
+            <div className="profile-card-inline-rename" onClick={(e) => e.stopPropagation()}>
+              <Input
+                size="small"
+                value={editingName}
+                maxLength={60}
+                autoFocus
+                onChange={(e) => onChangeEditingName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    onSaveInlineRename(profile.id);
+                  } else if (e.key === 'Escape') {
+                    e.preventDefault();
+                    onCancelInlineRename();
+                  }
+                }}
+                style={{ width: 170 }}
+              />
+              <Button
+                size="small"
+                type="primary"
+                loading={loadingAction === 'name-action'}
+                onClick={() => onSaveInlineRename(profile.id)}
+              >
+                保存
+              </Button>
+              <Button size="small" onClick={onCancelInlineRename}>
+                取消
+              </Button>
+            </div>
+          ) : (
+            <>
+              <span
+                className="profile-card-name"
+                onDoubleClick={() => onStartInlineRename(profile)}
+                title="双击可快速重命名"
+              >
+                {profile.name}
+              </span>
+              {profile.isDefault && <Tag color="gold">默认</Tag>}
+              {isActive && <Tag color="processing">正在使用</Tag>}
+              {renderCompatibilityTag(profile.compatibility)}
+            </>
+          )}
         </div>
         <div className="profile-card-actions">
           <Button
@@ -234,10 +288,11 @@ export function PrinterProfileManagerModal({
   onApplyProfile,
 }: PrinterProfileManagerModalProps) {
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
-  const [renameModalVisible, setRenameModalVisible] = useState(false);
+  const [duplicateModalVisible, setDuplicateModalVisible] = useState(false);
   const [targetProfile, setTargetProfile] = useState<SavedPrinterProfileSummary | null>(null);
   const [newName, setNewName] = useState('');
-  const [actionType, setActionType] = useState<'rename' | 'duplicate'>('rename');
+  const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState('');
   const [localProfiles, setLocalProfiles] = useState<SavedPrinterProfileSummary[]>(profiles);
   const [menuState, setMenuState] = useState<MenuState | null>(null);
   const [announcement, setAnnouncement] = useState<string>('');
@@ -248,10 +303,11 @@ export function PrinterProfileManagerModal({
     setLocalProfiles(profiles);
   }, [profiles]);
 
-  // Close context menu on drawer close
+  // Close context menu and inline editing on modal close
   useEffect(() => {
     if (!open) {
       setMenuState(null);
+      setEditingProfileId(null);
     }
   }, [open]);
 
@@ -364,6 +420,7 @@ export function PrinterProfileManagerModal({
       okText: '删除',
       okType: 'danger',
       cancelText: '取消',
+      zIndex: 13500,
       onOk: () => handleDelete(profile),
     });
   };
@@ -397,31 +454,47 @@ export function PrinterProfileManagerModal({
     }
   };
 
-  const openRenameOrDuplicate = (
-    profile: SavedPrinterProfileSummary,
-    type: 'rename' | 'duplicate',
-  ) => {
+  // Inline rename handlers (direct in-place editing, zero mask/modal hiding bugs)
+  const handleStartInlineRename = (profile: SavedPrinterProfileSummary) => {
     setMenuState(null);
-    setTargetProfile(profile);
-    setActionType(type);
-    setNewName(type === 'duplicate' ? `${profile.name} (副本)` : profile.name);
-    setRenameModalVisible(true);
+    setEditingProfileId(profile.id);
+    setEditingName(profile.name);
   };
 
-  const handleConfirmName = async () => {
-    if (!targetProfile || !newName.trim()) {
+  const handleSaveInlineRename = async (profileId: string) => {
+    const trimmed = editingName.trim();
+    if (!trimmed) {
+      setEditingProfileId(null);
       return;
     }
     setLoadingAction('name-action');
     try {
-      if (actionType === 'rename') {
-        await renamePrinterProfile(targetProfile.id, newName.trim());
-        message.success('重命名成功');
-      } else {
-        await duplicatePrinterProfile(targetProfile.id, newName.trim());
-        message.success('配置复制成功');
-      }
-      setRenameModalVisible(false);
+      await renamePrinterProfile(profileId, trimmed);
+      message.success('重命名成功');
+      setEditingProfileId(null);
+      await onRefreshProfiles();
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '重命名失败');
+    } finally {
+      setLoadingAction(null);
+    }
+  };
+
+  // Duplicate handler
+  const openDuplicateModal = (profile: SavedPrinterProfileSummary) => {
+    setMenuState(null);
+    setTargetProfile(profile);
+    setNewName(`${profile.name} (副本)`);
+    setDuplicateModalVisible(true);
+  };
+
+  const handleConfirmDuplicate = async () => {
+    if (!targetProfile || !newName.trim()) return;
+    setLoadingAction('name-action');
+    try {
+      await duplicatePrinterProfile(targetProfile.id, newName.trim());
+      message.success('配置复制成功');
+      setDuplicateModalVisible(false);
       await onRefreshProfiles();
     } catch (error) {
       message.error(error instanceof Error ? error.message : '操作失败');
@@ -501,57 +574,61 @@ export function PrinterProfileManagerModal({
 
   return (
     <>
-      <Drawer
-        title={
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span>打印机配置管理（{currentPrinterName}）</span>
-          </div>
-        }
-        width={580}
+      <Modal
+        title={<span>打印机配置管理（{currentPrinterName}）</span>}
+        width={640}
         open={open}
-        onClose={onClose}
+        onCancel={onClose}
+        footer={null}
         destroyOnClose
+        centered
+        maskClosable={false}
+        className="profile-manager-modal"
       >
         <div aria-live="polite" style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0,0,0,0)' }}>
           {announcement}
         </div>
 
-        {localProfiles.length === 0 ? (
-          <Empty description="当前打印机暂未保存任何配置，可在主面板调整参数后点击“保存”" />
-        ) : (
-          <div className="profile-manager-list">
-            <Typography.Text type="secondary" className="profile-sort-hint">
-              可拖动手柄调整配置顺序（支持 Alt+上下键 键盘排序）；顺序会同步到主界面的配置下拉菜单。
-            </Typography.Text>
-
-            <DndContext
-              sensors={sensors}
-              collisionDetection={closestCenter}
-              onDragEnd={handleDragEnd}
-            >
-              <SortableContext
-                items={localProfiles.map((p) => p.id)}
-                strategy={verticalListSortingStrategy}
+        <div className="profile-manager-modal-body">
+          {localProfiles.length === 0 ? (
+            <Empty description="当前打印机暂未保存任何配置，可在主面板调整参数后点击“保存”" />
+          ) : (
+            <div className="profile-manager-list">
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragEnd={handleDragEnd}
               >
-                {localProfiles.map((profile) => (
-                  <SortableProfileCard
-                    key={profile.id}
-                    profile={profile}
-                    isActive={activeProfileId === profile.id}
-                    loadingAction={loadingAction}
-                    onApply={handleApply}
-                    onToggleDefault={handleToggleDefault}
-                    onOpenMenu={handleOpenMenu}
-                    onRebuild={handleRebuild}
-                    onKeyboardMove={handleKeyboardMove}
-                    renderCompatibilityTag={renderCompatibilityTag}
-                  />
-                ))}
-              </SortableContext>
-            </DndContext>
-          </div>
-        )}
-      </Drawer>
+                <SortableContext
+                  items={localProfiles.map((p) => p.id)}
+                  strategy={verticalListSortingStrategy}
+                >
+                  {localProfiles.map((profile) => (
+                    <SortableProfileCard
+                      key={profile.id}
+                      profile={profile}
+                      isActive={activeProfileId === profile.id}
+                      loadingAction={loadingAction}
+                      editingProfileId={editingProfileId}
+                      editingName={editingName}
+                      onApply={handleApply}
+                      onToggleDefault={handleToggleDefault}
+                      onOpenMenu={handleOpenMenu}
+                      onRebuild={handleRebuild}
+                      onKeyboardMove={handleKeyboardMove}
+                      onStartInlineRename={handleStartInlineRename}
+                      onChangeEditingName={setEditingName}
+                      onSaveInlineRename={handleSaveInlineRename}
+                      onCancelInlineRename={() => setEditingProfileId(null)}
+                      renderCompatibilityTag={renderCompatibilityTag}
+                    />
+                  ))}
+                </SortableContext>
+              </DndContext>
+            </div>
+          )}
+        </div>
+      </Modal>
 
       {/* Fixed-position safe context menu */}
       {menuState &&
@@ -567,7 +644,7 @@ export function PrinterProfileManagerModal({
             <button
               type="button"
               className="profile-context-menu-item"
-              onClick={() => openRenameOrDuplicate(menuState.profile, 'rename')}
+              onClick={() => handleStartInlineRename(menuState.profile)}
             >
               <Edit2 size={13} />
               <span>重命名</span>
@@ -575,7 +652,7 @@ export function PrinterProfileManagerModal({
             <button
               type="button"
               className="profile-context-menu-item"
-              onClick={() => openRenameOrDuplicate(menuState.profile, 'duplicate')}
+              onClick={() => openDuplicateModal(menuState.profile)}
             >
               <Copy size={13} />
               <span>复制配置</span>
@@ -601,12 +678,16 @@ export function PrinterProfileManagerModal({
           document.body,
         )}
 
+      {/* Duplicate Modal: explicitly high z-index and centered */}
       <Modal
-        title={actionType === 'rename' ? '重命名配置' : '复制配置'}
-        open={renameModalVisible}
+        title="复制配置"
+        open={duplicateModalVisible}
+        zIndex={13500}
+        centered
+        maskClosable={false}
         confirmLoading={loadingAction === 'name-action'}
-        onOk={() => void handleConfirmName()}
-        onCancel={() => setRenameModalVisible(false)}
+        onOk={() => void handleConfirmDuplicate()}
+        onCancel={() => setDuplicateModalVisible(false)}
         okText="确定"
         cancelText="取消"
       >

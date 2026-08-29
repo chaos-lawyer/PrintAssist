@@ -1329,25 +1329,10 @@ button,
   margin-top: 8px;
 }
 
-.file-settings-drawer .ant-drawer-header {
-  flex-shrink: 0;
-}
-
-.file-settings-drawer .ant-drawer-header-title {
-  min-width: 0;
-  flex: 1 1 auto;
-}
-
-.file-settings-drawer .ant-drawer-title {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.file-settings-drawer .ant-drawer-extra {
-  flex-shrink: 0;
-  margin-inline-start: 12px;
+.file-settings-modal .file-settings-modal-body {
+  max-height: 65vh;
+  overflow-y: auto;
+  padding: 4px 6px;
 }
 
 .drawer-file-meta {
@@ -1417,14 +1402,22 @@ button,
   width: 100%;
 }
 
+.profile-manager-modal .profile-manager-modal-body {
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 8px 4px;
+}
+
 .profile-manager-list {
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
 
-.profile-sort-hint {
-  font-size: 12px;
+.profile-card-inline-rename {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .profile-card {

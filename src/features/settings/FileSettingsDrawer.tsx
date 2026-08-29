@@ -1,8 +1,8 @@
 import {
   Button,
-  Drawer,
   Input,
   InputNumber,
+  Modal,
   Radio,
   Space,
   Tag,
@@ -233,13 +233,15 @@ export function FileSettingsDrawer({
   };
 
   return (
-    <Drawer
+    <Modal
       title={isBatch ? `批量打印设置 (${batchItems!.length} 个文件)` : '单文件打印设置'}
       open={open}
-      onClose={onClose}
-      width={440}
+      onCancel={onClose}
+      width={520}
       destroyOnClose
-      className="file-settings-drawer"
+      centered
+      maskClosable={false}
+      className="file-settings-modal"
       footer={
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <Button
@@ -261,6 +263,7 @@ export function FileSettingsDrawer({
         </div>
       }
     >
+      <div className="file-settings-modal-body">
       {isBatch ? (
         <div className="drawer-file-meta">
           <span className="drawer-file-meta-label">已选中批量文件 ({batchItems!.length})</span>
@@ -483,6 +486,7 @@ export function FileSettingsDrawer({
           直接输入页码（如 1,3,5-8）生效；清空文本框或点击“恢复为全局”即可打印全部页。
         </Typography.Text>
       </div>
-    </Drawer>
+      </div>
+    </Modal>
   );
 }
