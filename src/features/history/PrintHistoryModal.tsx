@@ -73,7 +73,7 @@ export function PrintHistoryModal({
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingRight: 28 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <Clock size={18} />
-            <span>打印任务历史记录</span>
+            <span>打印历史</span>
           </div>
           {history.length > 0 && (
             <Popconfirm

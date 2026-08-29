@@ -1,6 +1,5 @@
 import {
   Button,
-  Checkbox,
   ConfigProvider,
   Dropdown,
   Layout,
@@ -885,21 +884,6 @@ export function App() {
                 )}
               </div>
               <Space size={12} className="queue-footer-actions">
-                <Checkbox
-                  checked={autoClearOnSuccess}
-                  disabled={queueState.isPrinting}
-                  onChange={(e) => {
-                    const checked = e.target.checked;
-                    setAutoClearOnSuccess(checked);
-                    try {
-                      localStorage.setItem('printassist_auto_clear_on_success', String(checked));
-                    } catch {
-                      // ignore
-                    }
-                  }}
-                >
-                  全部打印成功后自动清空列表
-                </Checkbox>
                 <Button
                   icon={<FilePlus2 size={15} />}
                   disabled={queueState.isPrinting}
@@ -935,6 +919,15 @@ export function App() {
               loadingProperties={loadingProperties}
               savedProfiles={savedProfiles}
               loadingProfiles={loadingSavedProfiles}
+              autoClearOnSuccess={autoClearOnSuccess}
+              onAutoClearOnSuccessChange={(checked) => {
+                setAutoClearOnSuccess(checked);
+                try {
+                  localStorage.setItem('printassist_auto_clear_on_success', String(checked));
+                } catch {
+                  // ignore
+                }
+              }}
               onRefreshPrinters={() => void refreshPrinters()}
               onOpenProperties={() => void handleOpenPrinterProperties()}
               onSelectProfile={(profileId) => void handleSelectSavedProfile(profileId)}

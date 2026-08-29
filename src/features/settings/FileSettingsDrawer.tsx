@@ -449,7 +449,7 @@ export function FileSettingsDrawer({
           value={effective.scaleMode ?? 'actualSize'}
           options={[
             { value: 'actualSize', label: '实际大小 (100%)' },
-            { value: 'shrinkOversized', label: '仅缩小过大页' },
+            { value: 'shrinkOversized', label: '仅缩小过大页面' },
             { value: 'fitPrintable', label: '适应可打印区域' },
           ]}
           onChange={(val) => {

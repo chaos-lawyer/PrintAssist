@@ -1,4 +1,4 @@
-import { Alert, Button, Input, InputNumber, Segmented, Select, Space, Tooltip, Typography } from 'antd';
+import { Alert, Button, Checkbox, Input, InputNumber, Segmented, Select, Space, Tooltip, Typography } from 'antd';
 import { ChevronDown, RefreshCw, SlidersHorizontal } from 'lucide-react';
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -27,6 +27,8 @@ interface GlobalSettingsPanelProps {
   loadingProperties?: boolean;
   savedProfiles?: SavedPrinterProfileSummary[];
   loadingProfiles?: boolean;
+  autoClearOnSuccess?: boolean;
+  onAutoClearOnSuccessChange?: (checked: boolean) => void;
   onRefreshPrinters?: () => void;
   onOpenProperties?: () => void;
   onSelectProfile?: (profileId: string | null) => void;
@@ -55,6 +57,8 @@ export function GlobalSettingsPanel({
   loadingProperties = false,
   savedProfiles = [],
   loadingProfiles = false,
+  autoClearOnSuccess = false,
+  onAutoClearOnSuccessChange,
   onRefreshPrinters,
   onOpenProperties,
   onSelectProfile,
@@ -68,10 +72,7 @@ export function GlobalSettingsPanel({
   const showColorHint = Boolean(selectedPrinter) && !availability.colorEnabled;
   const showDuplexHint = Boolean(selectedPrinter) && !availability.duplexEnabled;
   const criticalReasons = availability.reasons.filter(
-    (reason) =>
-      reason.includes('离线') ||
-      reason.includes('错误') ||
-      reason.includes('尚未选择'),
+    (reason) => reason.includes('离线') || reason.includes('错误'),
   );
   const [paperCapability, setPaperCapability] = useState<PaperSourceCapability | null>(null);
   const [loadingPaperSources, setLoadingPaperSources] = useState(false);
@@ -502,8 +503,7 @@ export function GlobalSettingsPanel({
         <Tooltip title="刷新打印机列表">
           <Button
             type="text"
-            size="small"
-            icon={<RefreshCw size={13} className={loadingPrinters ? 'spin-icon' : ''} />}
+            icon={<RefreshCw size={15} className={loadingPrinters ? 'spin-icon' : ''} />}
             loading={loadingPrinters}
             onClick={onRefreshPrinters}
             aria-label="刷新打印机列表"
@@ -575,10 +575,9 @@ export function GlobalSettingsPanel({
               </span>
             )}
           </span>
-          <Space size={2}>
+          <Space size={4}>
             <Button
-              size="small"
-              type="link"
+              type="text"
               className="profile-action-btn"
               disabled={!selectedPrinter || loadingProperties}
               onClick={onOpenSaveProfile}
@@ -586,8 +585,7 @@ export function GlobalSettingsPanel({
               保存
             </Button>
             <Button
-              size="small"
-              type="link"
+              type="text"
               className="profile-action-btn"
               disabled={!selectedPrinter}
               onClick={onOpenProfileManager}
@@ -595,12 +593,11 @@ export function GlobalSettingsPanel({
               管理
             </Button>
             <Button
-              size="small"
-              type="link"
+              type="text"
               className="profile-action-btn"
               disabled={!selectedPrinter || loadingPrinters || loadingProperties}
               loading={loadingProperties}
-              icon={<SlidersHorizontal size={12} />}
+              icon={<SlidersHorizontal size={13} />}
               onClick={onOpenProperties}
               title="打开 Windows 原生打印机属性窗口"
             >
@@ -755,7 +752,7 @@ export function GlobalSettingsPanel({
             value={settings.scaleMode ?? 'actualSize'}
             options={[
               { value: 'actualSize', label: '实际大小 (100%)' },
-              { value: 'shrinkOversized', label: '仅缩小过大页' },
+              { value: 'shrinkOversized', label: '仅缩小过大页面' },
               { value: 'fitPrintable', label: '适应可打印区域' },
             ]}
             onChange={(val) =>
@@ -861,6 +858,17 @@ export function GlobalSettingsPanel({
           </div>
         )}
       </div>
+
+      {onAutoClearOnSuccessChange && (
+        <div className="settings-auto-clear-wrap">
+          <Checkbox
+            checked={autoClearOnSuccess}
+            onChange={(e) => onAutoClearOnSuccessChange(e.target.checked)}
+          >
+            成功后清空任务
+          </Checkbox>
+        </div>
+      )}
 
       {criticalReasons.length > 0 && (
         <Alert

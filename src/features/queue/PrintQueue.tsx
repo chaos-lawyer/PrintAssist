@@ -2,20 +2,23 @@ import {
   Button,
   Space,
   Table,
-  Tag,
   Tooltip,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import {
+  AlertCircle,
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
+  CheckCircle2,
+  CircleDot,
   FileSpreadsheet,
   FileText,
   FolderOpen,
   GripVertical,
   Image,
   Loader2,
+  MinusCircle,
   Presentation,
   Settings2,
   Trash2,
@@ -65,36 +68,59 @@ interface PrintQueueProps {
   onActiveIdChange?: (id: string | null) => void;
 }
 
-function statusTag(status: QueueItem['status']) {
+function renderStatusIcon(status: QueueItem['status'], errorMessage?: string) {
   switch (status) {
     case 'ready':
     case 'pending':
-      return <Tag color="blue">待打印</Tag>;
+      return (
+        <Tooltip title="待打印">
+          <span className="queue-status-icon status-ready" aria-label="待打印">
+            <CircleDot size={16} />
+          </span>
+        </Tooltip>
+      );
     case 'printing':
       return (
-        <Tag
-          color="processing"
-          icon={
-            <Loader2
-              size={12}
-              className="spin-icon"
-              style={{ verticalAlign: -1, marginRight: 4 }}
-            />
-          }
-        >
-          打印中
-        </Tag>
+        <Tooltip title="打印中…">
+          <span className="queue-status-icon status-printing" aria-label="打印中">
+            <Loader2 size={16} className="spin-icon" />
+          </span>
+        </Tooltip>
       );
     case 'succeeded':
-      return <Tag color="success">成功</Tag>;
+      return (
+        <Tooltip title="已打印">
+          <span className="queue-status-icon status-succeeded" aria-label="已打印">
+            <CheckCircle2 size={16} />
+          </span>
+        </Tooltip>
+      );
     case 'failed':
-      return <Tag color="error">失败</Tag>;
+      return (
+        <Tooltip title={errorMessage ? `打印失败：${errorMessage}` : '打印失败'}>
+          <span className="queue-status-icon status-failed" aria-label="打印失败">
+            <AlertCircle size={16} />
+          </span>
+        </Tooltip>
+      );
     case 'skipped':
-      return <Tag>跳过</Tag>;
+      return (
+        <Tooltip title="已跳过">
+          <span className="queue-status-icon status-skipped" aria-label="已跳过">
+            <MinusCircle size={16} />
+          </span>
+        </Tooltip>
+      );
     case 'analyzing':
-      return <Tag color="gold">分析中</Tag>;
+      return (
+        <Tooltip title="分析中…">
+          <span className="queue-status-icon status-analyzing" aria-label="分析中">
+            <Loader2 size={16} className="spin-icon" />
+          </span>
+        </Tooltip>
+      );
     default:
-      return <Tag>{status}</Tag>;
+      return <span>{status}</span>;
   }
 }
 
@@ -235,7 +261,18 @@ function FileNameCell({
       </button>
       {renderFileIcon(record.kind)}
       <div className="queue-file-info">
-        <Tooltip title={record.path} placement="topLeft" mouseEnterDelay={0.3}>
+        <Tooltip
+          title={
+            <div style={{ wordBreak: 'break-all' }}>
+              <div style={{ fontWeight: 600 }}>{record.fileName}</div>
+              {record.path && record.path !== record.fileName && (
+                <div style={{ fontSize: 11, opacity: 0.8, marginTop: 2 }}>{record.path}</div>
+              )}
+            </div>
+          }
+          placement="topLeft"
+          mouseEnterDelay={0.3}
+        >
           <span className="queue-file-name">{record.fileName}</span>
         </Tooltip>
         {isDuplicate && parentDir && (
@@ -649,6 +686,7 @@ export function PrintQueue({
       ),
       dataIndex: 'fileName',
       key: 'fileName',
+      className: 'queue-col-file',
       onHeaderCell: () => ({
         onClick: () => onToggleSort?.(),
         onKeyDown: (e: React.KeyboardEvent) => {
@@ -666,7 +704,10 @@ export function PrintQueue({
               ? 'ascending'
               : 'descending'
             : 'none',
-        className: `queue-th-sortable${sortOrder?.mode === 'fileName' ? ' is-sorted' : ''}`,
+        className: `queue-th-sortable queue-col-file${sortOrder?.mode === 'fileName' ? ' is-sorted' : ''}`,
+      }),
+      onCell: () => ({
+        className: 'queue-col-file',
       }),
       render: (fileName: string, record) => {
         const isDuplicate = (fileNameCounts[fileName] || 0) > 1;
@@ -687,26 +728,17 @@ export function PrintQueue({
       title: '类型',
       dataIndex: 'kind',
       key: 'kind',
-      width: 75,
+      width: 80,
       align: 'center',
       render: (kind: QueueItem['kind']) => (
         <span className="queue-type-badge">{kindLabel(kind)}</span>
       ),
     },
     {
-      title: '页数',
-      dataIndex: 'pageCount',
-      key: 'pageCount',
-      width: 70,
-      align: 'center',
-      render: (pageCount: number | null) => (
-        <span className="queue-page-count">{pageCount ?? '—'}</span>
-      ),
-    },
-    {
       title: '设置',
       key: 'settings',
-      width: 190,
+      width: 220,
+      align: 'center',
       render: (_, record) => {
         const resolved = mergePrintSettings(globalSettings, record.override);
         const isOverridden = hasFileOverride(record.override);
@@ -733,18 +765,9 @@ export function PrintQueue({
       title: '状态',
       dataIndex: 'status',
       key: 'status',
-      width: 95,
+      width: 70,
       align: 'center',
-      render: (status: QueueItem['status'], record) => (
-        <div>
-          {statusTag(status)}
-          {record.errorMessage && (
-            <div className="error-text" title={record.errorMessage}>
-              {record.errorMessage}
-            </div>
-          )}
-        </div>
-      ),
+      render: (status: QueueItem['status'], record) => renderStatusIcon(status, record.errorMessage),
     },
     {
       title: '操作',

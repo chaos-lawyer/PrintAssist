@@ -234,18 +234,21 @@ button,
 }
 
 .control-rail {
-  height: 100% !important;
-  max-height: 100%;
+  height: calc(100% - 28px) !important;
+  max-height: calc(100% - 28px);
+  align-self: stretch;
+  flex: 0 0 320px;
   max-width: 342px;
   min-width: 0;
-  padding: 20px 18px 28px;
+  padding: 20px 18px 24px;
   overflow-x: hidden;
   overflow-y: auto;
-  border-left: 1px solid var(--color-border-soft);
+  border: 1px solid var(--color-border-soft);
   margin: 14px 18px 14px 12px;
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-soft);
   background: rgba(255, 255, 255, 0.92);
+  box-sizing: border-box;
 }
 
 .control-rail .ant-layout-sider-children {
@@ -254,6 +257,7 @@ button,
   min-width: 0;
   overflow-x: hidden;
   min-height: 100%;
+  box-sizing: border-box;
 }
 
 .section-index {
@@ -330,14 +334,15 @@ button,
 }
 
 .refresh-printers-btn {
-  color: var(--color-text-muted) !important;
-  padding: 0 4px !important;
-  height: 24px !important;
-  width: 24px !important;
+  color: var(--color-text-secondary) !important;
+  padding: 0 !important;
+  height: 32px !important;
+  width: 32px !important;
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
-  border-radius: var(--radius-sm) !important;
+  border-radius: var(--radius-md) !important;
+  transition: all var(--motion-fast) !important;
 }
 
 .refresh-printers-btn:hover {
@@ -857,6 +862,23 @@ button,
   width: 72px;
 }
 
+.settings-auto-clear-wrap {
+  display: flex;
+  align-items: center;
+  margin-top: 6px;
+  padding: 4px 2px;
+}
+
+.settings-auto-clear-wrap .ant-checkbox-wrapper {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  user-select: none;
+}
+
+.settings-auto-clear-wrap .ant-checkbox-wrapper:hover {
+  color: var(--color-text);
+}
+
 .settings-alert {
   margin: 0;
   padding: 8px 12px;
@@ -1055,12 +1077,22 @@ button,
 }
 
 /* Compact Table & Cells */
+.queue-compact-table table {
+  table-layout: fixed !important;
+}
+
 .queue-compact-table .ant-table-thead > tr > th {
   background: #f8fafc;
   font-size: 12px;
   font-weight: 650;
   color: var(--color-text-secondary);
   padding: 8px 10px;
+  text-align: center !important;
+}
+
+.queue-compact-table th.queue-col-file,
+.queue-compact-table td.queue-col-file {
+  max-width: 480px;
 }
 
 .queue-compact-table .ant-table-thead > tr > th.queue-th-sortable {
@@ -1087,6 +1119,7 @@ button,
 .queue-th-sort-wrapper {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   width: 100%;
 }
@@ -1226,19 +1259,24 @@ button,
   font-size: 13px;
   font-weight: 600;
   color: var(--color-text);
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
-  display: block;
+  word-break: break-all;
+  overflow-wrap: anywhere;
 }
 
 .queue-file-disambiguation {
   font-size: 11px;
   color: var(--color-text-faint);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  margin-top: 1px;
+  word-break: break-all;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  line-height: 1.35;
+  margin-top: 2px;
 }
 
 .queue-type-badge {
@@ -1250,10 +1288,49 @@ button,
   font-weight: 500;
 }
 
-.queue-page-count {
-  font-size: 12px;
-  color: var(--color-text);
-  font-weight: 600;
+.queue-status-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  transition: transform var(--motion-fast), box-shadow var(--motion-fast);
+  cursor: default;
+}
+
+.queue-status-icon:hover {
+  transform: scale(1.18);
+}
+
+.queue-status-icon.status-ready {
+  color: #64748b;
+  background: #f1f5f9;
+}
+
+.queue-status-icon.status-printing {
+  color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
+
+.queue-status-icon.status-succeeded {
+  color: #16a34a;
+  background: #f0fdf4;
+}
+
+.queue-status-icon.status-failed {
+  color: #dc2626;
+  background: #fef2f2;
+}
+
+.queue-status-icon.status-skipped {
+  color: #94a3b8;
+  background: #f8fafc;
+}
+
+.queue-status-icon.status-analyzing {
+  color: #d97706;
+  background: #fef3c7;
 }
 
 .queue-setting-summary {
@@ -1395,10 +1472,22 @@ button,
 }
 
 .profile-action-btn {
-  padding: 0 4px !important;
-  font-size: 12px !important;
-  height: 22px !important;
-  line-height: 22px !important;
+  height: 32px !important;
+  min-width: 32px !important;
+  padding: 0 8px !important;
+  font-size: 12.5px !important;
+  font-weight: 500 !important;
+  color: var(--color-text) !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border-radius: var(--radius-sm) !important;
+  transition: all var(--motion-fast) !important;
+}
+
+.profile-action-btn:hover:not(:disabled) {
+  color: var(--color-primary) !important;
+  background: var(--color-primary-soft) !important;
 }
 
 .profile-select {
