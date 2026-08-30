@@ -97,6 +97,8 @@ export function App() {
   const [globalSettings, setGlobalSettings] = useState<PrintSettings>(
     createDefaultGlobalSettings(),
   );
+  const globalSettingsRef = useRef(globalSettings);
+  globalSettingsRef.current = globalSettings;
   const [settingsItemId, setSettingsItemId] = useState<string | null>(null);
   const [isBatchSettingsOpen, setIsBatchSettingsOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -286,46 +288,45 @@ export function App() {
       if (requestId !== refreshRequestIdRef.current) return;
       setPrinters(nextPrinters);
 
-      let targetPrinterName = '';
-      setGlobalSettings((currentSettings) => {
-        const currentName = currentSettings.printerName;
-        const exists = nextPrinters.some((p) => p.name === currentName);
-        const preferredName = exists
-          ? currentName
-          : nextPrinters.find((printer) => printer.isDefault)?.name ||
-            nextPrinters[0]?.name ||
-            '';
-        targetPrinterName = preferredName;
-        const preferredPrinter = nextPrinters.find((printer) => printer.name === preferredName);
+      const currentSettings = globalSettingsRef.current;
+      const currentName = currentSettings.printerName;
+      const exists = nextPrinters.some((p) => p.name === currentName);
+      const preferredName = exists
+        ? currentName
+        : nextPrinters.find((printer) => printer.isDefault)?.name ||
+          nextPrinters[0]?.name ||
+          '';
+      const preferredPrinter = nextPrinters.find((printer) => printer.name === preferredName);
 
-        return sanitizeSettingsForPrinter(
-          { ...currentSettings, printerName: preferredName },
+      setGlobalSettings((curr) =>
+        sanitizeSettingsForPrinter(
+          { ...curr, printerName: preferredName },
           preferredPrinter,
-        );
-      });
+        ),
+      );
 
-      if (targetPrinterName) {
-        const profiles = await fetchSavedProfiles(targetPrinterName);
+      if (preferredName) {
+        const profiles = await fetchSavedProfiles(preferredName);
         if (requestId !== refreshRequestIdRef.current) return;
 
-        setGlobalSettings((curr) => {
-          if (curr.persistentProfileId && curr.printerName === targetPrinterName) {
-            return curr;
-          }
-          const defaultProfile = profiles.find(
-            (p) => p.isDefault && p.compatibility === 'compatible',
-          );
-          if (defaultProfile) {
-            loadPrinterProfile(defaultProfile.id)
-              .then((loaded) => {
-                if (requestId === refreshRequestIdRef.current) {
-                  setGlobalSettings((latest) => applyLoadedPersistentProfile(latest, loaded));
+        const defaultProfile = profiles.find(
+          (p) => p.isDefault && p.compatibility === 'compatible',
+        );
+        if (defaultProfile) {
+          try {
+            const loaded = await loadPrinterProfile(defaultProfile.id);
+            if (requestId === refreshRequestIdRef.current) {
+              setGlobalSettings((latest) => {
+                if (latest.persistentProfileId && latest.printerName === preferredName) {
+                  return latest;
                 }
-              })
-              .catch(() => {});
+                return applyLoadedPersistentProfile(latest, loaded);
+              });
+            }
+          } catch {
+            // ignore
           }
-          return curr;
-        });
+        }
       }
     } catch (error) {
       if (requestId === refreshRequestIdRef.current) {
