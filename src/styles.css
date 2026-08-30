@@ -663,6 +663,34 @@ button,
   min-width: 0;
 }
 
+.setting-group {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.setting-submenu {
+  box-sizing: border-box;
+  padding: 8px 10px;
+  background: var(--color-surface);
+  border: none;
+  border-left: 2px solid var(--color-primary);
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+}
+
+.setting-submenu-compact {
+  width: calc(100% - 60px);
+  margin-left: 60px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.setting-submenu-wide {
+  width: 100%;
+}
+
 .setting-row-nested {
   width: 100%;
   max-width: 100%;
@@ -1217,8 +1245,12 @@ button,
 }
 
 /* Checkbox indeterminate state: change inner solid square to solid circle */
+.ant-checkbox-indeterminate::after,
+.ant-checkbox-indeterminate:after,
 .ant-checkbox-indeterminate .ant-checkbox-inner::after,
-.ant-checkbox-indeterminate .ant-checkbox-inner:after {
+.ant-checkbox-indeterminate .ant-checkbox-inner:after,
+.ant-table-wrapper .ant-checkbox-indeterminate::after,
+.ant-table-wrapper .ant-checkbox-indeterminate:after {
   border-radius: 50% !important;
 }
 
@@ -1974,5 +2006,154 @@ button,
   flex-shrink: 0;
   word-break: break-word;
 }
+
+/* ==========================================================================
+   N-up Configuration Redesign (NUP_CONFIGURATION_REDESIGN_PLAN.md)
+   ========================================================================== */
+
+.nup-settings-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+
+.nup-config-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 12px;
+}
+
+.nup-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.nup-section-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  letter-spacing: 0.02em;
+}
+
+.nup-templates-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+}
+
+.nup-template-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: 38px;
+  padding: 5px 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border-soft);
+  background: var(--color-surface);
+  color: var(--color-text);
+  cursor: pointer;
+  transition: all var(--motion-fast);
+  text-align: center;
+}
+
+.nup-template-btn:hover {
+  border-color: var(--color-primary-hover);
+  background: var(--color-primary-soft);
+}
+
+.nup-template-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+
+.nup-template-btn.is-selected {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+  font-weight: 600;
+}
+
+.nup-template-btn.is-selected .nup-template-name {
+  color: var(--color-primary);
+}
+
+.nup-template-name {
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.nup-template-sub {
+  font-size: 10px;
+  color: var(--color-text-faint);
+  line-height: 1.1;
+}
+
+.nup-template-btn.is-selected .nup-template-sub {
+  color: var(--color-primary);
+  opacity: 0.85;
+}
+
+.nup-counts-container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.nup-count-col {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.nup-count-label {
+  font-size: 11px;
+  color: var(--color-text-secondary);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.nup-counts-times {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-faint);
+  padding-top: 16px;
+  user-select: none;
+}
+
+.nup-summary-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 6px 10px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-xs);
+  font-size: 11px;
+}
+
+.nup-summary-title {
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.nup-summary-details {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-text-secondary);
+  flex-wrap: wrap;
+}
+
+.nup-summary-divider {
+  color: var(--color-border);
+}
+
 
 

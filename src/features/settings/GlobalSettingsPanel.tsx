@@ -1,4 +1,4 @@
-import { Alert, Button, Checkbox, Input, InputNumber, Popover, Segmented, Select, Space, Tooltip, Typography } from 'antd';
+import { Alert, Button, Checkbox, Input, InputNumber, Segmented, Select, Space, Tooltip, Typography } from 'antd';
 import { ChevronDown, RefreshCw, SlidersHorizontal } from 'lucide-react';
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -7,6 +7,7 @@ import { listPrinterPaperSources } from '../../api/nativeBridge';
 import type { CollateMode, ColorMode, FlipMode, NupLayout, NupScope, PageScaleMode, PrintSettings, SidesMode } from '../../domain/printSettings';
 import { evaluateSettingAvailability, isNupActive } from '../../domain/printSettings';
 import { SettingSelect } from '../../components/SettingSelect';
+import { NupSettings } from './NupSettings';
 
 interface PrinterMenuPosition {
   top: number;
@@ -74,69 +75,6 @@ export function GlobalSettingsPanel({
   const [loadingPaperSources, setLoadingPaperSources] = useState(false);
 
   const isNup = isNupActive(settings.nupLayout);
-  const [customPopoverOpen, setCustomPopoverOpen] = useState(false);
-  const [customCols, setCustomCols] = useState(settings.nupLayout?.cols ?? 1);
-  const [customRows, setCustomRows] = useState(settings.nupLayout?.rows ?? 1);
-
-  useEffect(() => {
-    if (settings.nupLayout) {
-      setCustomCols(settings.nupLayout.cols);
-      setCustomRows(settings.nupLayout.rows);
-    }
-  }, [settings.nupLayout?.cols, settings.nupLayout?.rows]);
-
-  const nupSegmentValue = (() => {
-    const { cols = 1, rows = 1 } = settings.nupLayout ?? {};
-    if (cols === 1 && rows === 1) return '1x1';
-    if (cols === 1 && rows === 2) return '1x2';
-    if (cols === 2 && rows === 2) return '2x2';
-    if (cols === 3 && rows === 2) return '3x2';
-    if (cols === 3 && rows === 3) return '3x3';
-    return 'custom';
-  })();
-
-  const customPopoverContent = (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: 180, padding: 4 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span style={{ fontSize: 12 }}>列数 (1-4)</span>
-        <InputNumber
-          size="small"
-          min={1}
-          max={4}
-          value={customCols}
-          onChange={(v) => setCustomCols(v && v > 0 ? Math.min(4, v) : 1)}
-          style={{ width: 70 }}
-        />
-      </div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span style={{ fontSize: 12 }}>行数 (1-4)</span>
-        <InputNumber
-          size="small"
-          min={1}
-          max={4}
-          value={customRows}
-          onChange={(v) => setCustomRows(v && v > 0 ? Math.min(4, v) : 1)}
-          style={{ width: 70 }}
-        />
-      </div>
-      <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', textAlign: 'center' }}>
-        {customCols * customRows} 合 1 网格
-      </div>
-      <Button
-        type="primary"
-        size="small"
-        onClick={() => {
-          onChange({
-            ...settings,
-            nupLayout: { cols: customCols, rows: customRows },
-          });
-          setCustomPopoverOpen(false);
-        }}
-      >
-        应用
-      </Button>
-    </div>
-  );
 
   useEffect(() => {
     if (!settings.printerName) {
@@ -722,55 +660,57 @@ export function GlobalSettingsPanel({
           </Typography.Text>
         )}
 
-        <div className="setting-row">
-          <span className="setting-row-label" id="sides-mode-label">
-            单双面
-          </span>
-          <Segmented
-            className="setting-segmented"
-            size="small"
-            block
-            aria-labelledby="sides-mode-label"
-            value={settings.sidesMode}
-            options={[
-              { label: '单面', value: 'simplex' },
-              {
-                label: '双面',
-                value: 'duplex',
-                disabled: !availability.duplexEnabled,
-              },
-            ]}
-            onChange={(value) => {
-              const sidesMode = value as SidesMode;
-              onChange({
-                ...settings,
-                sidesMode,
-              });
-            }}
-          />
-        </div>
-
-        {showFlipOptions && (
-          <div className="setting-row setting-row-nested">
-            <span className="setting-row-label" id="flip-mode-label">
-              翻转
+        <div className="setting-group">
+          <div className="setting-row">
+            <span className="setting-row-label" id="sides-mode-label">
+              单双面
             </span>
             <Segmented
               className="setting-segmented"
               size="small"
               block
-              aria-labelledby="flip-mode-label"
-              value={settings.flipMode}
+              aria-labelledby="sides-mode-label"
+              value={settings.sidesMode}
               options={[
-                { label: '长边', value: 'longEdge' },
-                { label: '短边', value: 'shortEdge' },
+                { label: '单面', value: 'simplex' },
+                {
+                  label: '双面',
+                  value: 'duplex',
+                  disabled: !availability.duplexEnabled,
+                },
               ]}
-              onChange={(value) =>
-                onChange({ ...settings, flipMode: value as FlipMode })
-              }
+              onChange={(value) => {
+                const sidesMode = value as SidesMode;
+                onChange({
+                  ...settings,
+                  sidesMode,
+                });
+              }}
             />
           </div>
-        )}
+
+          {showFlipOptions && (
+            <div className="setting-submenu setting-submenu-compact">
+              <span className="setting-row-label" id="flip-mode-label">
+                翻转
+              </span>
+              <Segmented
+                className="setting-segmented"
+                size="small"
+                block
+                aria-labelledby="flip-mode-label"
+                value={settings.flipMode}
+                options={[
+                  { label: '长边', value: 'longEdge' },
+                  { label: '短边', value: 'shortEdge' },
+                ]}
+                onChange={(value) =>
+                  onChange({ ...settings, flipMode: value as FlipMode })
+                }
+              />
+            </div>
+          )}
+        </div>
         {showDuplexHint && (
           <Typography.Text type="secondary" className="field-hint field-hint-inline">
             双面不可用：{selectedPrinter?.duplex.detail ?? '打印机不支持或能力未知'}
@@ -804,119 +744,7 @@ export function GlobalSettingsPanel({
           </div>
         )}
 
-        <div className="setting-row">
-          <span className="setting-row-label">多页拼接</span>
-          <Segmented
-            className="setting-segmented"
-            size="small"
-            block
-            value={nupSegmentValue}
-            options={[
-              { label: '不拼接', value: '1x1' },
-              {
-                label: (
-                  <Tooltip title="1列2行，讲义排版（自动横向纸张）">
-                    <span>2合1</span>
-                  </Tooltip>
-                ),
-                value: '1x2',
-              },
-              {
-                label: (
-                  <Tooltip title="2列2行，每张纸排4页">
-                    <span>4合1</span>
-                  </Tooltip>
-                ),
-                value: '2x2',
-              },
-              {
-                label: (
-                  <Tooltip title="3列2行，密集审阅（自动横向纸张）">
-                    <span>6合1</span>
-                  </Tooltip>
-                ),
-                value: '3x2',
-              },
-              {
-                label: (
-                  <Tooltip title="3列3行，缩略总览">
-                    <span>9合1</span>
-                  </Tooltip>
-                ),
-                value: '3x3',
-              },
-              {
-                label: (
-                  <Popover
-                    content={customPopoverContent}
-                    trigger="click"
-                    open={customPopoverOpen}
-                    onOpenChange={setCustomPopoverOpen}
-                    title="自定义行列"
-                  >
-                    <span>
-                      {nupSegmentValue === 'custom'
-                        ? `${settings.nupLayout?.cols ?? 1}×${settings.nupLayout?.rows ?? 1}`
-                        : '自定义'}
-                    </span>
-                  </Popover>
-                ),
-                value: 'custom',
-              },
-            ]}
-            onChange={(val) => {
-              if (val === '1x1') {
-                onChange({ ...settings, nupLayout: { cols: 1, rows: 1 } });
-              } else if (val === '1x2') {
-                onChange({ ...settings, nupLayout: { cols: 1, rows: 2 } });
-              } else if (val === '2x2') {
-                onChange({ ...settings, nupLayout: { cols: 2, rows: 2 } });
-              } else if (val === '3x2') {
-                onChange({ ...settings, nupLayout: { cols: 3, rows: 2 } });
-              } else if (val === '3x3') {
-                onChange({ ...settings, nupLayout: { cols: 3, rows: 3 } });
-              } else if (val === 'custom') {
-                setCustomPopoverOpen(true);
-              }
-            }}
-          />
-        </div>
-
-        {isNup && (
-          <div className="setting-row">
-            <span className="setting-row-label">拼接范围</span>
-            <Segmented
-              className="setting-segmented"
-              size="small"
-              block
-              value={settings.nupScope ?? 'perFile'}
-              options={[
-                {
-                  label: (
-                    <Tooltip title="每个文件的页面从新物理纸开始打印，末尾不足一页的格子留空">
-                      <span>文件独立</span>
-                    </Tooltip>
-                  ),
-                  value: 'perFile',
-                },
-                {
-                  label: (
-                    <Tooltip title="所有文件连续流式排版，不同文件的页面可共享同一张纸">
-                      <span>跨文件拼接</span>
-                    </Tooltip>
-                  ),
-                  value: 'crossFile',
-                },
-              ]}
-              onChange={(val) =>
-                onChange({
-                  ...settings,
-                  nupScope: val as NupScope,
-                })
-              }
-            />
-          </div>
-        )}
+        <NupSettings settings={settings} onChange={onChange} />
 
         <div className="setting-row">
           <span className="setting-row-label" id="scale-mode-label">
@@ -1012,55 +840,57 @@ export function GlobalSettingsPanel({
           </div>
         )}
 
-        <div className="setting-row">
-          <span className="setting-row-label" id="page-range-label">
-            页码
-          </span>
-          <Segmented
-            className="setting-segmented"
-            size="small"
-            block
-            aria-labelledby="page-range-label"
-            value={settings.pageRange?.mode ?? 'all'}
-            options={[
-              { label: '全部页', value: 'all' },
-              { label: '自定义', value: 'custom' },
-            ]}
-            onChange={(value) => {
-              const mode = value as 'all' | 'custom';
-              onChange({
-                ...settings,
-                pageRange: {
-                  mode,
-                  expression: settings.pageRange?.expression || (mode === 'custom' ? '1,3,5-8' : ''),
-                },
-              });
-            }}
-          />
-        </div>
-
-        {settings.pageRange?.mode === 'custom' && (
-          <div className="setting-row setting-row-nested">
-            <span className="setting-row-label" id="page-expr-label">
-              范围
+        <div className="setting-group">
+          <div className="setting-row">
+            <span className="setting-row-label" id="page-range-label">
+              页码
             </span>
-            <Input
-              id="page-expr-input"
+            <Segmented
+              className="setting-segmented"
               size="small"
-              placeholder="例如 1,3,5-8"
-              value={settings.pageRange?.expression}
-              onChange={(e) =>
+              block
+              aria-labelledby="page-range-label"
+              value={settings.pageRange?.mode ?? 'all'}
+              options={[
+                { label: '全部页', value: 'all' },
+                { label: '自定义', value: 'custom' },
+              ]}
+              onChange={(value) => {
+                const mode = value as 'all' | 'custom';
                 onChange({
                   ...settings,
                   pageRange: {
-                    mode: 'custom',
-                    expression: e.target.value,
+                    mode,
+                    expression: settings.pageRange?.expression || (mode === 'custom' ? '1,3,5-8' : ''),
                   },
-                })
-              }
+                });
+              }}
             />
           </div>
-        )}
+
+          {settings.pageRange?.mode === 'custom' && (
+            <div className="setting-submenu setting-submenu-compact">
+              <span className="setting-row-label" id="page-expr-label">
+                范围
+              </span>
+              <Input
+                id="page-expr-input"
+                size="small"
+                placeholder="例如 1,3,5-8"
+                value={settings.pageRange?.expression}
+                onChange={(e) =>
+                  onChange({
+                    ...settings,
+                    pageRange: {
+                      mode: 'custom',
+                      expression: e.target.value,
+                    },
+                  })
+                }
+              />
+            </div>
+          )}
+        </div>
       </div>
 
       {criticalReasons.length > 0 && (

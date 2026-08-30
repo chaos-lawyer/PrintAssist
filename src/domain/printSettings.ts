@@ -18,16 +18,109 @@ export interface NupLayout {
 
 export type NupScope = 'perFile' | 'crossFile';
 
+export interface NupTemplate {
+  id: string;
+  label: string;
+  subtitle: string;
+  layout: NupLayout;
+  description: string;
+}
+
+export const NUP_TEMPLATES: NupTemplate[] = [
+  {
+    id: '2x1',
+    label: '2合1·横排',
+    subtitle: '2 × 1',
+    layout: { cols: 2, rows: 1 },
+    description: '两页并排，适合文档对照和讲义',
+  },
+  {
+    id: '1x2',
+    label: '2合1·纵排',
+    subtitle: '1 × 2',
+    layout: { cols: 1, rows: 2 },
+    description: '两页上下排列，兼容纵排布局',
+  },
+  {
+    id: '2x2',
+    label: '4合1',
+    subtitle: '2 × 2',
+    layout: { cols: 2, rows: 2 },
+    description: '常用均衡四格布局',
+  },
+  {
+    id: '3x2',
+    label: '6合1',
+    subtitle: '3 × 2',
+    layout: { cols: 3, rows: 2 },
+    description: '密集审阅（自动横向纸张）',
+  },
+  {
+    id: '3x3',
+    label: '9合1',
+    subtitle: '3 × 3',
+    layout: { cols: 3, rows: 3 },
+    description: '缩略总览',
+  },
+];
+
 export const NUP_PRESETS: Array<{ label: string; layout: NupLayout }> = [
   { label: '不拼接', layout: { cols: 1, rows: 1 } },
-  { label: '2合1', layout: { cols: 1, rows: 2 } },
-  { label: '4合1', layout: { cols: 2, rows: 2 } },
-  { label: '6合1', layout: { cols: 3, rows: 2 } },
-  { label: '9合1', layout: { cols: 3, rows: 3 } },
+  ...NUP_TEMPLATES.map((t) => ({ label: t.label, layout: t.layout })),
 ];
 
 export function isNupActive(layout?: NupLayout): boolean {
   return Boolean(layout && layout.cols * layout.rows > 1);
+}
+
+export function findMatchingNupTemplate(layout?: NupLayout): NupTemplate | undefined {
+  if (!layout) return undefined;
+  return NUP_TEMPLATES.find(
+    (t) => t.layout.cols === layout.cols && t.layout.rows === layout.rows
+  );
+}
+
+export function clampNupDimension(val: number): number {
+  if (!val || Number.isNaN(val)) return 1;
+  return Math.max(1, Math.min(4, Math.floor(val)));
+}
+
+export function getLinkedNupMin(otherVal: number): number {
+  return otherVal <= 1 ? 2 : 1;
+}
+
+export interface NupLayoutSummary {
+  slots: number;
+  slotsText: string;
+  orientationHint: string;
+  customLabel: string;
+  matchingTemplate?: NupTemplate;
+}
+
+export function getNupLayoutSummary(layout?: NupLayout): NupLayoutSummary {
+  const cols = clampNupDimension(layout?.cols ?? 1);
+  const rows = clampNupDimension(layout?.rows ?? 1);
+  const slots = cols * rows;
+  const matchingTemplate = findMatchingNupTemplate({ cols, rows });
+
+  let orientationHint = '预计保持纸张方向';
+  if (cols > rows) {
+    orientationHint = '预计横向纸张';
+  } else if (cols < rows) {
+    orientationHint = '预计纵向纸张';
+  }
+
+  const customLabel = matchingTemplate
+    ? `${matchingTemplate.label}（${cols} × ${rows}）`
+    : `自定义 ${cols} × ${rows}`;
+
+  return {
+    slots,
+    slotsText: `${cols} × ${rows}，每个打印面容纳 ${slots} 页`,
+    orientationHint,
+    customLabel,
+    matchingTemplate,
+  };
 }
 
 export interface PrintSettings {

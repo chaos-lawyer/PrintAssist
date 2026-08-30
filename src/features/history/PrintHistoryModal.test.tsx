@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { Modal } from 'antd';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PrintHistoryModal } from './PrintHistoryModal';
 import {
@@ -218,5 +219,26 @@ describe('PrintHistoryModal', () => {
 
     expect(handleReloadFiles).not.toHaveBeenCalled();
     expect(handleClose).not.toHaveBeenCalled();
+  });
+
+  it('opens confirmation dialog and clears history when clicking clear button', () => {
+    setupSampleData();
+    const confirmSpy = vi.spyOn(Modal, 'confirm');
+
+    render(<PrintHistoryModal open={true} onClose={() => {}} onReloadFiles={() => {}} />);
+
+    const clearButton = screen.getByRole('button', { name: /清空历史/i });
+    fireEvent.click(clearButton);
+
+    expect(confirmSpy).toHaveBeenCalled();
+    const config = confirmSpy.mock.calls[0][0];
+    expect(config.title).toBe('清空历史记录');
+    expect(config.content).toContain('包含收藏的记录也将被清除');
+
+    // Trigger onOk callback
+    config.onOk?.();
+
+    expect(loadPrintHistory()).toHaveLength(0);
+    confirmSpy.mockRestore();
   });
 });

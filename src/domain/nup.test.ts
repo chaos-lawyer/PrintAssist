@@ -1,23 +1,90 @@
 import { describe, expect, it } from 'vitest';
-import { isNupActive, NUP_PRESETS, NupLayout } from './printSettings';
+import {
+  clampNupDimension,
+  findMatchingNupTemplate,
+  getLinkedNupMin,
+  getNupLayoutSummary,
+  isNupActive,
+  NUP_TEMPLATES,
+  type NupLayout,
+} from './printSettings';
 
 describe('N-up printing domain logic', () => {
   it('detects active N-up correctly', () => {
     expect(isNupActive(undefined)).toBe(false);
     expect(isNupActive({ cols: 1, rows: 1 })).toBe(false);
+    expect(isNupActive({ cols: 2, rows: 1 })).toBe(true);
     expect(isNupActive({ cols: 1, rows: 2 })).toBe(true);
     expect(isNupActive({ cols: 2, rows: 2 })).toBe(true);
     expect(isNupActive({ cols: 3, rows: 2 })).toBe(true);
     expect(isNupActive({ cols: 3, rows: 3 })).toBe(true);
   });
 
-  it('includes standard presets', () => {
-    expect(NUP_PRESETS.length).toBe(5);
-    expect(NUP_PRESETS[0]).toEqual({ label: '不拼接', layout: { cols: 1, rows: 1 } });
-    expect(NUP_PRESETS[1]).toEqual({ label: '2合1', layout: { cols: 1, rows: 2 } });
-    expect(NUP_PRESETS[2]).toEqual({ label: '4合1', layout: { cols: 2, rows: 2 } });
-    expect(NUP_PRESETS[3]).toEqual({ label: '6合1', layout: { cols: 3, rows: 2 } });
-    expect(NUP_PRESETS[4]).toEqual({ label: '9合1', layout: { cols: 3, rows: 3 } });
+  it('includes standard active templates', () => {
+    expect(NUP_TEMPLATES.length).toBe(5);
+    expect(NUP_TEMPLATES.map((t) => t.id)).toEqual(['2x1', '1x2', '2x2', '3x2', '3x3']);
+    expect(NUP_TEMPLATES[0]).toEqual({
+      id: '2x1',
+      label: '2合1·横排',
+      subtitle: '2 × 1',
+      layout: { cols: 2, rows: 1 },
+      description: '两页并排，适合文档对照和讲义',
+    });
+    expect(NUP_TEMPLATES[1]).toEqual({
+      id: '1x2',
+      label: '2合1·纵排',
+      subtitle: '1 × 2',
+      layout: { cols: 1, rows: 2 },
+      description: '两页上下排列，兼容纵排布局',
+    });
+  });
+
+  it('matches templates accurately or identifies custom layout', () => {
+    expect(findMatchingNupTemplate({ cols: 2, rows: 1 })?.id).toBe('2x1');
+    expect(findMatchingNupTemplate({ cols: 1, rows: 2 })?.id).toBe('1x2');
+    expect(findMatchingNupTemplate({ cols: 2, rows: 2 })?.id).toBe('2x2');
+    expect(findMatchingNupTemplate({ cols: 3, rows: 2 })?.id).toBe('3x2');
+    expect(findMatchingNupTemplate({ cols: 3, rows: 3 })?.id).toBe('3x3');
+    expect(findMatchingNupTemplate({ cols: 4, rows: 3 })).toBeUndefined();
+    expect(findMatchingNupTemplate({ cols: 1, rows: 1 })).toBeUndefined();
+    expect(findMatchingNupTemplate(undefined)).toBeUndefined();
+  });
+
+  it('clamps dimensions to 1-4', () => {
+    expect(clampNupDimension(0)).toBe(1);
+    expect(clampNupDimension(-2)).toBe(1);
+    expect(clampNupDimension(3)).toBe(3);
+    expect(clampNupDimension(5)).toBe(4);
+    expect(clampNupDimension(2.9)).toBe(2);
+  });
+
+  it('calculates linked minimum constraint to prevent 1x1 in N-up mode', () => {
+    // When the other dimension is 1, current dimension cannot be 1 (min must be 2)
+    expect(getLinkedNupMin(1)).toBe(2);
+    // When the other dimension is > 1, current dimension can be 1
+    expect(getLinkedNupMin(2)).toBe(1);
+    expect(getLinkedNupMin(3)).toBe(1);
+    expect(getLinkedNupMin(4)).toBe(1);
+  });
+
+  it('generates layout summary with accurate orientation and capacity', () => {
+    const summary2x1 = getNupLayoutSummary({ cols: 2, rows: 1 });
+    expect(summary2x1.slots).toBe(2);
+    expect(summary2x1.slotsText).toBe('2 × 1，每个打印面容纳 2 页');
+    expect(summary2x1.orientationHint).toBe('预计横向纸张');
+    expect(summary2x1.customLabel).toBe('2合1·横排（2 × 1）');
+
+    const summary1x2 = getNupLayoutSummary({ cols: 1, rows: 2 });
+    expect(summary1x2.orientationHint).toBe('预计纵向纸张');
+    expect(summary1x2.customLabel).toBe('2合1·纵排（1 × 2）');
+
+    const summary2x2 = getNupLayoutSummary({ cols: 2, rows: 2 });
+    expect(summary2x2.orientationHint).toBe('预计保持纸张方向');
+
+    const summaryCustom4x3 = getNupLayoutSummary({ cols: 4, rows: 3 });
+    expect(summaryCustom4x3.slots).toBe(12);
+    expect(summaryCustom4x3.customLabel).toBe('自定义 4 × 3');
+    expect(summaryCustom4x3.orientationHint).toBe('预计横向纸张');
   });
 
   describe('estimated sheet calculations', () => {

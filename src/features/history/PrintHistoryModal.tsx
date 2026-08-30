@@ -3,7 +3,6 @@ import {
   Empty,
   Input,
   Modal,
-  Popconfirm,
   Segmented,
   Space,
   Table,
@@ -66,10 +65,20 @@ export function PrintHistoryModal({
   }, [open]);
 
   const handleClear = () => {
-    clearPrintHistory();
-    setHistory([]);
-    setExpandedRowKeys([]);
-    message.success('打印历史记录已清空');
+    Modal.confirm({
+      title: '清空历史记录',
+      content: '确定要清空全部打印历史记录吗？包含收藏的记录也将被清除。',
+      okText: '清空',
+      cancelText: '取消',
+      okButtonProps: { danger: true },
+      centered: true,
+      onOk: () => {
+        clearPrintHistory();
+        setHistory([]);
+        setExpandedRowKeys([]);
+        message.success('打印历史记录已清空');
+      },
+    });
   };
 
   const handleToggleFavorite = (record: PrintHistoryRecord) => {
@@ -298,7 +307,7 @@ export function PrintHistoryModal({
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            paddingRight: 28,
+            paddingRight: 40,
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -306,18 +315,14 @@ export function PrintHistoryModal({
             <span>打印历史</span>
           </div>
           {history.length > 0 && (
-            <Popconfirm
-              title="清空历史记录"
-              description="确定要清空全部打印历史记录吗？包含收藏的记录也将被清除。"
-              okText="清空"
-              cancelText="取消"
-              okButtonProps={{ danger: true }}
-              onConfirm={handleClear}
+            <Button
+              size="small"
+              danger
+              icon={<Trash2 size={13} />}
+              onClick={handleClear}
             >
-              <Button size="small" danger icon={<Trash2 size={13} />}>
-                清空历史
-              </Button>
-            </Popconfirm>
+              清空历史
+            </Button>
           )}
         </div>
       }
