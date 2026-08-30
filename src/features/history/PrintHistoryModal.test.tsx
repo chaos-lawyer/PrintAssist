@@ -241,4 +241,59 @@ describe('PrintHistoryModal', () => {
     expect(loadPrintHistory()).toHaveLength(0);
     confirmSpy.mockRestore();
   });
+
+  it('renders delete buttons and deletes record after confirmation', () => {
+    setupSampleData();
+    const confirmSpy = vi.spyOn(Modal, 'confirm');
+
+    render(<PrintHistoryModal open={true} onClose={() => {}} onReloadFiles={() => {}} />);
+
+    // Column header
+    expect(screen.getAllByText('删除').length).toBeGreaterThan(0);
+
+    // 2 records in sample data
+    const deleteButtons = screen.getAllByRole('button', { name: '删除此记录' });
+    expect(deleteButtons).toHaveLength(2);
+
+    // Click delete on the first record (Warehouse-Canon-Printer)
+    fireEvent.click(deleteButtons[0]);
+
+    expect(confirmSpy).toHaveBeenCalled();
+    const config = confirmSpy.mock.calls[0][0];
+    expect(config.title).toBe('删除历史记录');
+    expect(config.content).toBe('确定要删除此条打印记录吗？');
+
+    // Confirm deletion
+    config.onOk?.();
+
+    const remaining = loadPrintHistory();
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0].printerName).toBe('Office-HP-LaserJet');
+
+    confirmSpy.mockRestore();
+  });
+
+  it('warns about favorite status when deleting a favorited record', () => {
+    savePrintHistoryRecord({
+      printerName: 'Special-Laser',
+      totalFiles: 1,
+      succeededCount: 1,
+      failedCount: 0,
+      skippedCount: 0,
+      isFavorite: true,
+      files: [{ fileName: 'important.pdf', path: 'C:\\important.pdf', status: 'succeeded' }],
+    });
+    const confirmSpy = vi.spyOn(Modal, 'confirm');
+
+    render(<PrintHistoryModal open={true} onClose={() => {}} onReloadFiles={() => {}} />);
+
+    const deleteBtn = screen.getByRole('button', { name: '删除此记录' });
+    fireEvent.click(deleteBtn);
+
+    expect(confirmSpy).toHaveBeenCalled();
+    const config = confirmSpy.mock.calls[0][0];
+    expect(config.content).toContain('该记录已收藏');
+
+    confirmSpy.mockRestore();
+  });
 });

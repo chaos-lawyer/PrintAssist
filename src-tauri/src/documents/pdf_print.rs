@@ -75,7 +75,8 @@ pub fn for_each_rendered_pdf_page<F>(
 where
     F: FnMut(usize, u32, DecodedImage) -> Result<(), String>,
 {
-    let absolute_path = canonicalize_existing_path(file_path)?;
+    let prepared_pdf = super::pdf_annotations::prepare_pdf_for_windows_rendering(file_path)?;
+    let absolute_path = canonicalize_existing_path(prepared_pdf.path())?;
     let path_text = absolute_path
         .to_string_lossy()
         .trim_start_matches(r"\\?\")

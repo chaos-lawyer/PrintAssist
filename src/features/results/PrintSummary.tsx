@@ -6,7 +6,7 @@ interface PrintSummaryProps {
   totalPages?: number;
 }
 
-export function PrintSummary({ summary, totalPages }: PrintSummaryProps) {
+export function PrintSummary({ summary }: PrintSummaryProps) {
   if (!summary) {
     return null;
   }
@@ -15,7 +15,12 @@ export function PrintSummary({ summary, totalPages }: PrintSummaryProps) {
   const isCancelled = summary.skipped > 0 && summary.failed === 0;
   const isFailed = summary.failed > 0;
 
-  let alertType: 'success' | 'warning' | 'info' = 'success';
+  // 全部成功时不渲染顶部 Alert，改由底栏紧凑展示
+  if (!isCancelled && !isFailed) {
+    return null;
+  }
+
+  let alertType: 'warning' | 'info' = 'warning';
   let title = '';
   let description = '';
 
@@ -23,15 +28,10 @@ export function PrintSummary({ summary, totalPages }: PrintSummaryProps) {
     alertType = 'info';
     title = `打印已取消：已完成 ${summary.succeeded} 个，未打印 ${summary.skipped} 个`;
     description = '未打印的文件已保留在列表中，可在下方选择继续打印或结束本批次。';
-  } else if (isFailed) {
+  } else {
     alertType = 'warning';
     title = `打印完成：成功 ${summary.succeeded} 个，失败 ${summary.failed} 个${summary.skipped > 0 ? `，未打印 ${summary.skipped} 个` : ''}`;
     description = '成功项不会在重试时重复打印。可选择重试失败项或仅保留失败项进行调整。';
-  } else {
-    alertType = 'success';
-    const pageInfo = typeof totalPages === 'number' && totalPages > 0 ? ` · 共 ${totalPages} 页` : '';
-    title = `打印完成：${summary.succeeded} 个文件全部打印成功${pageInfo}`;
-    description = '本批任务已全部打印完成。';
   }
 
   return (

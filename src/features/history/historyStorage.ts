@@ -191,6 +191,21 @@ export function savePrintHistoryRecord(record: Omit<PrintHistoryRecord, 'id' | '
   }
 }
 
+export function deletePrintHistoryRecord(id: string): boolean {
+  try {
+    const history = loadPrintHistory();
+    const updated = history.filter((r) => r.id !== id);
+    if (updated.length === history.length) {
+      return false;
+    }
+    getStorage().setItem(STORAGE_KEY, JSON.stringify(updated));
+    return true;
+  } catch (err) {
+    console.warn('Failed to delete print history record', err);
+    return false;
+  }
+}
+
 export function clearPrintHistory(): void {
   try {
     getStorage().removeItem(STORAGE_KEY);

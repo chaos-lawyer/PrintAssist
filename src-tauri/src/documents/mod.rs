@@ -2,6 +2,7 @@ pub mod nup_layout;
 pub mod office;
 pub mod office_provider;
 pub mod page_range;
+pub mod pdf_annotations;
 pub mod pdf_pages;
 
 #[cfg(windows)]

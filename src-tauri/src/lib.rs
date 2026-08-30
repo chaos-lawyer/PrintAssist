@@ -79,6 +79,9 @@ pub fn run() {
             commands::pick_folder_files,
             commands::expand_file_paths,
             commands::run_print_batch,
+            commands::pause_print_batch,
+            commands::resume_print_batch,
+            commands::terminate_print_batch,
             commands::cancel_print_batch,
             commands::validate_supported_path,
             commands::show_in_folder

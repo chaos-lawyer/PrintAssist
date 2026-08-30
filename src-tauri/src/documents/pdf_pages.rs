@@ -94,7 +94,7 @@ pub fn extract_pages_to_temp_pdf(
     Ok(output_path)
 }
 
-fn staging_dir() -> Result<PathBuf, String> {
+pub(crate) fn staging_dir() -> Result<PathBuf, String> {
     let dir = std::env::temp_dir()
         .join("PrintAssist")
         .join("print-staging");
@@ -103,7 +103,7 @@ fn staging_dir() -> Result<PathBuf, String> {
 }
 
 /// Strip incremental/xref-stream leftovers and force a classic xref table on save.
-fn prepare_document_for_full_rewrite(document: &mut Document) {
+pub(crate) fn prepare_document_for_full_rewrite(document: &mut Document) {
     document.trailer.remove(b"Prev");
     document.trailer.remove(b"XRefStm");
     // Keys that only belong on a cross-reference *stream* dictionary.

@@ -216,6 +216,27 @@ export async function runPrintBatch(request: PrintBatchRequest): Promise<PrintBa
   return invokeCommand<PrintBatchResult>('run_print_batch', { request });
 }
 
+export async function pausePrintBatch(): Promise<void> {
+  if (!isTauriRuntime()) {
+    return;
+  }
+  return invokeCommand<void>('pause_print_batch');
+}
+
+export async function resumePrintBatch(): Promise<void> {
+  if (!isTauriRuntime()) {
+    return;
+  }
+  return invokeCommand<void>('resume_print_batch');
+}
+
+export async function terminatePrintBatch(): Promise<void> {
+  if (!isTauriRuntime()) {
+    return;
+  }
+  return invokeCommand<void>('terminate_print_batch');
+}
+
 export async function cancelPrintBatch(): Promise<void> {
   if (!isTauriRuntime()) {
     return;
@@ -338,9 +359,16 @@ export interface PrintItemFinishedEvent {
   skipped: number;
 }
 
+export interface PrintBatchStateChangedEvent {
+  state: 'printing' | 'paused' | 'terminating';
+  completed: number;
+  total: number;
+}
+
 export function subscribePrintItemEvents(handlers: {
   onItemStarted?: (event: PrintItemStartedEvent) => void;
   onItemFinished?: (event: PrintItemFinishedEvent) => void;
+  onBatchStateChanged?: (event: PrintBatchStateChangedEvent) => void;
 }): () => void {
   if (!isTauriRuntime()) {
     return () => undefined;
@@ -367,6 +395,17 @@ export function subscribePrintItemEvents(handlers: {
     if (handlers.onItemFinished) {
       void listen<PrintItemFinishedEvent>('print-item-finished', (event) => {
         handlers.onItemFinished?.(event.payload);
+      }).then((stop) => {
+        if (disposed) {
+          stop();
+          return;
+        }
+        unlistenFns.push(stop);
+      });
+    }
+    if (handlers.onBatchStateChanged) {
+      void listen<PrintBatchStateChangedEvent>('print-batch-state-changed', (event) => {
+        handlers.onBatchStateChanged?.(event.payload);
       }).then((stop) => {
         if (disposed) {
           stop();

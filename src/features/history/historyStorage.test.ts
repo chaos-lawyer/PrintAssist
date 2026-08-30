@@ -3,6 +3,7 @@ import {
   MAX_HISTORY_ITEMS,
   _setRawStorageForTesting,
   clearPrintHistory,
+  deletePrintHistoryRecord,
   loadPrintHistory,
   savePrintHistoryRecord,
   setPrintHistoryFavorite,
@@ -238,5 +239,53 @@ describe('historyStorage', () => {
     expect(safeRecords[0].printerName).toBe('默认打印机');
     expect(safeRecords[0].files[0].fileName).toBe('未命名文件');
     expect(safeRecords[0].isFavorite).toBe(false);
+  });
+
+  describe('deletePrintHistoryRecord', () => {
+    it('deletes a record by id successfully', () => {
+      savePrintHistoryRecord({
+        printerName: 'Printer A',
+        totalFiles: 1,
+        succeededCount: 1,
+        failedCount: 0,
+        skippedCount: 0,
+        files: [{ fileName: 'a.pdf', path: 'a.pdf', status: 'succeeded' }],
+      });
+      savePrintHistoryRecord({
+        printerName: 'Printer B',
+        totalFiles: 1,
+        succeededCount: 1,
+        failedCount: 0,
+        skippedCount: 0,
+        files: [{ fileName: 'b.pdf', path: 'b.pdf', status: 'succeeded' }],
+      });
+
+      const records = loadPrintHistory();
+      expect(records).toHaveLength(2);
+      const toDeleteId = records[0].id; // newest (Printer B)
+
+      const success = deletePrintHistoryRecord(toDeleteId);
+      expect(success).toBe(true);
+
+      const remaining = loadPrintHistory();
+      expect(remaining).toHaveLength(1);
+      expect(remaining[0].id).not.toBe(toDeleteId);
+      expect(remaining[0].printerName).toBe('Printer A');
+    });
+
+    it('returns false when deleting a non-existent id', () => {
+      savePrintHistoryRecord({
+        printerName: 'Printer A',
+        totalFiles: 1,
+        succeededCount: 1,
+        failedCount: 0,
+        skippedCount: 0,
+        files: [{ fileName: 'a.pdf', path: 'a.pdf', status: 'succeeded' }],
+      });
+
+      const success = deletePrintHistoryRecord('non-existent-id');
+      expect(success).toBe(false);
+      expect(loadPrintHistory()).toHaveLength(1);
+    });
   });
 });

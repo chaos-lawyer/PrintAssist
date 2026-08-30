@@ -11,6 +11,7 @@ import {
   message,
 } from 'antd';
 import {
+  CheckCircle2,
   Clock,
   FilePlus2,
   FolderPlus,
@@ -29,16 +30,20 @@ import {
   listSystemPrinters,
   loadPrinterProfile,
   openPrinterProperties,
+  pausePrintBatch,
   pickFiles,
   pickFolderFiles,
+  resumePrintBatch,
   runPrintBatch,
   subscribeIncomingFiles,
   subscribeNativeDragDrop,
   subscribePrintItemEvents,
+  terminatePrintBatch,
 } from './api/nativeBridge';
 import { AppLogo } from './components/AppLogo';
 import { PrintHistoryModal } from './features/history/PrintHistoryModal';
 import { savePrintHistoryRecord } from './features/history/historyStorage';
+import { PrintPlaybackControls } from './features/queue/PrintPlaybackControls';
 import {
   applyDriverSettings,
   applyLoadedPersistentProfile,
@@ -705,8 +710,6 @@ export function App() {
         }
       } else if (batchResult.skipped > 0) {
         message.info(`打印已取消：已完成 ${batchResult.succeeded}，未打印 ${batchResult.skipped}`);
-      } else {
-        message.success(`打印完成：${batchResult.succeeded} 个文件全部打印成功`);
       }
     } catch (error) {
       dispatch({
@@ -774,12 +777,30 @@ export function App() {
     void executePrint('remaining');
   };
 
-  const handleCancelPrint = async () => {
+  const handlePausePrint = async () => {
+    dispatch({ type: 'request_pause' });
     try {
-      await cancelPrintBatch();
-      message.info('已发送取消请求，正在跳过剩余文件...');
+      await pausePrintBatch();
     } catch (err) {
-      message.error(err instanceof Error ? err.message : '取消打印失败');
+      message.error(err instanceof Error ? err.message : '请求暂停失败');
+    }
+  };
+
+  const handleResumePrint = async () => {
+    dispatch({ type: 'resume_print' });
+    try {
+      await resumePrintBatch();
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '请求继续失败');
+    }
+  };
+
+  const handleTerminatePrint = async () => {
+    dispatch({ type: 'request_terminate' });
+    try {
+      await terminatePrintBatch();
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '终止打印失败');
     }
   };
 
@@ -855,6 +876,11 @@ export function App() {
           status: event.status,
           errorMessage: event.message,
         });
+      },
+      onBatchStateChanged: (event) => {
+        if (event.state === 'paused') {
+          dispatch({ type: 'confirm_paused' });
+        }
       },
     });
     return unsubscribe;
@@ -1078,20 +1104,6 @@ export function App() {
                 )}
               </Space>
             </div>
-            {canRestoreBatch && (
-              <div className="restore-batch-banner" role="status">
-                <span>已开始新批次</span>
-                <span
-                  className="restore-batch-banner-action"
-                  role="button"
-                  tabIndex={0}
-                  onClick={handleRestorePreviousBatch}
-                  onKeyDown={(e) => e.key === 'Enter' && handleRestorePreviousBatch()}
-                >
-                  恢复上一批
-                </span>
-              </div>
-            )}
             {queueState.lastSummary && (
               <PrintSummary
                 summary={queueState.lastSummary}
@@ -1123,21 +1135,45 @@ export function App() {
                 onAddFiles={() => void handlePickFiles()}
               />
             </div>
+            {canRestoreBatch && (
+              <div className="restore-batch-banner" role="status" aria-live="polite">
+                <span>已开始新批次</span>
+                <Button
+                  type="link"
+                  size="small"
+                  className="restore-batch-banner-action"
+                  onClick={handleRestorePreviousBatch}
+                >
+                  恢复上一批
+                </Button>
+              </div>
+            )}
             <div className="queue-footer">
               <div className="queue-footer-stats">
                 {queueState.isPrinting ? (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                     <span className="queue-footer-status">
-                      正在打印（
-                      {
-                        queueState.items.filter(
-                          (i) =>
-                            i.status === 'succeeded' ||
-                            i.status === 'failed' ||
-                            i.status === 'skipped',
-                        ).length
-                      }{' '}
-                      / {queueState.items.length}）
+                      {queueState.phase === 'pausing'
+                        ? '正在暂停，等待当前文件完成'
+                        : queueState.phase === 'paused'
+                          ? `已暂停（${
+                              queueState.items.filter(
+                                (i) =>
+                                  i.status === 'succeeded' ||
+                                  i.status === 'failed' ||
+                                  i.status === 'skipped',
+                              ).length
+                            } / ${queueState.items.length}）`
+                          : queueState.phase === 'terminating'
+                            ? '正在终止剩余任务'
+                            : `正在打印（${
+                                queueState.items.filter(
+                                  (i) =>
+                                    i.status === 'succeeded' ||
+                                    i.status === 'failed' ||
+                                    i.status === 'skipped',
+                                ).length
+                              } / ${queueState.items.length}）`}
                     </span>
                     <Progress
                       percent={
@@ -1155,22 +1191,28 @@ export function App() {
                           : 0
                       }
                       size="small"
-                      status="active"
+                      status={queueState.phase === 'paused' ? 'normal' : 'active'}
                       style={{ width: 130, margin: 0 }}
                     />
-                    <Button
-                      size="small"
-                      danger
-                      onClick={() => void handleCancelPrint()}
-                    >
-                      取消剩余
-                    </Button>
                   </div>
+                ) : queueState.phase === 'completed' &&
+                  queueState.lastSummary &&
+                  queueState.lastSummary.failed === 0 &&
+                  queueState.lastSummary.skipped === 0 ? (
+                  <span className="queue-footer-status queue-footer-status-completed">
+                    <CheckCircle2 size={16} style={{ color: 'var(--color-success, #52c41a)' }} />
+                    <span>
+                      已完成：<strong>{queueState.lastSummary.succeeded}</strong> 个文件
+                      {pageStats.allKnown && pageStats.knownPages > 0
+                        ? ` · 共 ${pageStats.knownPages} 页`
+                        : ''}
+                    </span>
+                  </span>
                 ) : (
                   <span className="queue-footer-count">
                     共 <strong>{queueState.items.length}</strong> 个文件
                     {pageStats.allKnown && pageStats.knownPages > 0
-                      ? ` · ${pageStats.knownPages} 页 (预估耗纸 ${pageStats.estimatedSheets} 张)`
+                      ? ` · 共 ${pageStats.knownPages} 页 (预估耗纸 ${pageStats.estimatedSheets} 张)`
                       : ''}
                   </span>
                 )}
@@ -1201,16 +1243,16 @@ export function App() {
                   >
                     选择文件夹
                   </Button>
-                  <Button
-                    type="primary"
-                    icon={<Printer size={16} />}
-                    loading={queueState.isPrinting}
-                    disabled={!availability.printEnabled || queueState.items.length === 0}
-                    onClick={() => void executePrint('remaining')}
-                    title={!availability.printEnabled ? availability.reasons.join('；') : undefined}
-                  >
-                    开始打印
-                  </Button>
+                  <PrintPlaybackControls
+                    phase={queueState.phase}
+                    printEnabled={availability.printEnabled}
+                    disabledReason={!availability.printEnabled ? availability.reasons.join('；') : undefined}
+                    hasItems={queueState.items.length > 0}
+                    onStartPrint={() => void executePrint('remaining')}
+                    onPausePrint={() => void handlePausePrint()}
+                    onResumePrint={() => void handleResumePrint()}
+                    onTerminatePrint={() => void handleTerminatePrint()}
+                  />
                 </Space>
               )}
             </div>

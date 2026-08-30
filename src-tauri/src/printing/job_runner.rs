@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+#[cfg(test)]
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -17,8 +18,93 @@ use crate::documents::print_shell::print_file_to_printer;
 use crate::documents::{detect_document_kind, DocumentKind};
 use crate::printers;
 
-/// Mutex guarding that at most one batch prints at a time, along with its scoped cancel token.
-static ACTIVE_BATCH: Mutex<Option<Arc<AtomicBool>>> = Mutex::new(None);
+/// Controller state for an active print batch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BatchControlState {
+    Running,
+    PauseRequested,
+    Paused,
+    TerminateRequested,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SafeBoundaryAction {
+    Continue,
+    Terminate,
+}
+
+#[derive(Debug)]
+pub struct BatchControl {
+    state: Mutex<BatchControlState>,
+    wake: std::sync::Condvar,
+}
+
+impl Default for BatchControl {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl BatchControl {
+    pub fn new() -> Self {
+        Self {
+            state: Mutex::new(BatchControlState::Running),
+            wake: std::sync::Condvar::new(),
+        }
+    }
+
+    pub fn request_pause(&self) {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        if *state == BatchControlState::Running {
+            *state = BatchControlState::PauseRequested;
+        }
+    }
+
+    pub fn request_resume(&self) {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        if *state == BatchControlState::Paused || *state == BatchControlState::PauseRequested {
+            *state = BatchControlState::Running;
+            self.wake.notify_all();
+        }
+    }
+
+    pub fn request_terminate(&self) {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        *state = BatchControlState::TerminateRequested;
+        self.wake.notify_all();
+    }
+
+    pub fn current_state(&self) -> BatchControlState {
+        *self.state.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    pub fn wait_at_safe_boundary<F>(&self, on_paused: F) -> SafeBoundaryAction
+    where
+        F: FnOnce(),
+    {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+
+        if *state == BatchControlState::PauseRequested {
+            *state = BatchControlState::Paused;
+            drop(state);
+            on_paused();
+            state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        }
+
+        while *state == BatchControlState::Paused {
+            state = self.wake.wait(state).unwrap_or_else(|e| e.into_inner());
+        }
+
+        if *state == BatchControlState::TerminateRequested {
+            SafeBoundaryAction::Terminate
+        } else {
+            SafeBoundaryAction::Continue
+        }
+    }
+}
+
+/// Mutex guarding that at most one batch prints at a time, along with its scoped batch controller.
+static ACTIVE_BATCH: Mutex<Option<Arc<BatchControl>>> = Mutex::new(None);
 
 #[derive(Debug)]
 pub struct ActiveBatchGuard {
@@ -32,21 +118,39 @@ impl Drop for ActiveBatchGuard {
     }
 }
 
-pub fn try_acquire_batch_lock() -> Result<(ActiveBatchGuard, Arc<AtomicBool>), String> {
+pub fn try_acquire_batch_lock() -> Result<(ActiveBatchGuard, Arc<BatchControl>), String> {
     let mut lock = ACTIVE_BATCH.lock().unwrap_or_else(|e| e.into_inner());
     if lock.is_some() {
         return Err("当前已有打印任务正在执行中，请等待完成或取消后再试".to_string());
     }
-    let cancel_token = Arc::new(AtomicBool::new(false));
-    *lock = Some(Arc::clone(&cancel_token));
-    Ok((ActiveBatchGuard { _private: () }, cancel_token))
+    let control = Arc::new(BatchControl::new());
+    *lock = Some(Arc::clone(&control));
+    Ok((ActiveBatchGuard { _private: () }, control))
+}
+
+pub fn pause_current_batch() {
+    let lock = ACTIVE_BATCH.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(ref control) = *lock {
+        control.request_pause();
+    }
+}
+
+pub fn resume_current_batch() {
+    let lock = ACTIVE_BATCH.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(ref control) = *lock {
+        control.request_resume();
+    }
+}
+
+pub fn terminate_current_batch() {
+    let lock = ACTIVE_BATCH.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(ref control) = *lock {
+        control.request_terminate();
+    }
 }
 
 pub fn cancel_current_batch() {
-    let lock = ACTIVE_BATCH.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(ref token) = *lock {
-        token.store(true, Ordering::SeqCst);
-    }
+    terminate_current_batch();
 }
 
 /// Shell `printto` / staged PDF handlers may open files asynchronously.
@@ -61,8 +165,8 @@ pub fn run_print_batch_sync(
     // P1-03: Unified request boundary validation
     request.validate()?;
 
-    // P1-01: Single-batch mutex and isolated cancellation token
-    let (_batch_guard, cancel_token) = try_acquire_batch_lock()?;
+    // P1-01: Single-batch mutex and isolated batch controller
+    let (_batch_guard, batch_control) = try_acquire_batch_lock()?;
 
     let nup = request.nup_layout;
     let scope = request.nup_scope.as_deref().unwrap_or("perFile");
@@ -75,7 +179,7 @@ pub fn run_print_batch_sync(
             nup.unwrap(),
             profile_store,
             app,
-            &cancel_token,
+            &batch_control,
         ));
     }
 
@@ -103,7 +207,7 @@ pub fn run_print_batch_sync(
         request,
         profile_store,
         app,
-        &cancel_token,
+        &batch_control,
     ))
 }
 
@@ -111,7 +215,7 @@ fn run_batch_per_file(
     request: PrintBatchRequest,
     profile_store: Option<&printers::PrinterProfileStore>,
     app: Option<&tauri::AppHandle>,
-    cancel_token: &AtomicBool,
+    batch_control: &BatchControl,
 ) -> PrintBatchResult {
     let mut results = Vec::new();
     let mut succeeded = 0_u32;
@@ -122,13 +226,27 @@ fn run_batch_per_file(
     for (index, item) in request.items.into_iter().enumerate() {
         let item_id = item.queue_item_id.clone();
 
-        if cancel_token.load(Ordering::SeqCst) {
+        let action = batch_control.wait_at_safe_boundary(|| {
+            if let Some(app_handle) = app {
+                use tauri::Emitter;
+                let _ = app_handle.emit(
+                    "print-batch-state-changed",
+                    serde_json::json!({
+                        "state": "paused",
+                        "completed": index,
+                        "total": total,
+                    }),
+                );
+            }
+        });
+
+        if action == SafeBoundaryAction::Terminate {
             let result_item = PrintBatchResultItem {
                 queue_item_id: item_id.clone(),
                 path: item.path.clone(),
                 file_name: item.file_name.clone(),
                 status: "skipped".to_string(),
-                message: Some("用户已取消打印".to_string()),
+                message: Some("用户已终止打印".to_string()),
             };
             skipped += 1;
             if let Some(app_handle) = app {
@@ -523,7 +641,7 @@ fn run_batch_cross_file_nup(
     layout: crate::contracts::NupLayout,
     profile_store: Option<&printers::PrinterProfileStore>,
     app: Option<&tauri::AppHandle>,
-    cancel_token: &AtomicBool,
+    batch_control: &BatchControl,
 ) -> PrintBatchResult {
     let mut results = Vec::new();
     let total = request.items.len();
@@ -620,7 +738,21 @@ fn run_batch_cross_file_nup(
     let mut cancel_encountered = false;
 
     while let Some((index, item)) = items_iter.next() {
-        if cancel_token.load(Ordering::SeqCst) {
+        let action = batch_control.wait_at_safe_boundary(|| {
+            if let Some(app_handle) = app {
+                use tauri::Emitter;
+                let _ = app_handle.emit(
+                    "print-batch-state-changed",
+                    serde_json::json!({
+                        "state": "paused",
+                        "completed": index,
+                        "total": total,
+                    }),
+                );
+            }
+        });
+
+        if action == SafeBoundaryAction::Terminate {
             session.abort();
             cancel_encountered = true;
             let result_item = PrintBatchResultItem {
@@ -628,7 +760,7 @@ fn run_batch_cross_file_nup(
                 path: item.path.clone(),
                 file_name: item.file_name.clone(),
                 status: "skipped".to_string(),
-                message: Some("用户已取消打印".to_string()),
+                message: Some("用户已终止打印".to_string()),
             };
             results.push(result_item);
             break;
@@ -981,25 +1113,65 @@ mod tests {
 
     #[test]
     fn batch_lock_mutual_exclusion_and_raii_release() {
-        let (guard1, cancel_token) = try_acquire_batch_lock().expect("acquire lock 1");
-        assert!(!cancel_token.load(Ordering::SeqCst));
+        let (guard1, control) = try_acquire_batch_lock().expect("acquire lock 1");
+        assert_eq!(control.current_state(), BatchControlState::Running);
 
         // Second acquire while lock1 is held must fail
         let second_res = try_acquire_batch_lock();
         assert!(second_res.is_err());
         assert!(second_res.unwrap_err().contains("已有打印任务正在执行中"));
 
-        // Cancel sets flag
+        // Terminate sets state
         cancel_current_batch();
-        assert!(cancel_token.load(Ordering::SeqCst));
+        assert_eq!(control.current_state(), BatchControlState::TerminateRequested);
 
         // Dropping guard1 releases the lock
         drop(guard1);
 
         // Now acquire succeeds again
-        let (guard2, cancel_token2) = try_acquire_batch_lock().expect("acquire lock 2");
-        assert!(!cancel_token2.load(Ordering::SeqCst));
+        let (guard2, control2) = try_acquire_batch_lock().expect("acquire lock 2");
+        assert_eq!(control2.current_state(), BatchControlState::Running);
         drop(guard2);
+    }
+
+    #[test]
+    fn batch_control_pause_resume_and_terminate_flow() {
+        let control = Arc::new(BatchControl::new());
+        assert_eq!(control.current_state(), BatchControlState::Running);
+
+        // 1. Pause request
+        control.request_pause();
+        assert_eq!(control.current_state(), BatchControlState::PauseRequested);
+
+        let paused_notified = Arc::new(AtomicBool::new(false));
+        let paused_notified_clone = Arc::clone(&paused_notified);
+        let control_clone = Arc::clone(&control);
+
+        let worker = thread::spawn(move || {
+            control_clone.wait_at_safe_boundary(move || {
+                paused_notified_clone.store(true, Ordering::SeqCst);
+            })
+        });
+
+        // Give thread a moment to reach safe boundary and enter paused state
+        while !paused_notified.load(Ordering::SeqCst) {
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(control.current_state(), BatchControlState::Paused);
+
+        // 2. Resume
+        control.request_resume();
+        assert_eq!(control.current_state(), BatchControlState::Running);
+
+        let action = worker.join().expect("worker join");
+        assert_eq!(action, SafeBoundaryAction::Continue);
+
+        // 3. Terminate while running
+        control.request_terminate();
+        assert_eq!(control.current_state(), BatchControlState::TerminateRequested);
+
+        let term_action = control.wait_at_safe_boundary(|| {});
+        assert_eq!(term_action, SafeBoundaryAction::Terminate);
     }
 
     #[test]

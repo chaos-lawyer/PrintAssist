@@ -30,6 +30,7 @@ import {
 } from './historyHelpers';
 import {
   clearPrintHistory,
+  deletePrintHistoryRecord,
   loadPrintHistory,
   setPrintHistoryFavorite,
   type PrintHistoryRecord,
@@ -93,6 +94,29 @@ export function PrintHistoryModal({
     } else {
       message.error('收藏状态保存失败');
     }
+  };
+
+  const handleDeleteRecord = (record: PrintHistoryRecord) => {
+    Modal.confirm({
+      title: '删除历史记录',
+      content: record.isFavorite
+        ? '确定要删除此条打印记录吗？该记录已收藏，删除后无法恢复。'
+        : '确定要删除此条打印记录吗？',
+      okText: '删除',
+      cancelText: '取消',
+      okButtonProps: { danger: true },
+      centered: true,
+      onOk: () => {
+        const success = deletePrintHistoryRecord(record.id);
+        if (success) {
+          setHistory((prev) => prev.filter((r) => r.id !== record.id));
+          setExpandedRowKeys((prev) => prev.filter((k) => k !== record.id));
+          message.success('打印记录已删除');
+        } else {
+          message.error('删除记录失败');
+        }
+      },
+    });
   };
 
   const handleReloadRecordFiles = (record: PrintHistoryRecord) => {
@@ -243,6 +267,27 @@ export function PrintHistoryModal({
             }}
           >
             <RotateCcw size={16} />
+          </button>
+        </Tooltip>
+      ),
+    },
+    {
+      title: '删除',
+      key: 'delete',
+      width: 64,
+      align: 'center',
+      render: (_, record) => (
+        <Tooltip title="删除此记录">
+          <button
+            type="button"
+            className="history-action-btn history-delete-btn"
+            aria-label="删除此记录"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleDeleteRecord(record);
+            }}
+          >
+            <Trash2 size={15} />
           </button>
         </Tooltip>
       ),

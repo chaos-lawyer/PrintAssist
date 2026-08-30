@@ -481,5 +481,71 @@ describe('queueReducer', () => {
       expect(restored.lastSummary).toEqual(savedSummary);
       expect(restored.phase).toBe('completed');
     });
+
+    it('manages playback state machine: pause, confirm, resume, terminate', () => {
+      let state = queueReducer(createEmptyQueueState(), {
+        type: 'append_files',
+        paths: ['doc1.pdf', 'doc2.pdf'],
+      });
+
+      // 1. Begin print -> printing
+      state = queueReducer(state, { type: 'begin_print' });
+      expect(state.phase).toBe('printing');
+      expect(state.isPrinting).toBe(true);
+
+      // 2. Request pause -> pausing
+      state = queueReducer(state, { type: 'request_pause' });
+      expect(state.phase).toBe('pausing');
+      expect(state.isPrinting).toBe(true);
+
+      // 3. Confirm paused from backend -> paused
+      state = queueReducer(state, { type: 'confirm_paused' });
+      expect(state.phase).toBe('paused');
+      expect(state.isPrinting).toBe(true);
+
+      // 4. Resume print -> printing
+      state = queueReducer(state, { type: 'resume_print' });
+      expect(state.phase).toBe('printing');
+      expect(state.isPrinting).toBe(true);
+
+      // 5. Request terminate -> terminating
+      state = queueReducer(state, { type: 'request_terminate' });
+      expect(state.phase).toBe('terminating');
+      expect(state.isPrinting).toBe(true);
+
+      // 6. Finish print -> completed and isPrinting becomes false
+      state = queueReducer(state, {
+        type: 'finish_print',
+        summary: createPrintSummary([
+          { queueItemId: state.items[0].id, path: 'doc1.pdf', fileName: 'doc1.pdf', status: 'succeeded' },
+          { queueItemId: state.items[1].id, path: 'doc2.pdf', fileName: 'doc2.pdf', status: 'skipped' },
+        ]),
+      });
+      expect(state.phase).toBe('completed');
+      expect(state.isPrinting).toBe(false);
+      expect(state.lastSummary?.succeeded).toBe(1);
+      expect(state.lastSummary?.skipped).toBe(1);
+    });
+
+    it('ignores invalid transitions and race conditions', () => {
+      let state = queueReducer(createEmptyQueueState(), {
+        type: 'append_files',
+        paths: ['doc1.pdf'],
+      });
+
+      // Cannot pause when not printing
+      expect(queueReducer(state, { type: 'request_pause' }).phase).toBe('editing');
+
+      // Begin print
+      state = queueReducer(state, { type: 'begin_print' });
+
+      // If user requested terminate while pausing, confirm_paused must not override terminating!
+      state = queueReducer(state, { type: 'request_pause' });
+      state = queueReducer(state, { type: 'request_terminate' });
+      expect(state.phase).toBe('terminating');
+
+      state = queueReducer(state, { type: 'confirm_paused' });
+      expect(state.phase).toBe('terminating');
+    });
   });
 });

@@ -498,6 +498,24 @@ pub async fn run_print_batch(
 }
 
 #[tauri::command]
+pub fn pause_print_batch() -> Result<(), String> {
+    crate::printing::pause_current_batch();
+    Ok(())
+}
+
+#[tauri::command]
+pub fn resume_print_batch() -> Result<(), String> {
+    crate::printing::resume_current_batch();
+    Ok(())
+}
+
+#[tauri::command]
+pub fn terminate_print_batch() -> Result<(), String> {
+    crate::printing::terminate_current_batch();
+    Ok(())
+}
+
+#[tauri::command]
 pub fn cancel_print_batch() -> Result<(), String> {
     crate::printing::cancel_current_batch();
     Ok(())

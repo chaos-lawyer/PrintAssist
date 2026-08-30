@@ -53,6 +53,9 @@ export type BatchPhase =
   | 'empty'
   | 'editing'
   | 'printing'
+  | 'pausing'
+  | 'paused'
+  | 'terminating'
   | 'completed';
 
 export interface QueueState {

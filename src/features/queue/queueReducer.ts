@@ -28,6 +28,10 @@ export type QueueAction =
   | { type: 'insert_items'; items: QueueItem[]; targetId: string | null }
   | { type: 'set_item_status'; id: string; status: QueueItem['status']; errorMessage?: string }
   | { type: 'begin_print' }
+  | { type: 'request_pause' }
+  | { type: 'confirm_paused' }
+  | { type: 'resume_print' }
+  | { type: 'request_terminate' }
   | { type: 'finish_print'; summary: PrintJobSummary }
   | { type: 'retry_failed' }
   | { type: 'move_item'; id: string; direction: 'up' | 'down' };
@@ -430,6 +434,42 @@ export function queueReducer(state: QueueState, action: QueueAction): QueueState
             : { ...item, status: 'pending', errorMessage: undefined },
         ),
       };
+
+    case 'request_pause':
+      if (state.phase === 'printing') {
+        return {
+          ...state,
+          phase: 'pausing',
+        };
+      }
+      return state;
+
+    case 'confirm_paused':
+      if (state.phase === 'pausing') {
+        return {
+          ...state,
+          phase: 'paused',
+        };
+      }
+      return state;
+
+    case 'resume_print':
+      if (state.phase === 'paused' || state.phase === 'pausing') {
+        return {
+          ...state,
+          phase: 'printing',
+        };
+      }
+      return state;
+
+    case 'request_terminate':
+      if (state.isPrinting && state.phase !== 'completed') {
+        return {
+          ...state,
+          phase: 'terminating',
+        };
+      }
+      return state;
 
     case 'finish_print': {
       const resultById = new Map<string, PrintJobResultItem>();

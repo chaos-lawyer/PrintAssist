@@ -1,3 +1,6 @@
 pub mod job_runner;
 
-pub use job_runner::{cancel_current_batch, run_print_batch_sync};
+pub use job_runner::{
+    cancel_current_batch, pause_current_batch, resume_current_batch, run_print_batch_sync,
+    terminate_current_batch, BatchControl, BatchControlState,
+};
