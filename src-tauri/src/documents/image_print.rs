@@ -326,7 +326,7 @@ fn print_decoded_pages_once(
     let is_nup = nup.map_or(false, |l| l.cols * l.rows > 1);
     if is_nup {
         let layout = nup.unwrap();
-        let session = NupPrintSession::new(printer_name, devmode, layout)?;
+        let mut session = NupPrintSession::new(printer_name, devmode, layout)?;
         let sheets = group_items_into_sheets(pages, session.slots);
         for sheet in sheets {
             if let Err(err) = session.draw_physical_sheet(&sheet) {
