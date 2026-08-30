@@ -1,49 +1,52 @@
-import { Alert, Button, List, Space, Typography } from 'antd';
+import { Alert, List, Space, Typography } from 'antd';
 import type { PrintJobSummary } from '../../domain/queueTypes';
 
 interface PrintSummaryProps {
   summary: PrintJobSummary | null;
-  onRetryFailed: () => void;
-  onClearSucceeded?: () => void;
+  totalPages?: number;
 }
 
-export function PrintSummary({ summary, onRetryFailed, onClearSucceeded }: PrintSummaryProps) {
+export function PrintSummary({ summary, totalPages }: PrintSummaryProps) {
   if (!summary) {
     return null;
   }
 
   const failedItems = summary.results.filter((resultItem) => resultItem.status === 'failed');
+  const isCancelled = summary.skipped > 0 && summary.failed === 0;
+  const isFailed = summary.failed > 0;
+
+  let alertType: 'success' | 'warning' | 'info' = 'success';
+  let title = '';
+  let description = '';
+
+  if (isCancelled) {
+    alertType = 'info';
+    title = `打印已取消：已完成 ${summary.succeeded} 个，未打印 ${summary.skipped} 个`;
+    description = '未打印的文件已保留在列表中，可在下方选择继续打印或结束本批次。';
+  } else if (isFailed) {
+    alertType = 'warning';
+    title = `打印完成：成功 ${summary.succeeded} 个，失败 ${summary.failed} 个${summary.skipped > 0 ? `，未打印 ${summary.skipped} 个` : ''}`;
+    description = '成功项不会在重试时重复打印。可选择重试失败项或仅保留失败项进行调整。';
+  } else {
+    alertType = 'success';
+    const pageInfo = typeof totalPages === 'number' && totalPages > 0 ? ` · 共 ${totalPages} 页` : '';
+    title = `打印完成：${summary.succeeded} 个文件全部打印成功${pageInfo}`;
+    description = '本批任务已全部打印完成。';
+  }
 
   return (
-    <div className="summary-panel">
+    <div className="summary-panel" role="region" aria-label="打印结果摘要">
       <Alert
-        type={summary.failed > 0 ? 'warning' : 'success'}
+        type={alertType}
         showIcon
-        message={`打印完成：成功 ${summary.succeeded}，失败 ${summary.failed}，跳过 ${summary.skipped}`}
-        description={
-          summary.failed > 0
-            ? '单项失败不会阻断整批任务。可重试失败项，或先移除已成功项。'
-            : '本批任务已全部打印成功。'
-        }
-        action={
-          <Space size={8}>
-            {summary.failed > 0 && (
-              <Button size="small" type="primary" onClick={onRetryFailed}>
-                仅重试失败项
-              </Button>
-            )}
-            {summary.succeeded > 0 && onClearSucceeded && (
-              <Button size="small" onClick={onClearSucceeded}>
-                {summary.failed > 0 ? '移除成功项' : '清空列表'}
-              </Button>
-            )}
-          </Space>
-        }
+        message={title}
+        description={description}
       />
 
       {failedItems.length > 0 && (
         <List
           size="small"
+          className="summary-failed-list"
           header={<Typography.Text strong>失败明细</Typography.Text>}
           dataSource={failedItems}
           renderItem={(item) => (

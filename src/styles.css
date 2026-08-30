@@ -862,21 +862,29 @@ button,
   width: 72px;
 }
 
-.settings-auto-clear-wrap {
+.restore-batch-banner {
   display: flex;
   align-items: center;
-  margin-top: 6px;
-  padding: 4px 2px;
+  justify-content: space-between;
+  margin: 8px 12px 4px;
+  padding: 6px 14px;
+  background: #f6ffed;
+  border: 1px solid #b7eb8f;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  color: #389e0d;
 }
 
-.settings-auto-clear-wrap .ant-checkbox-wrapper {
-  color: var(--color-text-secondary);
-  font-size: 12px;
-  user-select: none;
+.restore-batch-banner-action {
+  font-weight: 500;
+  color: var(--color-primary);
+  cursor: pointer;
+  margin-left: 12px;
+  text-decoration: underline;
 }
 
-.settings-auto-clear-wrap .ant-checkbox-wrapper:hover {
-  color: var(--color-text);
+.restore-batch-banner-action:hover {
+  color: var(--color-primary-hover);
 }
 
 .settings-alert {
@@ -1208,6 +1216,12 @@ button,
   user-select: none;
 }
 
+/* Checkbox indeterminate state: change inner solid square to solid circle */
+.ant-checkbox-indeterminate .ant-checkbox-inner::after,
+.ant-checkbox-indeterminate .ant-checkbox-inner:after {
+  border-radius: 50% !important;
+}
+
 .queue-compact-table .ant-table-tbody > tr > td {
   padding: 8px 10px;
 }
@@ -1277,6 +1291,17 @@ button,
   white-space: normal;
   line-height: 1.35;
   margin-top: 2px;
+}
+
+.queue-file-duplicate-badge {
+  display: flex;
+  align-items: center;
+  margin-top: 2px;
+}
+
+.is-copy-dragging {
+  cursor: copy !important;
+  border-left: 3px solid var(--color-primary, #2563eb) !important;
 }
 
 .queue-type-badge {
@@ -1408,8 +1433,7 @@ button,
   margin-top: 8px;
 }
 
-.file-settings-modal .file-settings-modal-body,
-.print-history-modal .print-history-modal-body {
+.file-settings-modal .file-settings-modal-body {
   max-height: 65vh;
   overflow-y: auto;
   padding: 6px 8px;
@@ -1719,4 +1743,236 @@ button,
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ==========================================================================
+   Print History Table Redesign (PRINT_HISTORY_REDESIGN_PLAN.md)
+   ========================================================================== */
+
+.print-history-modal {
+  max-width: calc(100vw - 32px);
+}
+
+.print-history-modal .ant-modal-content {
+  padding: 20px 24px;
+}
+
+.print-history-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 280px;
+}
+
+.print-history-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 0 0 4px 0;
+}
+
+.print-history-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 280px;
+}
+
+.print-history-search-input {
+  max-width: 260px;
+  border-radius: var(--radius-sm);
+}
+
+.print-history-table-wrapper {
+  flex: 1;
+  min-width: 0;
+}
+
+.print-history-table .ant-table {
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-md);
+  font-size: 13px;
+}
+
+.print-history-table .ant-table-thead > tr > th {
+  background: var(--color-surface-soft);
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  padding: 10px 12px;
+  white-space: nowrap;
+}
+
+.print-history-table .ant-table-tbody > tr > td {
+  padding: 10px 12px;
+  vertical-align: middle;
+}
+
+.history-time-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  line-height: 1.3;
+}
+
+.history-time-primary {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text);
+  white-space: nowrap;
+}
+
+.history-printer-name {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  max-width: 145px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-filename-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.history-filename-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.history-filename-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--color-text);
+}
+
+.history-more-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: var(--radius-xs);
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
+  font-size: 11px;
+  font-weight: 500;
+  flex-shrink: 0;
+  line-height: 1.4;
+}
+
+.history-action-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 32px !important;
+  height: 32px !important;
+  min-width: 32px !important;
+  padding: 0 !important;
+  border-radius: var(--radius-sm) !important;
+  border: 1px solid transparent !important;
+  background: transparent !important;
+  color: var(--color-text-muted) !important;
+  cursor: pointer;
+  transition: all var(--motion-fast);
+}
+
+.history-action-btn:hover {
+  background: var(--color-primary-soft) !important;
+  color: var(--color-primary) !important;
+  border-color: var(--color-border-soft) !important;
+}
+
+.history-action-btn:focus-visible {
+  outline: none !important;
+  box-shadow: var(--shadow-focus) !important;
+}
+
+.history-star-btn {
+  color: var(--color-text-faint) !important;
+}
+
+.history-star-btn:hover {
+  color: #faad14 !important;
+  background: #fffbe6 !important;
+}
+
+.history-star-btn.is-favorite {
+  color: #faad14 !important;
+}
+
+.history-star-btn.is-favorite:hover {
+  color: #d48806 !important;
+}
+
+.history-reload-btn:hover {
+  color: var(--color-primary) !important;
+}
+
+.history-expand-container {
+  padding: 10px 14px;
+  background: var(--color-surface-soft);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border-soft);
+}
+
+.history-expand-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--color-border-soft);
+  font-size: 12px;
+}
+
+.history-expand-file-list {
+  display: grid;
+  gap: 6px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.history-expand-file-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-xs);
+  font-size: 12px;
+  gap: 8px;
+}
+
+.history-expand-file-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.history-expand-file-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text);
+}
+
+.history-expand-file-msg {
+  font-size: 11px;
+  margin-left: 8px;
+  flex-shrink: 0;
+  word-break: break-word;
+}
+
 

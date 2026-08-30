@@ -6,6 +6,7 @@ import {
   Modal,
   Progress,
   Space,
+  Tooltip,
   Typography,
   message,
 } from 'antd';
@@ -15,9 +16,10 @@ import {
   FolderPlus,
   Printer,
   Settings2,
+  SlidersHorizontal,
   Trash2,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useReducer, useState } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import type { DragEvent } from 'react';
 import {
   cancelPrintBatch,
@@ -48,11 +50,25 @@ import {
   sanitizeSettingsForPrinter,
   type PrintSettings,
 } from './domain/printSettings';
-import { createEmptyQueueState, type QueueItem } from './domain/queueTypes';
+import { createEmptyQueueState, type BatchPhase, type PrintJobSummary, type QueueItem } from './domain/queueTypes';
 import { parsePageRangeExpression } from './domain/pageRange';
 import { PrintQueue } from './features/queue/PrintQueue';
-import { createPrintSummary, queueReducer } from './features/queue/queueReducer';
+import {
+  createCloneItem,
+  createPrintSummary,
+  queueReducer,
+  type QueueItemSnapshot,
+} from './features/queue/queueReducer';
+import {
+  partitionIncomingPaths,
+  type PartitionResult,
+} from './features/queue/duplicateDetection';
+import {
+  DuplicateConfirmModal,
+  type DuplicateDecision,
+} from './features/queue/DuplicateConfirmModal';
 import { PrintSummary } from './features/results/PrintSummary';
+import { CompletionActions } from './features/results/CompletionActions';
 import { FileSettingsDrawer } from './features/settings/FileSettingsDrawer';
 import { GlobalSettingsPanel } from './features/settings/GlobalSettingsPanel';
 import { SavePrinterProfileModal } from './features/settings/SavePrinterProfileModal';
@@ -86,14 +102,26 @@ export function App() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
-  const [allowAssociationFallback, setAllowAssociationFallback] = useState(false);
-  const [autoClearOnSuccess, setAutoClearOnSuccess] = useState<boolean>(() => {
+  const [pendingDuplicateResult, setPendingDuplicateResult] = useState<PartitionResult | null>(null);
+  const pendingAppendResolverRef = useRef<((decision: DuplicateDecision) => void) | null>(null);
+  const ingressQueueRef = useRef<string[][]>([]);
+  const isProcessingIngressRef = useRef(false);
+  const refreshRequestIdRef = useRef(0);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const previousBatchBackupRef = useRef<{
+    items: QueueItem[];
+    summary: PrintJobSummary | null;
+    phase: BatchPhase;
+  } | null>(null);
+  const [canRestoreBatch, setCanRestoreBatch] = useState(false);
+
+  useEffect(() => {
     try {
-      return localStorage.getItem('printassist_auto_clear_on_success') === 'true';
+      localStorage.removeItem('printassist_auto_clear_on_success');
     } catch {
-      return false;
+      // ignore
     }
-  });
+  }, []);
 
   const selectedPrinter = useMemo(
     () => printers.find((printer) => printer.name === globalSettings.printerName),
@@ -116,6 +144,14 @@ export function App() {
     let knownCount = 0;
     let estimatedSheets = 0;
 
+    const nupSlots =
+      globalSettings.nupLayout && globalSettings.nupLayout.cols * globalSettings.nupLayout.rows > 1
+        ? globalSettings.nupLayout.cols * globalSettings.nupLayout.rows
+        : 1;
+    const isCrossFile = nupSlots > 1 && globalSettings.nupScope === 'crossFile';
+
+    let totalCrossPages = 0;
+
     for (const item of queueState.items) {
       if (typeof item.pageCount === 'number' && item.pageCount > 0) {
         const resolved = mergePrintSettings(globalSettings, item.override);
@@ -129,11 +165,24 @@ export function App() {
         knownPages += item.pageCount;
         knownCount += 1;
 
-        const sheetsPerCopy =
-          resolved.sidesMode === 'duplex' ? Math.ceil(pagesToPrint / 2) : pagesToPrint;
-        estimatedSheets += sheetsPerCopy * (resolved.copies || 1);
+        if (isCrossFile) {
+          totalCrossPages += pagesToPrint;
+        } else {
+          const logicalSides = Math.ceil(pagesToPrint / nupSlots);
+          const sheetsPerCopy =
+            resolved.sidesMode === 'duplex' ? Math.ceil(logicalSides / 2) : logicalSides;
+          estimatedSheets += sheetsPerCopy * (resolved.copies || 1);
+        }
       }
     }
+
+    if (isCrossFile) {
+      const logicalSides = Math.ceil(totalCrossPages / nupSlots);
+      const sheetsPerCopy =
+        globalSettings.sidesMode === 'duplex' ? Math.ceil(logicalSides / 2) : logicalSides;
+      estimatedSheets = sheetsPerCopy * (globalSettings.copies || 1);
+    }
+
     const allKnown = queueState.items.length > 0 && knownCount === queueState.items.length;
     return { knownPages, knownCount, estimatedSheets, allKnown };
   }, [queueState.items, globalSettings]);
@@ -230,42 +279,62 @@ export function App() {
   };
 
   const refreshPrinters = useCallback(async () => {
+    const requestId = ++refreshRequestIdRef.current;
     setLoadingPrinters(true);
     try {
       const nextPrinters = await listSystemPrinters();
+      if (requestId !== refreshRequestIdRef.current) return;
       setPrinters(nextPrinters);
-      const preferredName =
-        globalSettings.printerName ||
-        nextPrinters.find((printer) => printer.isDefault)?.name ||
-        nextPrinters[0]?.name ||
-        '';
-      const preferredPrinter = nextPrinters.find((printer) => printer.name === preferredName);
 
+      let targetPrinterName = '';
       setGlobalSettings((currentSettings) => {
+        const currentName = currentSettings.printerName;
+        const exists = nextPrinters.some((p) => p.name === currentName);
+        const preferredName = exists
+          ? currentName
+          : nextPrinters.find((printer) => printer.isDefault)?.name ||
+            nextPrinters[0]?.name ||
+            '';
+        targetPrinterName = preferredName;
+        const preferredPrinter = nextPrinters.find((printer) => printer.name === preferredName);
+
         return sanitizeSettingsForPrinter(
           { ...currentSettings, printerName: preferredName },
           preferredPrinter,
         );
       });
 
-      if (preferredName) {
-        const profiles = await fetchSavedProfiles(preferredName);
-        const defaultProfile = profiles.find(
-          (p) => p.isDefault && p.compatibility === 'compatible',
-        );
-        if (defaultProfile) {
-          try {
-            const loaded = await loadPrinterProfile(defaultProfile.id);
-            setGlobalSettings((curr) => applyLoadedPersistentProfile(curr, loaded));
-          } catch {
-            // ignore
+      if (targetPrinterName) {
+        const profiles = await fetchSavedProfiles(targetPrinterName);
+        if (requestId !== refreshRequestIdRef.current) return;
+
+        setGlobalSettings((curr) => {
+          if (curr.persistentProfileId && curr.printerName === targetPrinterName) {
+            return curr;
           }
-        }
+          const defaultProfile = profiles.find(
+            (p) => p.isDefault && p.compatibility === 'compatible',
+          );
+          if (defaultProfile) {
+            loadPrinterProfile(defaultProfile.id)
+              .then((loaded) => {
+                if (requestId === refreshRequestIdRef.current) {
+                  setGlobalSettings((latest) => applyLoadedPersistentProfile(latest, loaded));
+                }
+              })
+              .catch(() => {});
+          }
+          return curr;
+        });
       }
     } catch (error) {
-      message.error(error instanceof Error ? error.message : '读取系统打印机失败');
+      if (requestId === refreshRequestIdRef.current) {
+        message.error(error instanceof Error ? error.message : '读取系统打印机失败');
+      }
     } finally {
-      setLoadingPrinters(false);
+      if (requestId === refreshRequestIdRef.current) {
+        setLoadingPrinters(false);
+      }
     }
   }, [fetchSavedProfiles]);
 
@@ -280,25 +349,88 @@ export function App() {
     }
   }, [refreshPrinters]);
 
-  const appendPaths = useCallback((paths: string[]) => {
-    if (queueState.isPrinting) {
-      message.warning('打印进行中，暂不可添加文件');
-      return;
+  const processIngressQueue = useCallback(async () => {
+    if (isProcessingIngressRef.current) return;
+    isProcessingIngressRef.current = true;
+
+    try {
+      while (ingressQueueRef.current.length > 0) {
+        const paths = ingressQueueRef.current.shift();
+        if (!paths || paths.length === 0) continue;
+
+        if (queueState.isPrinting) {
+          message.warning('打印进行中，暂不可添加文件');
+          continue;
+        }
+        if (queueState.phase === 'completed') {
+          message.warning('当前批次已完成，请先点击“开始新批次”后再添加新文件');
+          continue;
+        }
+
+        if (canRestoreBatch) {
+          setCanRestoreBatch(false);
+          previousBatchBackupRef.current = null;
+        }
+
+        const result = partitionIncomingPaths(queueState.items, paths);
+
+        let decision: DuplicateDecision = 'all';
+        if (result.duplicatePaths.length > 0) {
+          decision = await new Promise<DuplicateDecision>((resolve) => {
+            pendingAppendResolverRef.current = resolve;
+            setPendingDuplicateResult(result);
+          });
+        }
+
+        if (decision === 'cancel') {
+          continue;
+        }
+
+        if (decision === 'new-only') {
+          if (result.newPaths.length > 0) {
+            dispatch({ type: 'append_files', paths: result.newPaths });
+            message.success(
+              `已添加 ${result.newPaths.length} 个文件，跳过 ${result.duplicatePaths.length} 个重复文件`,
+            );
+          }
+        } else {
+          dispatch({ type: 'append_files', paths });
+          if (result.duplicatePaths.length > 0) {
+            message.success(
+              `已添加 ${paths.length} 个文件，其中 ${result.duplicatePaths.length} 个为重复文件`,
+            );
+          } else {
+            message.success(`已添加 ${paths.length} 个文件`);
+          }
+        }
+      }
+    } finally {
+      isProcessingIngressRef.current = false;
     }
-    if (paths.length === 0) {
-      return;
-    }
-    dispatch({ type: 'append_files', paths });
-    message.success(`已追加 ${paths.length} 个文件`);
-  }, [queueState.isPrinting]);
+  }, [queueState.isPrinting, queueState.phase, queueState.items, canRestoreBatch]);
+
+  const requestAppendPaths = useCallback(
+    (paths: string[]) => {
+      if (paths.length === 0) return;
+      ingressQueueRef.current.push(paths);
+      void processIngressQueue();
+    },
+    [processIngressQueue],
+  );
+
+  const handleDuplicateDecision = (decision: DuplicateDecision) => {
+    setPendingDuplicateResult(null);
+    pendingAppendResolverRef.current?.(decision);
+    pendingAppendResolverRef.current = null;
+  };
 
   useEffect(() => {
     return subscribeIncomingFiles((paths) => {
       if (paths.length > 0) {
-        appendPaths(paths);
+        void requestAppendPaths(paths);
       }
     });
-  }, [appendPaths]);
+  }, [requestAppendPaths]);
 
   useEffect(() => {
     // Tauri 2: 桌面拖放路径只能从原生 DragDrop 事件拿到，不能依赖 HTML5 File.path
@@ -318,14 +450,14 @@ export function App() {
               }
               return;
             }
-            appendPaths(expanded);
+            void requestAppendPaths(expanded);
           } catch (error) {
             message.error(error instanceof Error ? error.message : '处理拖放文件失败');
           }
         })();
       },
     });
-  }, [queueState.isPrinting, appendPaths]);
+  }, [queueState.isPrinting, requestAppendPaths]);
 
   const handlePickFiles = async () => {
     if (queueState.isPrinting) {
@@ -333,7 +465,8 @@ export function App() {
       return;
     }
     try {
-      appendPaths(await pickFiles());
+      const picked = await pickFiles();
+      void requestAppendPaths(picked);
     } catch (error) {
       message.error(error instanceof Error ? error.message : '选择文件失败');
     }
@@ -345,7 +478,8 @@ export function App() {
       return;
     }
     try {
-      appendPaths(await pickFolderFiles());
+      const picked = await pickFolderFiles();
+      void requestAppendPaths(picked);
     } catch (error) {
       message.error(error instanceof Error ? error.message : '选择文件夹失败');
     }
@@ -369,10 +503,13 @@ export function App() {
       message.warning('浏览器预览无法获取本地路径，请在桌面应用中拖放，或使用选择按钮');
       return;
     }
-    appendPaths(paths);
+    void requestAppendPaths(paths);
   };
 
-  const buildBatchPayload = (onlyFailed = false): PrintQueueItemPayload[] | null => {
+  const buildBatchPayload = (
+    filterMode: 'all' | 'failed' | 'remaining' = 'remaining',
+    customItems?: QueueItem[],
+  ): PrintQueueItemPayload[] | null => {
     if (!globalSettings.printerName) {
       message.warning('请先选择打印机');
       return null;
@@ -382,30 +519,38 @@ export function App() {
       return null;
     }
 
-    const sourceItems = queueState.items.filter((item) => {
-      if (onlyFailed) {
+    const itemsToFilter = customItems || queueState.items;
+    const sourceItems = itemsToFilter.filter((item) => {
+      if (item.kind === 'unknown') return false;
+      if (filterMode === 'all') {
+        return true;
+      }
+      if (filterMode === 'failed') {
         return item.status === 'failed' || item.status === 'ready';
       }
-      return item.status !== 'succeeded' && item.kind !== 'unknown';
+      return item.status !== 'succeeded';
     });
     if (sourceItems.length === 0) {
       const allSucceeded =
-        queueState.items.length > 0 &&
-        queueState.items.every(
+        itemsToFilter.length > 0 &&
+        itemsToFilter.every(
           (item) => item.status === 'succeeded' || item.kind === 'unknown',
         ) &&
-        queueState.items.some((item) => item.status === 'succeeded');
+        itemsToFilter.some((item) => item.status === 'succeeded');
       if (allSucceeded) {
-        message.info('当前批次文件均已打印成功，可清空后继续添加新文件');
+        message.info('当前批次文件均已打印成功，请开始新批次或点击再次打印');
       } else {
         message.warning('没有可打印的文件');
       }
       return null;
     }
 
-    const payloads: PrintQueueItemPayload[] = [];
-    for (const item of sourceItems) {
+    const resolvedItems = sourceItems.map((item) => {
       const resolved = mergePrintSettings(globalSettings, item.override);
+      return { item, resolved };
+    });
+
+    for (const { item, resolved } of resolvedItems) {
       if (resolved.pageRange.mode === 'custom') {
         const parseResult = parsePageRangeExpression(
           resolved.pageRange.expression,
@@ -416,61 +561,93 @@ export function App() {
           return null;
         }
       }
-      payloads.push({
-        queueItemId: item.id,
-        path: item.path,
-        fileName: item.fileName,
-        allowAssociationFallback,
-        settings: {
-          printerName: resolved.printerName,
-          colorMode: resolved.colorMode,
-          sidesMode: resolved.sidesMode,
-          flipMode: resolved.flipMode,
-          copies: resolved.copies,
-          collate: resolved.collate,
-          sourceCode: resolved.sourceCode,
-          sourceName: resolved.sourceName,
-          scaleMode: resolved.scaleMode,
-          pageRangeMode: resolved.pageRange.mode,
-          pageRangeExpression: resolved.pageRange.expression,
-          driverProfileId: resolved.driverProfileId,
-        },
-      });
+    }
+
+    const payloads: PrintQueueItemPayload[] = [];
+    const isGlobalBySet = globalSettings.collateMode === 'bySet' && globalSettings.copies > 1;
+    const isNup = Boolean(
+      globalSettings.nupLayout &&
+      globalSettings.nupLayout.cols * globalSettings.nupLayout.rows > 1,
+    );
+
+    if (isGlobalBySet) {
+      // 全局逐套模式：当前所有文档打印一次后循环打印，严格统一输出多套
+      for (let cycle = 0; cycle < globalSettings.copies; cycle++) {
+        for (const { item, resolved } of resolvedItems) {
+          payloads.push({
+            queueItemId: item.id,
+            path: item.path,
+            fileName: item.fileName,
+            allowAssociationFallback: true,
+            settings: {
+              printerName: resolved.printerName,
+              colorMode: resolved.colorMode,
+              sidesMode: resolved.sidesMode,
+              flipMode: resolved.flipMode,
+              copies: 1,
+              collate: true,
+              sourceCode: resolved.sourceCode,
+              sourceName: resolved.sourceName,
+              scaleMode: resolved.scaleMode,
+              nupLayout: isNup ? globalSettings.nupLayout : undefined,
+              nupScope: isNup ? globalSettings.nupScope : undefined,
+              pageRangeMode: resolved.pageRange.mode,
+              pageRangeExpression: resolved.pageRange.expression,
+              driverProfileId: resolved.driverProfileId,
+            },
+          });
+        }
+      }
+    } else {
+      // 常规逐份或逐页：各文档按序连续打印自身份数
+      for (const { item, resolved } of resolvedItems) {
+        payloads.push({
+          queueItemId: item.id,
+          path: item.path,
+          fileName: item.fileName,
+          allowAssociationFallback: true,
+          settings: {
+            printerName: resolved.printerName,
+            colorMode: resolved.colorMode,
+            sidesMode: resolved.sidesMode,
+            flipMode: resolved.flipMode,
+            copies: resolved.copies,
+            collate: resolved.collateMode !== 'byPage',
+            sourceCode: resolved.sourceCode,
+            sourceName: resolved.sourceName,
+            scaleMode: resolved.scaleMode,
+            nupLayout: isNup ? globalSettings.nupLayout : undefined,
+            nupScope: isNup ? globalSettings.nupScope : undefined,
+            pageRangeMode: resolved.pageRange.mode,
+            pageRangeExpression: resolved.pageRange.expression,
+            driverProfileId: resolved.driverProfileId,
+          },
+        });
+      }
     }
     return payloads;
   };
 
-  const executePrint = async (onlyFailed = false) => {
-    const payloads = buildBatchPayload(onlyFailed);
+  const executePrint = async (
+    filterMode: 'all' | 'failed' | 'remaining' = 'remaining',
+    customItems?: QueueItem[],
+  ) => {
+    const payloads = buildBatchPayload(filterMode, customItems);
     if (!payloads) {
       return;
     }
 
-    const hasOffice = payloads.some((item) =>
-      /\.(doc|docx|xls|xlsx|ppt|pptx)$/i.test(item.path),
+    const isNup = Boolean(
+      globalSettings.nupLayout &&
+      globalSettings.nupLayout.cols * globalSettings.nupLayout.rows > 1,
     );
-    if (hasOffice && !allowAssociationFallback) {
-      const confirmed = await new Promise<boolean>((resolve) => {
-        Modal.confirm({
-          title: 'Office 文档打印说明',
-          content:
-            'Office 文档优先通过本机已安装的 Word/Excel/PowerPoint 转换后打印。若仅有关联程序且无法证明完整参数支持，将提示能力受限。是否继续？',
-          okText: '继续打印',
-          cancelText: '取消',
-          onOk: () => resolve(true),
-          onCancel: () => resolve(false),
-        });
-      });
-      if (!confirmed) {
-        return;
-      }
-      setAllowAssociationFallback(true);
-    }
 
     dispatch({ type: 'begin_print' });
     try {
       const batchResult = await runPrintBatch({
         items: payloads.map((item) => ({ ...item, allowAssociationFallback: true })),
+        nupLayout: isNup ? globalSettings.nupLayout : undefined,
+        nupScope: isNup ? globalSettings.nupScope : undefined,
       });
       dispatch({ type: 'finish_print', summary: createPrintSummary(batchResult.results) });
       
@@ -490,20 +667,45 @@ export function App() {
       });
 
       if (batchResult.failed > 0) {
-        message.warning(`完成：成功 ${batchResult.succeeded}，失败 ${batchResult.failed}`);
-      } else {
-        if (autoClearOnSuccess) {
-          const succeededIds = batchResult.results
-            .filter((item) => item.status === 'succeeded')
-            .map((item) => item.queueItemId);
-          if (succeededIds.length > 0) {
-            dispatch({ type: 'batch_remove', ids: succeededIds });
-            setSelectedRowKeys([]);
-          }
-          message.success(`已打印 ${batchResult.succeeded} 个文件并清空列表`);
+        const failedItems = batchResult.results.filter((r) => r.status === 'failed' && r.message);
+        const hasOfficeMissing = failedItems.some(
+          (r) =>
+            r.message?.includes('未检测到可用的 Microsoft Office 或 WPS Office') ||
+            r.message?.includes('请确认已安装') ||
+            r.message?.includes('未检测到已安装组件') ||
+            r.message?.includes('kwps.application') ||
+            r.message?.includes('ket.application') ||
+            r.message?.includes('kwpp.application') ||
+            r.message?.includes('Word.Application') ||
+            r.message?.includes('Excel.Application') ||
+            r.message?.includes('PowerPoint.Application') ||
+            r.message?.includes('CLSIDFromProgID'),
+        );
+        const hasFileLocked = failedItems.some(
+          (r) =>
+            r.message?.toLowerCase().includes('0x800a14bb') ||
+            r.message?.includes('正在被另一进程使用') ||
+            r.message?.includes('被占用') ||
+            r.message?.includes('密码'),
+        );
+
+        if (hasOfficeMissing) {
+          message.error({
+            content: '部分办公文档打印失败：未检测到可用的 Microsoft Office 或 WPS Office，请安装对应办公套件或转为 PDF 打印',
+            duration: 6,
+          });
+        } else if (hasFileLocked) {
+          message.error({
+            content: '打印失败：部分文件被其他程序占用或受密码保护，请关闭后重试',
+            duration: 5,
+          });
         } else {
-          message.success(`全部完成：成功 ${batchResult.succeeded}`);
+          message.warning(`完成：成功 ${batchResult.succeeded}，失败 ${batchResult.failed}（可查看下方失败明细）`);
         }
+      } else if (batchResult.skipped > 0) {
+        message.info(`打印已取消：已完成 ${batchResult.succeeded}，未打印 ${batchResult.skipped}`);
+      } else {
+        message.success(`打印完成：${batchResult.succeeded} 个文件全部打印成功`);
       }
     } catch (error) {
       dispatch({
@@ -520,6 +722,55 @@ export function App() {
       });
       message.error(error instanceof Error ? error.message : '打印执行失败');
     }
+  };
+
+  const handleStartNewBatch = () => {
+    if (queueState.items.length > 0) {
+      previousBatchBackupRef.current = {
+        items: queueState.items,
+        summary: queueState.lastSummary,
+        phase: queueState.phase,
+      };
+      setCanRestoreBatch(true);
+    }
+    dispatch({ type: 'start_new_batch' });
+    setSelectedRowKeys([]);
+    setActiveId(null);
+  };
+
+  const handleRestorePreviousBatch = () => {
+    if (previousBatchBackupRef.current) {
+      dispatch({
+        type: 'restore_batch',
+        items: previousBatchBackupRef.current.items,
+        summary: previousBatchBackupRef.current.summary,
+        phase: previousBatchBackupRef.current.phase,
+      });
+      previousBatchBackupRef.current = null;
+      setCanRestoreBatch(false);
+      message.success('已恢复上一批文件及状态');
+    }
+  };
+
+  const handleReprintAll = () => {
+    dispatch({ type: 'prepare_reprint_all' });
+    void executePrint('all');
+  };
+
+  const handleRetryFailed = () => {
+    dispatch({ type: 'retry_failed' });
+    void executePrint('failed');
+  };
+
+  const handleKeepFailedOnly = () => {
+    dispatch({ type: 'keep_failed_only' });
+    setSelectedRowKeys([]);
+    setActiveId(null);
+    message.info('已移除成功文件，仅保留待处理项');
+  };
+
+  const handleContinueUnfinished = () => {
+    void executePrint('remaining');
   };
 
   const handleCancelPrint = async () => {
@@ -551,7 +802,7 @@ export function App() {
   const handleClearQueue = () => {
     if (queueState.items.length === 0 || queueState.isPrinting) return;
     Modal.confirm({
-      title: '确定清空当前批次？',
+      title: '确定清空当前列表？',
       content: '将移除待打印列表中的所有文件。',
       okText: '确定清空',
       okButtonProps: { danger: true },
@@ -559,10 +810,32 @@ export function App() {
       onOk: () => {
         dispatch({ type: 'clear_queue' });
         setSelectedRowKeys([]);
+        setActiveId(null);
+        setCanRestoreBatch(false);
+        previousBatchBackupRef.current = null;
         message.success('已清空待打印列表');
       },
     });
   };
+
+  const handleCloneItems = useCallback(
+    (sourceIds: string[], targetId: string, position: 'before' | 'after') => {
+      dispatch({ type: 'clone_items', sourceIds, targetId, position });
+    },
+    [],
+  );
+
+  const handlePasteSnapshots = useCallback(
+    (snapshots: QueueItemSnapshot[], targetId: string | null) => {
+      if (snapshots.length === 0) return [];
+      const clones = snapshots.map(createCloneItem);
+      dispatch({ type: 'insert_items', items: clones, targetId });
+      const newIds = clones.map((c) => c.id);
+      setSelectedRowKeys(newIds);
+      return newIds;
+    },
+    [],
+  );
 
   // 监听单文件打印实时进度事件
   useEffect(() => {
@@ -619,7 +892,7 @@ export function App() {
       if ((event.ctrlKey || event.metaKey) && (event.key === 'p' || event.key === 'P')) {
         event.preventDefault();
         if (availability.printEnabled && queueState.items.length > 0 && !queueState.isPrinting) {
-          void executePrint(false);
+          void executePrint('remaining');
         }
       }
     };
@@ -761,17 +1034,27 @@ export function App() {
                 </Typography.Title>
               </div>
               <Space size={8}>
-                {selectedRowKeys.length > 1 && (
-                  <Button
-                    type="text"
-                    icon={<Settings2 size={14} />}
-                    disabled={queueState.isPrinting}
-                    onClick={() => setIsBatchSettingsOpen(true)}
+                {selectedRowKeys.length > 1 && queueState.phase !== 'completed' && (
+                  <Tooltip
+                    title={
+                      globalSettings.collateMode === 'bySet' && globalSettings.copies > 1
+                        ? '全局已设置为逐套打印，所有文档统一按套输出，禁止批量修改配置'
+                        : undefined
+                    }
                   >
-                    批量设置（{selectedRowKeys.length}）
-                  </Button>
+                    <span>
+                      <Button
+                        type="text"
+                        icon={<Settings2 size={14} />}
+                        disabled={queueState.isPrinting || (globalSettings.collateMode === 'bySet' && globalSettings.copies > 1)}
+                        onClick={() => setIsBatchSettingsOpen(true)}
+                      >
+                        批量设置（{selectedRowKeys.length}）
+                      </Button>
+                    </span>
+                  </Tooltip>
                 )}
-                {selectedRowKeys.length > 0 && (
+                {selectedRowKeys.length > 0 && queueState.phase !== 'completed' && (
                   <Button
                     type="text"
                     danger
@@ -782,40 +1065,46 @@ export function App() {
                     移除选中（{selectedRowKeys.length}）
                   </Button>
                 )}
-                <Button
-                  type="text"
-                  danger
-                  disabled={queueState.isPrinting || queueState.items.length === 0}
-                  onClick={handleClearQueue}
-                >
-                  清空列表
-                </Button>
+                {queueState.phase === 'editing' && (
+                  <Button
+                    type="text"
+                    danger
+                    disabled={queueState.isPrinting || queueState.items.length === 0}
+                    onClick={handleClearQueue}
+                  >
+                    清空列表
+                  </Button>
+                )}
               </Space>
             </div>
-            <PrintSummary
-              summary={queueState.lastSummary}
-              onRetryFailed={() => {
-                dispatch({ type: 'retry_failed' });
-                void executePrint(true);
-              }}
-              onClearSucceeded={() => {
-                const succeededIds = queueState.items
-                  .filter((item) => item.status === 'succeeded')
-                  .map((item) => item.id);
-                if (succeededIds.length > 0) {
-                  dispatch({ type: 'batch_remove', ids: succeededIds });
-                  setSelectedRowKeys((prev) =>
-                    prev.filter((k) => !succeededIds.includes(k as string)),
-                  );
-                  message.success(`已移除 ${succeededIds.length} 个成功文件`);
-                }
-              }}
-            />
+            {canRestoreBatch && (
+              <div className="restore-batch-banner" role="status">
+                <span>已开始新批次</span>
+                <span
+                  className="restore-batch-banner-action"
+                  role="button"
+                  tabIndex={0}
+                  onClick={handleRestorePreviousBatch}
+                  onKeyDown={(e) => e.key === 'Enter' && handleRestorePreviousBatch()}
+                >
+                  恢复上一批
+                </span>
+              </div>
+            )}
+            {queueState.lastSummary && (
+              <PrintSummary
+                summary={queueState.lastSummary}
+                totalPages={pageStats.allKnown && pageStats.knownPages > 0 ? pageStats.knownPages : undefined}
+              />
+            )}
             <div className="queue-body">
               <PrintQueue
                 items={queueState.items}
                 globalSettings={globalSettings}
                 isPrinting={queueState.isPrinting}
+                phase={queueState.phase}
+                activeId={activeId}
+                onActiveIdChange={setActiveId}
                 selectedRowKeys={selectedRowKeys}
                 sortOrder={queueState.order}
                 onSelectionChange={(keys) => setSelectedRowKeys(keys)}
@@ -823,6 +1112,8 @@ export function App() {
                 onReorderItems={(movingIds, targetId, position) =>
                   dispatch({ type: 'reorder_items', movingIds, targetId, position })
                 }
+                onCloneItems={handleCloneItems}
+                onPasteSnapshots={handlePasteSnapshots}
                 onRemove={(id) => {
                   dispatch({ type: 'remove_item', id });
                   setSelectedRowKeys((prev) => prev.filter((k) => k !== id));
@@ -883,32 +1174,44 @@ export function App() {
                   </span>
                 )}
               </div>
-              <Space size={12} className="queue-footer-actions">
-                <Button
-                  icon={<FilePlus2 size={15} />}
-                  disabled={queueState.isPrinting}
-                  onClick={() => void handlePickFiles()}
-                >
-                  选择文件
-                </Button>
-                <Button
-                  icon={<FolderPlus size={15} />}
-                  disabled={queueState.isPrinting}
-                  onClick={() => void handlePickFolder()}
-                >
-                  选择文件夹
-                </Button>
-                <Button
-                  type="primary"
-                  icon={<Printer size={16} />}
-                  loading={queueState.isPrinting}
-                  disabled={!availability.printEnabled || queueState.items.length === 0}
-                  onClick={() => void executePrint(false)}
-                  title={!availability.printEnabled ? availability.reasons.join('；') : undefined}
-                >
-                  开始打印
-                </Button>
-              </Space>
+              {queueState.phase === 'completed' ? (
+                <CompletionActions
+                  summary={queueState.lastSummary}
+                  onStartNewBatch={handleStartNewBatch}
+                  onReprintAll={handleReprintAll}
+                  onRetryFailed={handleRetryFailed}
+                  onKeepFailedOnly={handleKeepFailedOnly}
+                  onContinueUnfinished={handleContinueUnfinished}
+                  onOpenHistory={() => setHistoryOpen(true)}
+                />
+              ) : (
+                <Space size={12} className="queue-footer-actions">
+                  <Button
+                    icon={<FilePlus2 size={15} />}
+                    disabled={queueState.isPrinting}
+                    onClick={() => void handlePickFiles()}
+                  >
+                    选择文件
+                  </Button>
+                  <Button
+                    icon={<FolderPlus size={15} />}
+                    disabled={queueState.isPrinting}
+                    onClick={() => void handlePickFolder()}
+                  >
+                    选择文件夹
+                  </Button>
+                  <Button
+                    type="primary"
+                    icon={<Printer size={16} />}
+                    loading={queueState.isPrinting}
+                    disabled={!availability.printEnabled || queueState.items.length === 0}
+                    onClick={() => void executePrint('remaining')}
+                    title={!availability.printEnabled ? availability.reasons.join('；') : undefined}
+                  >
+                    开始打印
+                  </Button>
+                </Space>
+              )}
             </div>
           </Content>
           <Sider width={320} theme="light" className="control-rail">
@@ -919,15 +1222,6 @@ export function App() {
               loadingProperties={loadingProperties}
               savedProfiles={savedProfiles}
               loadingProfiles={loadingSavedProfiles}
-              autoClearOnSuccess={autoClearOnSuccess}
-              onAutoClearOnSuccessChange={(checked) => {
-                setAutoClearOnSuccess(checked);
-                try {
-                  localStorage.setItem('printassist_auto_clear_on_success', String(checked));
-                } catch {
-                  // ignore
-                }
-              }}
               onRefreshPrinters={() => void refreshPrinters()}
               onOpenProperties={() => void handleOpenPrinterProperties()}
               onSelectProfile={(profileId) => void handleSelectSavedProfile(profileId)}
@@ -1001,7 +1295,7 @@ export function App() {
         open={historyOpen}
         onClose={() => setHistoryOpen(false)}
         onReloadFiles={(paths) => {
-          dispatch({ type: 'append_files', paths });
+          void requestAppendPaths(paths);
         }}
       />
       <SavePrinterProfileModal
@@ -1024,6 +1318,15 @@ export function App() {
           setGlobalSettings((curr) => applyLoadedPersistentProfile(curr, loaded));
         }}
       />
+      {pendingDuplicateResult && (
+        <DuplicateConfirmModal
+          open={Boolean(pendingDuplicateResult)}
+          totalCount={pendingDuplicateResult.totalIncoming}
+          duplicatePaths={pendingDuplicateResult.duplicatePaths}
+          newCount={pendingDuplicateResult.newPaths.length}
+          onDecision={handleDuplicateDecision}
+        />
+      )}
     </ConfigProvider>
   );
 }

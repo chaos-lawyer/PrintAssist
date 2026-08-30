@@ -22,7 +22,9 @@ use windows::Storage::Streams::InMemoryRandomAccessStream;
 use windows::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED};
 
 use super::image_print::{print_decoded_pages, query_printer_logical_dpi, DecodedImage};
+use super::nup_layout::adjust_render_dpi_for_nup;
 use super::pdf_raster_d2d::{destination_pixels_for_page_size, NativePdfRasterContext};
+use crate::contracts::NupLayout;
 
 /// PDF page DIPs (PdfPage.Size) are defined at 96 units/inch.
 const PDF_DIP_DPI: f64 = 96.0;
@@ -40,6 +42,7 @@ pub fn print_pdf_to_printer(
     copies: u32,
     devmode: Option<&[u8]>,
     scale_mode: Option<&str>,
+    nup: Option<NupLayout>,
 ) -> Result<(), String> {
     if !file_path.exists() {
         return Err(format!("文件不存在：{}", file_path.display()));
@@ -48,20 +51,30 @@ pub fn print_pdf_to_printer(
         return Err("打印机名称不能为空".to_string());
     }
 
-    let target_dpi =
+    let mut target_dpi =
         choose_render_dpi(query_printer_logical_dpi(printer_name).unwrap_or(MAX_RENDER_DPI));
+    if let Some(layout) = nup {
+        if layout.cols * layout.rows > 1 {
+            target_dpi = adjust_render_dpi_for_nup(target_dpi, layout);
+        }
+    }
     let pages = render_pdf_pages_in_process(file_path, target_dpi)?;
     if pages.is_empty() {
         return Err("PDF 渲染后没有页面".to_string());
     }
-    print_decoded_pages(&pages, printer_name, copies, devmode, scale_mode)
+    print_decoded_pages(&pages, printer_name, copies, devmode, scale_mode, nup)
 }
 
-/// Render each PDF page in-process to a print-quality BGRA bitmap.
-pub fn render_pdf_pages_in_process(
+/// Streams each PDF page by rendering and passing it to a callback.
+/// The decoded bitmap can be immediately processed and dropped, avoiding O(pages) memory spikes.
+pub fn for_each_rendered_pdf_page<F>(
     file_path: &Path,
     target_dpi: u32,
-) -> Result<Vec<DecodedImage>, String> {
+    mut on_page: F,
+) -> Result<(), String>
+where
+    F: FnMut(usize, u32, DecodedImage) -> Result<(), String>,
+{
     let absolute_path = canonicalize_existing_path(file_path)?;
     let path_text = absolute_path
         .to_string_lossy()
@@ -87,7 +100,6 @@ pub fn render_pdf_pages_in_process(
             return Err("PDF 不含任何页面".to_string());
         }
 
-        let mut pages = Vec::with_capacity(page_count as usize);
         let d2d_context = NativePdfRasterContext::new().ok();
         for page_index in 0..page_count {
             let page = pdf_document
@@ -96,9 +108,9 @@ pub fn render_pdf_pages_in_process(
             let decoded = render_single_page(&page, target_dpi, d2d_context.as_ref())
                 .map_err(|error| format!("渲染第 {} 页失败：{error}", page_index + 1))?;
             let _ = page.Close();
-            pages.push(decoded);
+            on_page(page_index as usize, page_count, decoded)?;
         }
-        Ok(pages)
+        Ok(())
     })();
 
     if com_initialized {
@@ -107,6 +119,19 @@ pub fn render_pdf_pages_in_process(
         }
     }
     render_result
+}
+
+/// Render each PDF page in-process to a print-quality BGRA bitmap.
+pub fn render_pdf_pages_in_process(
+    file_path: &Path,
+    target_dpi: u32,
+) -> Result<Vec<DecodedImage>, String> {
+    let mut pages = Vec::new();
+    for_each_rendered_pdf_page(file_path, target_dpi, |_idx, _total, decoded| {
+        pages.push(decoded);
+        Ok(())
+    })?;
+    Ok(pages)
 }
 
 fn render_single_page(

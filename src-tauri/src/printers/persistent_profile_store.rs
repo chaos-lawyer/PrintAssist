@@ -325,25 +325,17 @@ impl PersistentPrinterProfileStore {
 
     fn save_index_internal(&self, index: &PrinterProfileIndex) -> Result<(), String> {
         let index_file = self.base_dir.join("index.json");
-        let temp_file = self.base_dir.join("index.json.tmp");
         let backup_file = self.base_dir.join("index.json.bak");
 
         let json_str = serde_json::to_string_pretty(index)
             .map_err(|err| format!("序列化配置索引失败：{err}"))?;
 
-        let mut file =
-            File::create(&temp_file).map_err(|err| format!("创建临时索引文件失败：{err}"))?;
-        file.write_all(json_str.as_bytes())
-            .map_err(|err| format!("写入临时索引文件失败：{err}"))?;
-        file.flush()
-            .map_err(|err| format!("刷新索引文件失败：{err}"))?;
-        drop(file);
-
         if index_file.exists() {
             let _ = fs::copy(&index_file, &backup_file);
         }
 
-        fs::rename(&temp_file, &index_file).map_err(|err| format!("更新主索引文件失败：{err}"))?;
+        atomic_replace_file(&index_file, json_str.as_bytes())
+            .map_err(|err| format!("更新主索引文件失败：{err}"))?;
 
         Ok(())
     }
@@ -468,14 +460,19 @@ impl PersistentPrinterProfileStore {
             })
             .collect();
 
+        let mut candidate_profiles = lock.profiles.clone();
         for (index, profile_id) in matching_indices.iter().zip(ordered_profile_ids) {
-            lock.profiles[*index] = profiles_by_id
+            candidate_profiles[*index] = profiles_by_id
                 .get(profile_id)
                 .cloned()
                 .ok_or_else(|| format!("未找到 ID 为 {profile_id} 的配置"))?;
         }
 
-        self.save_index_internal(&lock)?;
+        let mut candidate_index = lock.clone();
+        candidate_index.profiles = candidate_profiles;
+
+        self.save_index_internal(&candidate_index)?;
+        *lock = candidate_index;
         Ok(ordered_profile_ids.to_vec())
     }
 
@@ -514,14 +511,18 @@ impl PersistentPrinterProfileStore {
 
     pub fn save_profile(
         &self,
-        name: &str,
-        printer_name: &str,
-        devmode_bytes: &[u8],
-        settings_snapshot: PrinterDriverSettings,
-        fingerprint: PrinterDriverFingerprint,
-        overwrite_id: Option<&str>,
-        note: Option<String>,
+        params: SaveProfileParams<'_>,
     ) -> Result<PersistedPrinterProfile, String> {
+        let SaveProfileParams {
+            name,
+            printer_name,
+            devmode_bytes,
+            settings_snapshot,
+            fingerprint,
+            overwrite_id,
+            note,
+        } = params;
+
         if devmode_bytes.len() > MAX_DEVMODE_BYTES {
             return Err("DEVMODE 缓冲区大小超过 1MB 限制".to_string());
         }
@@ -537,23 +538,24 @@ impl PersistentPrinterProfileStore {
             .map(|s| s.to_string())
             .unwrap_or_else(|| Uuid::new_v4().to_string());
         let devmode_file = format!("{id}.devmode");
+        let devmode_target = self.data_dir.join(&devmode_file);
+        let devmode_backup = self.data_dir.join(format!("{devmode_file}.bak"));
+
+        // If target exists (overwrite), keep backup for rollback
+        let had_old_devmode = devmode_target.is_file();
+        if had_old_devmode {
+            let _ = fs::copy(&devmode_target, &devmode_backup);
+        }
 
         // 1. Atomic write devmode binary
-        let devmode_tmp = self.data_dir.join(format!("{devmode_file}.tmp"));
-        let devmode_target = self.data_dir.join(&devmode_file);
+        if let Err(err) = atomic_replace_file(&devmode_target, devmode_bytes) {
+            if had_old_devmode && devmode_backup.is_file() {
+                let _ = fs::rename(&devmode_backup, &devmode_target);
+            }
+            return Err(format!("写入正式 DEVMODE 文件失败：{err}"));
+        }
 
-        let mut file = File::create(&devmode_tmp)
-            .map_err(|err| format!("创建临时 DEVMODE 文件失败：{err}"))?;
-        file.write_all(devmode_bytes)
-            .map_err(|err| format!("写入 DEVMODE 数据失败：{err}"))?;
-        file.flush()
-            .map_err(|err| format!("刷新 DEVMODE 文件失败：{err}"))?;
-        drop(file);
-
-        fs::rename(&devmode_tmp, &devmode_target)
-            .map_err(|err| format!("更新正式 DEVMODE 文件失败：{err}"))?;
-
-        // 2. Update index
+        // 2. Prepare candidate index on cloned state
         let mut lock = self
             .index
             .write()
@@ -579,13 +581,30 @@ impl PersistentPrinterProfileStore {
             note,
         };
 
-        if let Some(idx) = lock.profiles.iter().position(|p| p.id == id) {
-            lock.profiles[idx] = new_profile.clone();
+        let mut candidate_index = lock.clone();
+        if let Some(idx) = candidate_index.profiles.iter().position(|p| p.id == id) {
+            candidate_index.profiles[idx] = new_profile.clone();
         } else {
-            lock.profiles.push(new_profile.clone());
+            candidate_index.profiles.push(new_profile.clone());
         }
 
-        self.save_index_internal(&lock)?;
+        // 3. Persist index. If fails, rollback devmode binary and preserve memory index!
+        if let Err(err) = self.save_index_internal(&candidate_index) {
+            if had_old_devmode && devmode_backup.is_file() {
+                let _ = fs::rename(&devmode_backup, &devmode_target);
+            } else if !had_old_devmode {
+                let _ = fs::remove_file(&devmode_target);
+            }
+            return Err(err);
+        }
+
+        // Clean up devmode backup after successful transaction
+        if devmode_backup.is_file() {
+            let _ = fs::remove_file(devmode_backup);
+        }
+
+        // Commit memory lock
+        *lock = candidate_index;
 
         Ok(new_profile)
     }
@@ -613,11 +632,13 @@ impl PersistentPrinterProfileStore {
             .position(|p| p.id == profile_id)
             .ok_or_else(|| "配置已不存在".to_string())?;
 
-        lock.profiles[idx].name = validated_name;
-        lock.profiles[idx].updated_at = now_iso();
-        let updated = lock.profiles[idx].clone();
+        let mut candidate_index = lock.clone();
+        candidate_index.profiles[idx].name = validated_name;
+        candidate_index.profiles[idx].updated_at = now_iso();
+        let updated = candidate_index.profiles[idx].clone();
 
-        self.save_index_internal(&lock)?;
+        self.save_index_internal(&candidate_index)?;
+        *lock = candidate_index;
         Ok(updated)
     }
 
@@ -636,15 +657,15 @@ impl PersistentPrinterProfileStore {
         let devmode_bytes = self.load_devmode_bytes(profile_id)?;
 
         let printer_name = current.printer.printer_name.clone();
-        self.save_profile(
-            &validated_name,
-            &printer_name,
-            &devmode_bytes,
-            current.settings_snapshot,
-            current.printer,
-            None,
-            current.note,
-        )
+        self.save_profile(SaveProfileParams {
+            name: &validated_name,
+            printer_name: &printer_name,
+            devmode_bytes: &devmode_bytes,
+            settings_snapshot: current.settings_snapshot,
+            fingerprint: current.printer,
+            overwrite_id: None,
+            note: current.note,
+        })
     }
 
     pub fn delete_profile(&self, profile_id: &str) -> Result<(), String> {
@@ -659,14 +680,14 @@ impl PersistentPrinterProfileStore {
             .position(|p| p.id == profile_id)
             .ok_or_else(|| format!("未找到 ID 为 {profile_id} 的配置"))?;
 
-        let deleted = lock.profiles.remove(idx);
+        let mut candidate_index = lock.clone();
+        let deleted = candidate_index.profiles.remove(idx);
+        candidate_index.defaults.retain(|_, id| id != profile_id);
 
-        // Remove from defaults if it was default
-        lock.defaults.retain(|_, id| id != profile_id);
+        self.save_index_internal(&candidate_index)?;
+        *lock = candidate_index;
 
-        self.save_index_internal(&lock)?;
-
-        // Remove binary file
+        // Remove binary file after index is successfully written
         let file_path = self.data_dir.join(&deleted.devmode_file);
         let _ = fs::remove_file(file_path);
 
@@ -684,24 +705,48 @@ impl PersistentPrinterProfileStore {
             .map_err(|_| "获取配置索引写锁失败".to_string())?;
 
         let key = printer_name.trim().to_lowercase();
+        let mut candidate_index = lock.clone();
         if let Some(id) = profile_id {
-            if !lock.profiles.iter().any(|p| p.id == id) {
-                return Err(format!("未找到 ID 为 {id} 的配置"));
+            let profile = candidate_index
+                .profiles
+                .iter()
+                .find(|p| p.id == id)
+                .ok_or_else(|| format!("未找到 ID 为 {id} 的配置"))?;
+
+            if !profile
+                .printer
+                .printer_name
+                .trim()
+                .eq_ignore_ascii_case(printer_name.trim())
+            {
+                return Err(format!(
+                    "配置 {id} 属于打印机“{}”，不能设为打印机“{}”的默认配置",
+                    profile.printer.printer_name, printer_name
+                ));
             }
-            lock.defaults.insert(key, id.to_string());
+
+            candidate_index.defaults.insert(key, id.to_string());
         } else {
-            lock.defaults.remove(&key);
+            candidate_index.defaults.remove(&key);
         }
 
-        self.save_index_internal(&lock)?;
+        self.save_index_internal(&candidate_index)?;
+        *lock = candidate_index;
         Ok(())
     }
 
     pub fn touch_last_used(&self, profile_id: &str) {
         if let Ok(mut lock) = self.index.write() {
-            if let Some(profile) = lock.profiles.iter_mut().find(|p| p.id == profile_id) {
+            let mut candidate_index = lock.clone();
+            if let Some(profile) = candidate_index
+                .profiles
+                .iter_mut()
+                .find(|p| p.id == profile_id)
+            {
                 profile.last_used_at = Some(now_iso());
-                let _ = self.save_index_internal(&lock);
+                if self.save_index_internal(&candidate_index).is_ok() {
+                    *lock = candidate_index;
+                }
             }
         }
     }
@@ -732,12 +777,27 @@ impl PersistentPrinterProfileStore {
         payload: ExportPrinterProfilePayload,
         target_printer_name: Option<&str>,
     ) -> Result<PersistedPrinterProfile, String> {
+        if payload.schema_version != SCHEMA_VERSION {
+            return Err(format!(
+                "不支持的配置版本：{}（当前仅支持版本 {}）",
+                payload.schema_version, SCHEMA_VERSION
+            ));
+        }
+
+        if payload.devmode_base64.len() > 1_500_000 {
+            return Err("配置数据过大，可能已损坏".to_string());
+        }
+
         let printer = target_printer_name
             .filter(|s| !s.trim().is_empty())
             .map(|s| s.to_string())
             .unwrap_or_else(|| payload.fingerprint.printer_name.clone());
 
         let devmode_bytes = base64_decode(&payload.devmode_base64)?;
+        if devmode_bytes.len() < 68 {
+            return Err("DEVMODE 数据无效（长度不足）".to_string());
+        }
+
         let mut hasher = Sha256::new();
         hasher.update(&devmode_bytes);
         let calculated_hash = format!("{:x}", hasher.finalize());
@@ -757,16 +817,130 @@ impl PersistentPrinterProfileStore {
         let mut fingerprint = payload.fingerprint;
         fingerprint.printer_name = printer.clone();
 
-        self.save_profile(
-            &name,
-            &printer,
-            &devmode_bytes,
-            payload.profile.settings,
+        self.save_profile(SaveProfileParams {
+            name: &name,
+            printer_name: &printer,
+            devmode_bytes: &devmode_bytes,
+            settings_snapshot: payload.profile.settings,
             fingerprint,
-            None,
-            payload.profile.note,
-        )
+            overwrite_id: None,
+            note: payload.profile.note,
+        })
     }
+}
+
+/// Helper struct to encapsulate parameters for saving or updating a printer profile.
+#[derive(Debug, Clone)]
+pub struct SaveProfileParams<'a> {
+    pub name: &'a str,
+    pub printer_name: &'a str,
+    pub devmode_bytes: &'a [u8],
+    pub settings_snapshot: PrinterDriverSettings,
+    pub fingerprint: PrinterDriverFingerprint,
+    pub overwrite_id: Option<&'a str>,
+    pub note: Option<String>,
+}
+
+impl<'a> SaveProfileParams<'a> {
+    pub fn new(
+        name: &'a str,
+        printer_name: &'a str,
+        devmode_bytes: &'a [u8],
+        settings_snapshot: PrinterDriverSettings,
+        fingerprint: PrinterDriverFingerprint,
+    ) -> Self {
+        Self {
+            name,
+            printer_name,
+            devmode_bytes,
+            settings_snapshot,
+            fingerprint,
+            overwrite_id: None,
+            note: None,
+        }
+    }
+
+    pub fn with_overwrite(mut self, overwrite_id: Option<&'a str>) -> Self {
+        self.overwrite_id = overwrite_id;
+        self
+    }
+
+    pub fn with_note(mut self, note: Option<String>) -> Self {
+        self.note = note;
+        self
+    }
+}
+
+/// Atomically replaces target file using a unique temp file in the same directory.
+/// On Windows, uses MoveFileExW with MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH.
+/// On non-Windows platforms, uses std::fs::rename.
+pub fn atomic_replace_file(target: &Path, content: &[u8]) -> Result<(), String> {
+    let parent = target
+        .parent()
+        .ok_or_else(|| "目标路径缺少父目录".to_string())?;
+    let temp_name = format!(
+        ".{}.tmp.{}",
+        target
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("file"),
+        Uuid::new_v4()
+    );
+    let temp_path = parent.join(temp_name);
+
+    let mut file = File::create(&temp_path).map_err(|err| format!("创建临时文件失败：{err}"))?;
+    if let Err(err) = file.write_all(content) {
+        let _ = fs::remove_file(&temp_path);
+        return Err(format!("写入临时文件失败：{err}"));
+    }
+    if let Err(err) = file.sync_all() {
+        let _ = fs::remove_file(&temp_path);
+        return Err(format!("同步物理磁盘失败：{err}"));
+    }
+    drop(file);
+
+    #[cfg(windows)]
+    {
+        use std::ffi::OsStr;
+        use std::os::windows::ffi::OsStrExt;
+        use windows::core::PCWSTR;
+        use windows::Win32::Storage::FileSystem::{
+            MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
+        };
+
+        fn to_wide(s: &OsStr) -> Vec<u16> {
+            s.encode_wide().chain(std::iter::once(0)).collect()
+        }
+
+        let from_wide = to_wide(temp_path.as_os_str());
+        let to_wide_vec = to_wide(target.as_os_str());
+
+        let res = unsafe {
+            MoveFileExW(
+                PCWSTR(from_wide.as_ptr()),
+                PCWSTR(to_wide_vec.as_ptr()),
+                MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+            )
+        };
+
+        if res.is_err() {
+            let _ = fs::remove_file(&temp_path);
+            return Err(format!(
+                "原子覆盖文件失败（Win32 MoveFileExW）：{:?}",
+                res.err()
+            ));
+        }
+    }
+
+    #[cfg(not(windows))]
+    {
+        if let Err(err) = fs::rename(&temp_path, target) {
+            let _ = fs::remove_file(&temp_path);
+            return Err(format!("重命名替换文件失败：{err}"));
+        }
+    }
+
+    Ok(())
 }
 
 fn now_iso() -> String {
@@ -895,15 +1069,13 @@ mod tests {
         let dummy_devmode = vec![1, 2, 3, 4, 5, 6, 7, 8];
 
         let saved = store
-            .save_profile(
+            .save_profile(SaveProfileParams::new(
                 "日常双面",
                 "HP LaserJet",
                 &dummy_devmode,
                 sample_settings("HP LaserJet"),
                 sample_fingerprint("HP LaserJet"),
-                None,
-                None,
-            )
+            ))
             .expect("save profile");
 
         assert_eq!(saved.name, "日常双面");
@@ -921,39 +1093,33 @@ mod tests {
         let dummy_devmode = vec![10, 20, 30];
 
         store
-            .save_profile(
+            .save_profile(SaveProfileParams::new(
                 "A4 单面",
                 "Canon TS8300",
                 &dummy_devmode,
                 sample_settings("Canon TS8300"),
                 sample_fingerprint("Canon TS8300"),
-                None,
-                None,
-            )
+            ))
             .expect("save profile 1");
 
         // Duplicate name on same printer must fail
-        let duplicate_res = store.save_profile(
+        let duplicate_res = store.save_profile(SaveProfileParams::new(
             "a4 单面",
             "Canon TS8300",
             &dummy_devmode,
             sample_settings("Canon TS8300"),
             sample_fingerprint("Canon TS8300"),
-            None,
-            None,
-        );
+        ));
         assert!(duplicate_res.is_err());
 
         // Same name on a different printer must succeed
-        let other_printer_res = store.save_profile(
+        let other_printer_res = store.save_profile(SaveProfileParams::new(
             "A4 单面",
             "HP LaserJet",
             &dummy_devmode,
             sample_settings("HP LaserJet"),
             sample_fingerprint("HP LaserJet"),
-            None,
-            None,
-        );
+        ));
         assert!(other_printer_res.is_ok());
     }
 
@@ -963,15 +1129,13 @@ mod tests {
         let dummy_devmode = vec![1, 2, 3];
 
         let saved = store
-            .save_profile(
+            .save_profile(SaveProfileParams::new(
                 "原名称",
                 "HP LaserJet",
                 &dummy_devmode,
                 sample_settings("HP LaserJet"),
                 sample_fingerprint("HP LaserJet"),
-                None,
-                None,
-            )
+            ))
             .expect("save profile");
 
         let renamed = store.rename_profile(&saved.id, "新名称").expect("rename");
@@ -994,15 +1158,13 @@ mod tests {
         let dummy_devmode = vec![5, 6, 7];
 
         let saved = store
-            .save_profile(
+            .save_profile(SaveProfileParams::new(
                 "默认项",
                 "HP LaserJet",
                 &dummy_devmode,
                 sample_settings("HP LaserJet"),
                 sample_fingerprint("HP LaserJet"),
-                None,
-                None,
-            )
+            ))
             .expect("save profile");
 
         store
@@ -1019,53 +1181,82 @@ mod tests {
     }
 
     #[test]
+    fn set_default_profile_rejects_mismatched_printer() {
+        let (store, _dir) = make_test_store();
+        let dummy_devmode = vec![1, 2, 3];
+
+        let saved = store
+            .save_profile(SaveProfileParams::new(
+                "HP 配置",
+                "HP LaserJet",
+                &dummy_devmode,
+                sample_settings("HP LaserJet"),
+                sample_fingerprint("HP LaserJet"),
+            ))
+            .expect("save profile");
+
+        // Attempting to set an HP profile as default for Canon TS8300 must fail
+        let res = store.set_default_profile("Canon TS8300", Some(&saved.id));
+        assert!(res.is_err());
+        assert!(res
+            .unwrap_err()
+            .contains("不能设为打印机“Canon TS8300”的默认配置"));
+    }
+
+    #[test]
+    fn atomic_replace_overwrites_existing_file() {
+        let temp_dir = std::env::temp_dir().join(format!("printassist-atomic-{}", Uuid::new_v4()));
+        let _ = fs::create_dir_all(&temp_dir);
+        let _guard = TempDirGuard(temp_dir.clone());
+
+        let target = temp_dir.join("test_file.txt");
+        atomic_replace_file(&target, b"initial content").expect("first write");
+        assert_eq!(fs::read(&target).unwrap(), b"initial content");
+
+        atomic_replace_file(&target, b"overwritten content").expect("second write");
+        assert_eq!(fs::read(&target).unwrap(), b"overwritten content");
+    }
+
+    #[test]
     fn reorders_profiles_for_one_printer_without_moving_other_printers() {
         let (store, _dir) = make_test_store();
         let dummy_devmode = vec![1, 2, 3];
 
         let first = store
-            .save_profile(
+            .save_profile(SaveProfileParams::new(
                 "第一项",
                 "HP LaserJet",
                 &dummy_devmode,
                 sample_settings("HP LaserJet"),
                 sample_fingerprint("HP LaserJet"),
-                None,
-                None,
-            )
+            ))
             .expect("save first");
         let other = store
-            .save_profile(
+            .save_profile(SaveProfileParams::new(
                 "其他打印机",
                 "Canon TS8300",
                 &dummy_devmode,
                 sample_settings("Canon TS8300"),
                 sample_fingerprint("Canon TS8300"),
-                None,
-                None,
-            )
+            ))
             .expect("save other");
         let second = store
-            .save_profile(
+            .save_profile(SaveProfileParams::new(
                 "第二项",
                 "HP LaserJet",
                 &dummy_devmode,
                 sample_settings("HP LaserJet"),
                 sample_fingerprint("HP LaserJet"),
-                None,
-                None,
-            )
+            ))
             .expect("save second");
         let third = store
-            .save_profile(
+            .save_profile(SaveProfileParams::new(
                 "第三项",
                 "HP LaserJet",
                 &dummy_devmode,
                 sample_settings("HP LaserJet"),
                 sample_fingerprint("HP LaserJet"),
-                None,
-                None,
-            )
+            ))
             .expect("save third");
 
         store
@@ -1095,26 +1286,22 @@ mod tests {
         let (store, _dir) = make_test_store();
         let dummy_devmode = vec![1, 2, 3];
         let first = store
-            .save_profile(
+            .save_profile(SaveProfileParams::new(
                 "第一项",
                 "HP LaserJet",
                 &dummy_devmode,
                 sample_settings("HP LaserJet"),
                 sample_fingerprint("HP LaserJet"),
-                None,
-                None,
-            )
+            ))
             .expect("save first");
         store
-            .save_profile(
+            .save_profile(SaveProfileParams::new(
                 "第二项",
                 "HP LaserJet",
                 &dummy_devmode,
                 sample_settings("HP LaserJet"),
                 sample_fingerprint("HP LaserJet"),
-                None,
-                None,
-            )
+            ))
             .expect("save second");
 
         let result = store.reorder_profiles("HP LaserJet", &[first.id]);
@@ -1166,15 +1353,13 @@ mod tests {
 
         let devmode_data = vec![42, 43, 44];
         let profile = source_store
-            .save_profile(
+            .save_profile(SaveProfileParams::new(
                 "迁移测试配置",
                 "Canon TS8300",
                 &devmode_data,
                 sample_settings("Canon TS8300"),
                 sample_fingerprint("Canon TS8300"),
-                None,
-                None,
-            )
+            ))
             .expect("save profile");
 
         let res =
@@ -1202,15 +1387,13 @@ mod tests {
 
         let devmode_data = vec![10, 20, 30];
         let profile = source_store
-            .save_profile(
+            .save_profile(SaveProfileParams::new(
                 "损坏测试配置",
                 "HP LaserJet",
                 &devmode_data,
                 sample_settings("HP LaserJet"),
                 sample_fingerprint("HP LaserJet"),
-                None,
-                None,
-            )
+            ))
             .expect("save profile");
 
         // Intentionally delete the source data file to simulate corrupted/incomplete source

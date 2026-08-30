@@ -9,6 +9,26 @@ export type ColorMode = 'color' | 'monochrome';
 export type SidesMode = 'simplex' | 'duplex';
 export type FlipMode = 'longEdge' | 'shortEdge';
 export type PageScaleMode = 'actualSize' | 'shrinkOversized' | 'fitPrintable';
+export type CollateMode = 'byPage' | 'byDocument' | 'bySet';
+
+export interface NupLayout {
+  cols: number;
+  rows: number;
+}
+
+export type NupScope = 'perFile' | 'crossFile';
+
+export const NUP_PRESETS: Array<{ label: string; layout: NupLayout }> = [
+  { label: '不拼接', layout: { cols: 1, rows: 1 } },
+  { label: '2合1', layout: { cols: 1, rows: 2 } },
+  { label: '4合1', layout: { cols: 2, rows: 2 } },
+  { label: '6合1', layout: { cols: 3, rows: 2 } },
+  { label: '9合1', layout: { cols: 3, rows: 3 } },
+];
+
+export function isNupActive(layout?: NupLayout): boolean {
+  return Boolean(layout && layout.cols * layout.rows > 1);
+}
 
 export interface PrintSettings {
   printerName: string;
@@ -16,10 +36,13 @@ export interface PrintSettings {
   sidesMode: SidesMode;
   flipMode: FlipMode;
   copies: number;
+  collateMode: CollateMode;
   collate: boolean;
   sourceCode?: number;
   sourceName?: string;
   scaleMode?: PageScaleMode;
+  nupLayout: NupLayout;
+  nupScope: NupScope;
   pageRange: PageRangeInput;
   driverProfileId?: string;
   driverSummary?: string;
@@ -33,6 +56,7 @@ export interface FileSettingsOverride {
   sidesMode?: SidesMode;
   flipMode?: FlipMode;
   copies?: number;
+  collateMode?: CollateMode;
   collate?: boolean;
   sourceCode?: number;
   sourceName?: string;
@@ -47,8 +71,11 @@ export function createDefaultGlobalSettings(printerName = ''): PrintSettings {
     sidesMode: 'duplex',
     flipMode: 'longEdge',
     copies: 1,
+    collateMode: 'byDocument',
     collate: true,
     scaleMode: 'actualSize',
+    nupLayout: { cols: 1, rows: 1 },
+    nupScope: 'perFile',
     pageRange: {
       mode: 'all',
       expression: '',
@@ -116,6 +143,7 @@ export function applyDriverSettings(
 
   if (driverSettings.collate !== undefined) {
     next.collate = driverSettings.collate;
+    next.collateMode = driverSettings.collate ? 'byDocument' : 'byPage';
   }
 
   return next;
@@ -161,16 +189,37 @@ export function mergePrintSettings(
   globalSettings: PrintSettings,
   fileOverride: FileSettingsOverride = {},
 ): PrintSettings {
+  const collateMode: CollateMode =
+    fileOverride.collateMode ??
+    (fileOverride.collate !== undefined
+      ? fileOverride.collate
+        ? 'byDocument'
+        : 'byPage'
+      : globalSettings.collateMode ??
+        (globalSettings.collate ? 'byDocument' : 'byPage'));
+
+  const collate: boolean =
+    fileOverride.collateMode !== undefined
+      ? fileOverride.collateMode !== 'byPage'
+      : fileOverride.collate !== undefined
+        ? fileOverride.collate
+        : globalSettings.collateMode !== undefined
+          ? globalSettings.collateMode !== 'byPage'
+          : globalSettings.collate;
+
   return {
     printerName: globalSettings.printerName,
     colorMode: fileOverride.colorMode ?? globalSettings.colorMode,
     sidesMode: fileOverride.sidesMode ?? globalSettings.sidesMode,
     flipMode: fileOverride.flipMode ?? globalSettings.flipMode,
     copies: fileOverride.copies ?? globalSettings.copies,
-    collate: fileOverride.collate !== undefined ? fileOverride.collate : globalSettings.collate,
+    collateMode,
+    collate,
     sourceCode: fileOverride.sourceCode !== undefined ? fileOverride.sourceCode : globalSettings.sourceCode,
     sourceName: fileOverride.sourceName !== undefined ? fileOverride.sourceName : globalSettings.sourceName,
     scaleMode: fileOverride.scaleMode ?? globalSettings.scaleMode,
+    nupLayout: globalSettings.nupLayout,
+    nupScope: globalSettings.nupScope,
     pageRange: fileOverride.pageRange ?? globalSettings.pageRange,
     driverProfileId: globalSettings.driverProfileId,
     driverSummary: globalSettings.driverSummary,

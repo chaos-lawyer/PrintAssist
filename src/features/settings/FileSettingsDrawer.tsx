@@ -1,4 +1,5 @@
 import {
+  Alert,
   Button,
   Input,
   InputNumber,
@@ -16,6 +17,7 @@ import type { QueueItem } from '../../domain/queueTypes';
 import type { PaperSourceCapability } from '../../shared/contracts/printer';
 import { listPrinterPaperSources } from '../../api/nativeBridge';
 import type {
+  CollateMode,
   ColorMode,
   FileSettingsOverride,
   FlipMode,
@@ -102,6 +104,17 @@ export function FileSettingsDrawer({
   }
 
   // Compute effective display values dynamically from globalSettings + draftOverride
+  const isGlobalBySet = globalSettings.collateMode === 'bySet' && globalSettings.copies > 1;
+  const isGlobalCrossFileNup = Boolean(
+    globalSettings.nupLayout &&
+    globalSettings.nupLayout.cols * globalSettings.nupLayout.rows > 1 &&
+    globalSettings.nupScope === 'crossFile',
+  );
+  const isDevmodeLocked = isGlobalBySet || isGlobalCrossFileNup;
+  const isNupActiveGlobal = Boolean(
+    globalSettings.nupLayout &&
+    globalSettings.nupLayout.cols * globalSettings.nupLayout.rows > 1,
+  );
   const effective = mergePrintSettings(globalSettings, draftOverride);
 
   // Field override flags
@@ -109,7 +122,8 @@ export function FileSettingsDrawer({
   const isSidesOverridden =
     draftOverride.sidesMode !== undefined || draftOverride.flipMode !== undefined;
   const isCopiesOverridden = draftOverride.copies !== undefined;
-  const isCollateOverridden = draftOverride.collate !== undefined;
+  const isCollateOverridden =
+    draftOverride.collateMode !== undefined || draftOverride.collate !== undefined;
   const isSourceOverridden =
     draftOverride.sourceCode !== undefined || draftOverride.sourceName !== undefined;
   const isScaleOverridden = draftOverride.scaleMode !== undefined;
@@ -139,6 +153,7 @@ export function FileSettingsDrawer({
         delete next.copies;
       } else if (field === 'collate') {
         delete next.collate;
+        delete next.collateMode;
       } else if (field === 'source') {
         delete next.sourceCode;
         delete next.sourceName;
@@ -249,21 +264,41 @@ export function FileSettingsDrawer({
             type="link"
             size="small"
             style={{ padding: 0 }}
-            disabled={totalOverriddenCount === 0}
+            disabled={isGlobalBySet || totalOverriddenCount === 0}
             onClick={handleResetAll}
           >
             {isBatch ? '清空本次修改' : '全部恢复为全局设置'}
           </Button>
           <Space>
             <Button onClick={onClose}>取消</Button>
-            <Button type="primary" onClick={handleSave}>
-              {isBatch ? `应用到 ${batchItems!.length} 个文件` : '保存设置'}
-            </Button>
+            <Tooltip title={isGlobalBySet ? '全局已设置为逐套打印，所有文档统一按套输出，禁止单文件修改配置' : undefined}>
+              <span>
+                <Button type="primary" onClick={handleSave} disabled={isGlobalBySet}>
+                  {isBatch ? `应用到 ${batchItems!.length} 个文件` : '保存设置'}
+                </Button>
+              </span>
+            </Tooltip>
           </Space>
         </div>
       }
     >
       <div className="file-settings-modal-body">
+      {isGlobalBySet && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 14 }}
+          message="当前全局已设置为逐套打印，所有文档统一按套循环输出，禁止单文件修改配置。"
+        />
+      )}
+      {isGlobalCrossFileNup && (
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 14 }}
+          message="当前全局设置为跨文件拼接打印，所有文件共享物理纸张与设备参数；单文件仅支持自定义页码范围，颜色、双面等参数跟随全局设置。"
+        />
+      )}
       {isBatch ? (
         <div className="drawer-file-meta">
           <span className="drawer-file-meta-label">已选中批量文件 ({batchItems!.length})</span>
@@ -302,11 +337,11 @@ export function FileSettingsDrawer({
         </div>
       ) : null}
 
-      <Typography.Paragraph type="secondary" className="drawer-tip">
-        {isBatch
-          ? '仅修改需要批量调整的字段，未做修改的字段将继续保持各个文件原有的单独设置或全局设置。'
-          : '直接修改字段即可为当前文件创建单独配置；未单独修改的选项始终跟随全局公共设置。'}
-      </Typography.Paragraph>
+      {isBatch && (
+        <Typography.Paragraph type="secondary" className="drawer-tip">
+          仅修改需要批量调整的字段，未做修改的字段将继续保持各个文件原有的单独设置或全局设置。
+        </Typography.Paragraph>
+      )}
 
       <div className="drawer-field">
         <div className="drawer-field-head">
@@ -314,7 +349,7 @@ export function FileSettingsDrawer({
           {renderStatus(isColorOverridden, () => handleResetField('color'))}
         </div>
         <Radio.Group
-          disabled={!colorEnabled}
+          disabled={!colorEnabled || isDevmodeLocked}
           value={effective.colorMode}
           onChange={(event) => {
             const nextVal = event.target.value as ColorMode;
@@ -337,6 +372,7 @@ export function FileSettingsDrawer({
           {renderStatus(isSidesOverridden, () => handleResetField('sides'))}
         </div>
         <Radio.Group
+          disabled={isDevmodeLocked}
           value={effective.sidesMode}
           onChange={(event) => {
             const nextSides = event.target.value as SidesMode;
@@ -354,6 +390,7 @@ export function FileSettingsDrawer({
         </Radio.Group>
         {effective.sidesMode === 'duplex' && duplexEnabled && (
           <Radio.Group
+            disabled={isDevmodeLocked}
             className="drawer-secondary-group"
             value={effective.flipMode}
             onChange={(event) => {
@@ -382,6 +419,7 @@ export function FileSettingsDrawer({
           {renderStatus(isCopiesOverridden, () => handleResetField('copies'))}
         </div>
         <InputNumber
+          disabled={isDevmodeLocked}
           min={1}
           max={99}
           value={effective.copies}
@@ -394,19 +432,42 @@ export function FileSettingsDrawer({
 
       <div className="drawer-field">
         <div className="drawer-field-head">
-          <Typography.Text strong>分发模式（多份打印）</Typography.Text>
+          <Typography.Text strong>分发</Typography.Text>
           {renderStatus(isCollateOverridden, () => handleResetField('collate'))}
         </div>
         <Radio.Group
-          value={effective.collate ? 'collated' : 'uncollated'}
+          disabled={isDevmodeLocked}
+          value={effective.collateMode === 'byPage' ? 'byPage' : 'byDocument'}
           onChange={(event) => {
-            const val = event.target.value === 'collated';
-            setDraftOverride((prev) => ({ ...prev, collate: val }));
+            const val = event.target.value as CollateMode;
+            setDraftOverride((prev) => ({
+              ...prev,
+              collateMode: val,
+              collate: val !== 'byPage',
+            }));
           }}
         >
-          <Radio.Button value="collated">逐份出纸 (成套 1,2,3...)</Radio.Button>
-          <Radio.Button value="uncollated">逐页出纸 (相同页堆叠)</Radio.Button>
+          <Radio.Button value="byPage">
+            <Tooltip title="单页连打后印下页">
+              <span>逐页</span>
+            </Tooltip>
+          </Radio.Button>
+          <Radio.Button value="byDocument">
+            <Tooltip title="单篇连打整份成册">
+              <span>逐份</span>
+            </Tooltip>
+          </Radio.Button>
         </Radio.Group>
+        {isGlobalBySet && (
+          <Typography.Text type="secondary" className="field-hint" style={{ color: '#fa8c16' }}>
+            全局已启用逐套打印，统一按套循环输出，禁止单文件修改分发配置
+          </Typography.Text>
+        )}
+        {isGlobalCrossFileNup && (
+          <Typography.Text type="secondary" className="field-hint" style={{ color: '#1890ff' }}>
+            跨文件拼接模式下所有文件连续排版，禁止单独修改分发配置
+          </Typography.Text>
+        )}
       </div>
 
       {paperCapability?.status === 'available' && paperCapability.sources.length >= 1 && (
@@ -416,6 +477,7 @@ export function FileSettingsDrawer({
             {renderStatus(isSourceOverridden, () => handleResetField('source'))}
           </div>
           <SettingSelect
+            disabled={isDevmodeLocked}
             value={effective.sourceCode ?? -1}
             options={[
               { value: -1, label: '自动选择 / 默认纸盘' },
@@ -446,6 +508,7 @@ export function FileSettingsDrawer({
           {renderStatus(isScaleOverridden, () => handleResetField('scale'))}
         </div>
         <SettingSelect
+          disabled={isDevmodeLocked || isNupActiveGlobal}
           value={effective.scaleMode ?? 'actualSize'}
           options={[
             { value: 'actualSize', label: '实际大小 (100%)' },
@@ -482,9 +545,6 @@ export function FileSettingsDrawer({
             }
           }}
         />
-        <Typography.Text type="secondary" className="field-hint">
-          直接输入页码（如 1,3,5-8）生效；清空文本框或点击“恢复为全局”即可打印全部页。
-        </Typography.Text>
       </div>
       </div>
     </Modal>

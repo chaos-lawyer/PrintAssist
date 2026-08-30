@@ -1,6 +1,6 @@
 [package]
 name = "print-assist"
-version = "1.2.3"
+version = "1.2.4"
 description = "Native printer discovery baseline for PrintAssist"
 edition = "2021"
 rust-version = "1.81"
@@ -24,8 +24,6 @@ tauri-utils = "=2.0.2"
 tauri-plugin-dialog = "2"
 tauri-plugin-single-instance = "2"
 walkdir = "2"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
-futures-util = "0.3"
 tokio = { version = "1", features = ["time"] }
 open = "5"
 lopdf = "0.34"
@@ -40,6 +38,7 @@ windows = { version = "=0.58.0", features = [
   "Win32_Graphics_Printing",
   "Win32_Globalization",
   "Win32_Security",
+  "Win32_Storage_FileSystem",
   "Win32_Storage_Xps",
   "Win32_System_Com",
   "Win32_System_Ole",

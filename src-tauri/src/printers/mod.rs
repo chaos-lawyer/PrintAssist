@@ -4,7 +4,9 @@ pub mod persistent_profile_store;
 pub mod profile_store;
 
 pub use fingerprint::{evaluate_profile_compatibility, query_printer_fingerprint};
-pub use persistent_profile_store::{PersistedPrinterProfile, PersistentPrinterProfileStore};
+pub use persistent_profile_store::{
+    atomic_replace_file, PersistedPrinterProfile, PersistentPrinterProfileStore, SaveProfileParams,
+};
 pub use profile_store::{PrinterProfileStore, StoredPrinterProfile};
 
 #[cfg(windows)]

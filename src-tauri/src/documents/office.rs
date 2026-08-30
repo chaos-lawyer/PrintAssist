@@ -1,13 +1,14 @@
 //! Office document conversion helpers.
 //!
 //! On Windows, conversion uses in-process Office COM (IDispatch) — no PowerShell
-//! host window. Desktop Office must be installed for conversion fidelity.
+//! host window. Supports both Microsoft Office and WPS Office (kwps, ket, kwpp).
+//! Desktop Office or WPS must be installed.
 
 use std::path::{Path, PathBuf};
 
 use super::DocumentKind;
 
-/// Converts Office documents to a temporary PDF via installed desktop Office.
+/// Converts Office documents to a temporary PDF via installed desktop Office or WPS.
 pub fn convert_office_to_pdf(path: &Path, kind: DocumentKind) -> Result<PathBuf, String> {
     if !path.exists() {
         return Err(format!("文件不存在：{}", path.display()));
@@ -32,7 +33,12 @@ pub fn convert_office_to_pdf(path: &Path, kind: DocumentKind) -> Result<PathBuf,
 
 #[cfg(windows)]
 fn convert_office_to_pdf_windows(path: &Path, kind: DocumentKind) -> Result<PathBuf, String> {
-    use super::office_com::{absolute_path_text, temporary_pdf_output_path, ComApartment};
+    use super::office_com::{
+        absolute_path_text, temporary_pdf_output_path, ComApartment, DispatchObject,
+    };
+    use super::office_provider::{
+        format_office_error, resolve_provider_candidates, OfficeProvider,
+    };
 
     let _apartment = ComApartment::enter()?;
     let absolute_input = absolute_path_text(path)?;
@@ -42,35 +48,72 @@ fn convert_office_to_pdf_windows(path: &Path, kind: DocumentKind) -> Result<Path
         .trim_start_matches(r"\\?\")
         .to_string();
 
-    // Remove a stale file with the same name so existence checks are trustworthy.
-    let _ = std::fs::remove_file(&output_path);
-
-    let convert_result = match kind {
-        DocumentKind::Word => convert_word_to_pdf(&absolute_input, &output_text),
-        DocumentKind::Excel => convert_excel_to_pdf(&absolute_input, &output_text),
-        DocumentKind::PowerPoint => convert_powerpoint_to_pdf(&absolute_input, &output_text),
-        _ => Err("不是 Office 文档".to_string()),
-    };
-
-    convert_result?;
-
-    if !output_path.exists() {
-        return Err("Office 转换未生成 PDF 文件".to_string());
+    let candidates = resolve_provider_candidates(path, kind);
+    if candidates.is_empty() {
+        return Err("不支持的 Office 文档格式".to_string());
     }
 
-    Ok(output_path)
+    let mut failures: Vec<(OfficeProvider, String)> = Vec::new();
+
+    for provider in candidates {
+        if !DispatchObject::prog_id_available(provider.prog_id) {
+            failures.push((provider, "未检测到已安装组件".to_string()));
+            continue;
+        }
+
+        // Remove stale output before attempt
+        let _ = std::fs::remove_file(&output_path);
+
+        let convert_result = match kind {
+            DocumentKind::Word => convert_word_to_pdf(&provider, &absolute_input, &output_text),
+            DocumentKind::Excel => convert_excel_to_pdf(&provider, &absolute_input, &output_text),
+            DocumentKind::PowerPoint => {
+                convert_powerpoint_to_pdf(&provider, &absolute_input, &output_text)
+            }
+            _ => Err("不是 Office 文档".to_string()),
+        };
+
+        match convert_result {
+            Ok(()) => {
+                if output_path.exists()
+                    && output_path.metadata().map(|m| m.len() > 0).unwrap_or(false)
+                {
+                    return Ok(output_path);
+                } else {
+                    failures.push((
+                        provider,
+                        "未生成有效的 PDF 文件（文件不存在或大小为0）".to_string(),
+                    ));
+                }
+            }
+            Err(error) => {
+                failures.push((provider, error));
+            }
+        }
+    }
+
+    Err(format_office_error(path, kind, &failures))
 }
 
 #[cfg(windows)]
-fn convert_word_to_pdf(absolute_input: &str, output_text: &str) -> Result<(), String> {
+fn convert_word_to_pdf(
+    provider: &super::office_provider::OfficeProvider,
+    absolute_input: &str,
+    output_text: &str,
+) -> Result<(), String> {
+    use super::office_com::DispatchObject;
+    use super::office_provider::OfficeSuite;
     use windows::core::VARIANT;
 
-    use super::office_com::DispatchObject;
-
-    let application = DispatchObject::create_application("Word.Application")?;
+    let application = DispatchObject::create_application(provider.prog_id)?;
     let result = (|| {
         let _ = application.put_bool_property("Visible", false);
         let _ = application.put_i32_property("DisplayAlerts", 0);
+
+        if provider.suite == OfficeSuite::Microsoft {
+            // msoAutomationSecurityForceDisable = 3
+            let _ = application.put_i32_property("AutomationSecurity", 3);
+        }
 
         let documents = application.get_object_property("Documents")?;
         let document_variant = documents.call(
@@ -94,19 +137,27 @@ fn convert_word_to_pdf(absolute_input: &str, output_text: &str) -> Result<(), St
     })();
 
     let _ = application.call_unit("Quit", vec![VARIANT::from(0_i32)]);
-    result.map_err(|error| format!("Word 转 PDF 失败：{error}"))
+    result.map_err(|error| format!("{} 转 PDF 失败：{error}", provider.display_name()))
 }
 
 #[cfg(windows)]
-fn convert_excel_to_pdf(absolute_input: &str, output_text: &str) -> Result<(), String> {
+fn convert_excel_to_pdf(
+    provider: &super::office_provider::OfficeProvider,
+    absolute_input: &str,
+    output_text: &str,
+) -> Result<(), String> {
+    use super::office_com::DispatchObject;
+    use super::office_provider::OfficeSuite;
     use windows::core::VARIANT;
 
-    use super::office_com::DispatchObject;
-
-    let application = DispatchObject::create_application("Excel.Application")?;
+    let application = DispatchObject::create_application(provider.prog_id)?;
     let result = (|| {
         let _ = application.put_bool_property("Visible", false);
         let _ = application.put_bool_property("DisplayAlerts", false);
+
+        if provider.suite == OfficeSuite::Microsoft {
+            let _ = application.put_i32_property("AutomationSecurity", 3);
+        }
 
         let workbooks = application.get_object_property("Workbooks")?;
         let workbook_variant = workbooks.call(
@@ -130,18 +181,26 @@ fn convert_excel_to_pdf(absolute_input: &str, output_text: &str) -> Result<(), S
     })();
 
     let _ = application.call_unit("Quit", Vec::new());
-    result.map_err(|error| format!("Excel 转 PDF 失败：{error}"))
+    result.map_err(|error| format!("{} 转 PDF 失败：{error}", provider.display_name()))
 }
 
 #[cfg(windows)]
-fn convert_powerpoint_to_pdf(absolute_input: &str, output_text: &str) -> Result<(), String> {
+fn convert_powerpoint_to_pdf(
+    provider: &super::office_provider::OfficeProvider,
+    absolute_input: &str,
+    output_text: &str,
+) -> Result<(), String> {
+    use super::office_com::DispatchObject;
+    use super::office_provider::OfficeSuite;
     use windows::core::VARIANT;
 
-    use super::office_com::DispatchObject;
-
-    let application = DispatchObject::create_application("PowerPoint.Application")?;
+    let application = DispatchObject::create_application(provider.prog_id)?;
     let result = (|| {
         let _ = application.put_i32_property("Visible", 0);
+
+        if provider.suite == OfficeSuite::Microsoft {
+            let _ = application.put_i32_property("AutomationSecurity", 3);
+        }
 
         let presentations = application.get_object_property("Presentations")?;
         let presentation_variant = presentations.call(
@@ -166,5 +225,5 @@ fn convert_powerpoint_to_pdf(absolute_input: &str, output_text: &str) -> Result<
     })();
 
     let _ = application.call_unit("Quit", Vec::new());
-    result.map_err(|error| format!("PowerPoint 转 PDF 失败：{error}"))
+    result.map_err(|error| format!("{} 转 PDF 失败：{error}", provider.display_name()))
 }

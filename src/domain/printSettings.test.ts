@@ -255,5 +255,33 @@ describe('printSettings domain', () => {
       expect(merged.copies).toBe(2);
       expect(merged.sidesMode).toBe('duplex');
     });
+
+    it('handles collateMode override and inheritance for byPage, byDocument, and bySet', () => {
+      const global = createDefaultGlobalSettings('HP LaserJet');
+      expect(global.collateMode).toBe('byDocument');
+      expect(global.collate).toBe(true);
+
+      // Inherit byDocument
+      const merged1 = mergePrintSettings(global, {});
+      expect(merged1.collateMode).toBe('byDocument');
+      expect(merged1.collate).toBe(true);
+
+      // Override with byPage
+      const mergedPage = mergePrintSettings(global, { collateMode: 'byPage' });
+      expect(mergedPage.collateMode).toBe('byPage');
+      expect(mergedPage.collate).toBe(false);
+
+      // Override with bySet
+      const mergedSet = mergePrintSettings(global, { collateMode: 'bySet' });
+      expect(mergedSet.collateMode).toBe('bySet');
+      expect(mergedSet.collate).toBe(true);
+
+      // Reset collateMode
+      const override: { collateMode?: 'byPage' | 'byDocument' | 'bySet' } = { collateMode: 'bySet' };
+      delete override.collateMode;
+      const mergedReset = mergePrintSettings(global, override);
+      expect(mergedReset.collateMode).toBe('byDocument');
+      expect(mergedReset.collate).toBe(true);
+    });
   });
 });

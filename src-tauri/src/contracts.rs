@@ -114,6 +114,13 @@ pub struct PaperSourceCapability {
     pub detail: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NupLayout {
+    pub cols: u32,
+    pub rows: u32,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ResolvedPrintSettingsPayload {
@@ -134,6 +141,10 @@ pub struct ResolvedPrintSettingsPayload {
     pub collate: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub driver_profile_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nup_layout: Option<NupLayout>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nup_scope: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -150,6 +161,90 @@ pub struct PrintQueueItemPayload {
 #[serde(rename_all = "camelCase")]
 pub struct PrintBatchRequest {
     pub items: Vec<PrintQueueItemPayload>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nup_layout: Option<NupLayout>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nup_scope: Option<String>,
+}
+
+impl PrintBatchRequest {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.items.is_empty() {
+            return Err("打印队列为空，无法开始打印".to_string());
+        }
+        if self.items.len() > 1000 {
+            return Err("单批次打印文件数量不能超过 1000 个".to_string());
+        }
+
+        if let Some(ref layout) = self.nup_layout {
+            if layout.cols == 0 || layout.cols > 4 || layout.rows == 0 || layout.rows > 4 {
+                return Err("拼版网格行列数必须在 1 到 4 之间".to_string());
+            }
+            let total_slots = layout
+                .cols
+                .checked_mul(layout.rows)
+                .ok_or_else(|| "拼版网格槽位数溢出".to_string())?;
+            if total_slots > 16 {
+                return Err("拼版单页总槽位数不能超过 16".to_string());
+            }
+        }
+
+        let is_cross_file = self.nup_layout.is_some_and(|l| l.cols * l.rows > 1)
+            && self.nup_scope.as_deref() == Some("crossFile");
+
+        let first_printer = &self.items[0].settings.printer_name;
+
+        for item in &self.items {
+            if item.settings.copies == 0 || item.settings.copies > 99 {
+                return Err(format!(
+                    "文件“{}”的打印份数必须在 1 到 99 之间",
+                    item.file_name
+                ));
+            }
+
+            if item.settings.page_range_expression.len() > 500 {
+                return Err(format!(
+                    "文件“{}”的页码表达式长度不能超过 500 字符",
+                    item.file_name
+                ));
+            }
+
+            let path = std::path::Path::new(&item.path);
+            if !path.exists() {
+                return Err(format!("文件不存在：{}", item.path));
+            }
+            if !path.is_file() {
+                return Err(format!("路径不是有效文件：{}", item.path));
+            }
+
+            if !crate::documents::is_supported_file(path) {
+                return Err(format!("不支持的文件格式：{}", item.file_name));
+            }
+
+            if is_cross_file {
+                if !item
+                    .settings
+                    .printer_name
+                    .eq_ignore_ascii_case(first_printer)
+                {
+                    return Err("跨文件多页拼接要求队列中所有文件使用同一台打印机".to_string());
+                }
+                let ext = path
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .unwrap_or("")
+                    .to_ascii_lowercase();
+                if matches!(ext.as_str(), "txt" | "log" | "md") {
+                    return Err(format!(
+                        "跨文件多页拼接不支持纯文本文件“{}”，请转换为 PDF 或单文件独立打印",
+                        item.file_name
+                    ));
+                }
+            }
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -170,32 +265,6 @@ pub struct PrintBatchResult {
     pub failed: u32,
     pub skipped: u32,
     pub results: Vec<PrintBatchResultItem>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct UpdateCheckResult {
-    pub available: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub version: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub body: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub download_url: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub download_size: Option<u64>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ProxyConfig {
-    pub use_system_proxy: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub custom_proxy_url: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub username: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub password: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

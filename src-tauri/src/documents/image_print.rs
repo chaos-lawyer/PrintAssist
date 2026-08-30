@@ -35,6 +35,9 @@ use windows::Win32::System::Com::{
     COINIT_APARTMENTTHREADED,
 };
 
+use super::nup_layout::{compute_cell_rects, fit_image_in_cell, group_items_into_sheets, CellRect};
+use crate::contracts::NupLayout;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PageScaleMode {
     ActualSize,
@@ -65,6 +68,7 @@ pub fn print_image_to_printer(
     copies: u32,
     devmode: Option<&[u8]>,
     scale_mode: Option<&str>,
+    nup: Option<NupLayout>,
 ) -> Result<(), String> {
     if !file_path.exists() {
         return Err(format!("文件不存在：{}", file_path.display()));
@@ -80,6 +84,7 @@ pub fn print_image_to_printer(
         copies,
         devmode,
         scale_mode,
+        nup,
     )
 }
 
@@ -124,6 +129,7 @@ pub fn print_decoded_pages(
     copies: u32,
     devmode: Option<&[u8]>,
     scale_mode: Option<&str>,
+    nup: Option<NupLayout>,
 ) -> Result<(), String> {
     if pages.is_empty() {
         return Err("没有可打印的页面".to_string());
@@ -134,7 +140,7 @@ pub fn print_decoded_pages(
 
     let copy_count = copies.max(1);
     for _ in 0..copy_count {
-        print_decoded_pages_once(pages, printer_name, devmode, scale_mode)?;
+        print_decoded_pages_once(pages, printer_name, devmode, scale_mode, nup)?;
     }
     Ok(())
 }
@@ -300,6 +306,7 @@ fn print_decoded_pages_once(
     printer_name: &str,
     devmode: Option<&[u8]>,
     scale_mode: Option<&str>,
+    nup: Option<NupLayout>,
 ) -> Result<(), String> {
     let printer_wide = os_str_to_wide(OsStr::new(printer_name));
     let mut printer_handle = HANDLE::default();
@@ -315,6 +322,22 @@ fn print_decoded_pages_once(
         }
         _ => query_devmode(printer_handle, &printer_wide)?,
     };
+
+    let is_nup = nup.map_or(false, |l| l.cols * l.rows > 1);
+    if is_nup {
+        let layout = nup.unwrap();
+        let session = NupPrintSession::new(printer_name, devmode, layout)?;
+        let sheets = group_items_into_sheets(pages, session.slots);
+        for sheet in sheets {
+            if let Err(err) = session.draw_physical_sheet(&sheet) {
+                session.abort();
+                return Err(err);
+            }
+        }
+        session.finish()?;
+        return Ok(());
+    }
+
     let mut page_devmode = prepare_page_devmode(
         printer_handle,
         &printer_wide,
@@ -395,6 +418,122 @@ fn print_decoded_pages_once(
     }
 }
 
+pub struct NupPrintSession {
+    hdc: HDC,
+    cells: Vec<CellRect>,
+    pub slots: usize,
+    is_active: bool,
+    _printer_guard: PrinterGuard,
+    _dc_guard: DcGuard,
+}
+
+impl NupPrintSession {
+    pub fn new(
+        printer_name: &str,
+        devmode: Option<&[u8]>,
+        layout: NupLayout,
+    ) -> Result<Self, String> {
+        let printer_wide = os_str_to_wide(OsStr::new(printer_name));
+        let mut printer_handle = HANDLE::default();
+        unsafe {
+            OpenPrinterW(PCWSTR(printer_wide.as_ptr()), &mut printer_handle, None)
+                .map_err(|error| format!("打开打印机失败：{error}"))?;
+        }
+        let printer_guard = PrinterGuard(printer_handle);
+
+        let base_devmode = match devmode {
+            Some(bytes) if crate::printers::devmode::validate_devmode_buffer(bytes).is_ok() => {
+                bytes.to_vec()
+            }
+            _ => query_devmode(printer_handle, &printer_wide)?,
+        };
+
+        let page_devmode =
+            prepare_nup_devmode(printer_handle, &printer_wide, &base_devmode, layout)?;
+
+        let hdc = unsafe {
+            CreateDCW(
+                windows::core::w!("WINSPOOL"),
+                PCWSTR(printer_wide.as_ptr()),
+                PCWSTR::null(),
+                Some(page_devmode.as_ptr() as *const DEVMODEW),
+            )
+        };
+        if hdc.is_invalid() {
+            return Err("创建打印机设备上下文失败".to_string());
+        }
+        let dc_guard = DcGuard(hdc);
+
+        let doc_name = os_str_to_wide(OsStr::new("PrintAssist"));
+        let doc_info = DOCINFOW {
+            cbSize: size_of::<DOCINFOW>() as i32,
+            lpszDocName: PCWSTR(doc_name.as_ptr()),
+            lpszOutput: PCWSTR::null(),
+            lpszDatatype: PCWSTR::null(),
+            fwType: 0,
+        };
+
+        let job_id = unsafe { StartDocW(hdc, &doc_info) };
+        if job_id <= 0 {
+            return Err("StartDoc 失败".to_string());
+        }
+
+        let printable_w = unsafe { GetDeviceCaps(hdc, HORZRES) };
+        let printable_h = unsafe { GetDeviceCaps(hdc, VERTRES) };
+        let log_x = unsafe { GetDeviceCaps(hdc, LOGPIXELSX) };
+        let gap = ((log_x as f64 * 2.0) / 25.4).round() as i32;
+        let cells = compute_cell_rects(printable_w, printable_h, layout.cols, layout.rows, gap);
+        let slots = (layout.cols * layout.rows) as usize;
+
+        Ok(Self {
+            hdc,
+            cells,
+            slots,
+            is_active: true,
+            _printer_guard: printer_guard,
+            _dc_guard: dc_guard,
+        })
+    }
+
+    pub fn draw_physical_sheet(&self, logical_pages: &[&DecodedImage]) -> Result<(), String> {
+        draw_nup_physical_page(self.hdc, logical_pages, &self.cells)
+    }
+
+    pub fn finish(mut self) -> Result<(), String> {
+        if !self.is_active {
+            return Ok(());
+        }
+        self.is_active = false;
+        if unsafe { EndDoc(self.hdc) } <= 0 {
+            unsafe {
+                let _ = AbortDoc(self.hdc);
+            }
+            return Err("EndDoc 失败".to_string());
+        }
+        Ok(())
+    }
+
+    pub fn abort(&mut self) {
+        if self.is_active {
+            self.is_active = false;
+            unsafe {
+                let _ = AbortDoc(self.hdc);
+            }
+        }
+    }
+}
+
+impl Drop for NupPrintSession {
+    fn drop(&mut self) {
+        if self.is_active {
+            self.is_active = false;
+            unsafe {
+                let _ = AbortDoc(self.hdc);
+            }
+        }
+    }
+}
+
 fn query_devmode(printer_handle: HANDLE, printer_wide: &[u16]) -> Result<Vec<u8>, String> {
     let needed = unsafe {
         DocumentPropertiesW(
@@ -464,6 +603,51 @@ fn prepare_page_devmode(
     Ok(modified)
 }
 
+fn prepare_nup_devmode(
+    printer_handle: HANDLE,
+    printer_wide: &[u16],
+    base_devmode: &[u8],
+    layout: NupLayout,
+) -> Result<Vec<u8>, String> {
+    let mut modified = base_devmode.to_vec();
+    if layout.cols > layout.rows {
+        set_page_orientation(&mut modified, DMORIENT_LANDSCAPE);
+    } else if layout.cols < layout.rows {
+        set_page_orientation(&mut modified, DMORIENT_PORTRAIT);
+    }
+
+    let mut validated = vec![0_u8; modified.len()];
+    let result = unsafe {
+        DocumentPropertiesW(
+            HWND::default(),
+            printer_handle,
+            PCWSTR(printer_wide.as_ptr()),
+            Some(validated.as_mut_ptr() as *mut DEVMODEW),
+            Some(modified.as_ptr() as *const DEVMODEW),
+            DM_IN_BUFFER.0 | DM_OUT_BUFFER.0,
+        )
+    };
+    if result < 0 {
+        return Ok(modified);
+    }
+    if validated.len() >= size_of::<DEVMODEW>() {
+        let size = unsafe { (*(validated.as_ptr() as *const DEVMODEW)).dmSize as usize };
+        if size >= size_of::<DEVMODEW>() {
+            return Ok(validated);
+        }
+    }
+    Ok(modified)
+}
+
+fn set_page_orientation(devmode_bytes: &mut [u8], orientation: u32) {
+    if devmode_bytes.len() < size_of::<DEVMODEW>() {
+        return;
+    }
+    let devmode = unsafe { &mut *(devmode_bytes.as_mut_ptr() as *mut DEVMODEW) };
+    devmode.dmFields |= DM_ORIENTATION;
+    devmode.Anonymous1.Anonymous1.dmOrientation = orientation as i16;
+}
+
 /// Select the printer coordinate system that matches the rendered page.
 ///
 /// Paper size and dimensions must remain unchanged. Combining portrait
@@ -474,24 +658,22 @@ fn set_page_orientation_from_content(
     content_width: u32,
     content_height: u32,
 ) {
-    if devmode_bytes.len() < size_of::<DEVMODEW>() {
-        return;
-    }
-
-    let devmode = unsafe { &mut *(devmode_bytes.as_mut_ptr() as *mut DEVMODEW) };
-    let requested_orientation = if content_width > content_height {
+    let requested = if content_width > content_height {
         DMORIENT_LANDSCAPE
     } else {
         DMORIENT_PORTRAIT
     };
-
-    devmode.dmFields |= DM_ORIENTATION;
-    devmode.Anonymous1.Anonymous1.dmOrientation = requested_orientation as i16;
+    set_page_orientation(devmode_bytes, requested);
 }
 
-fn draw_image_on_page(hdc: HDC, image: &DecodedImage, mode: PageScaleMode) -> Result<(), String> {
-    let dest = compute_page_destination_rect(hdc, image, mode);
-
+pub fn draw_image_to_rect(
+    hdc: HDC,
+    image: &DecodedImage,
+    left: i32,
+    top: i32,
+    width: i32,
+    height: i32,
+) -> Result<(), String> {
     let hbitmap = create_dib_bitmap(hdc, image)?;
     let _bitmap_guard = BitmapGuard(hbitmap);
 
@@ -510,10 +692,10 @@ fn draw_image_on_page(hdc: HDC, image: &DecodedImage, mode: PageScaleMode) -> Re
     let ok = unsafe {
         StretchBlt(
             hdc,
-            dest.left,
-            dest.top,
-            dest.right - dest.left,
-            dest.bottom - dest.top,
+            left,
+            top,
+            width,
+            height,
             mem_dc,
             0,
             0,
@@ -530,6 +712,42 @@ fn draw_image_on_page(hdc: HDC, image: &DecodedImage, mode: PageScaleMode) -> Re
         return Err("绘制图片到打印机失败".to_string());
     }
     Ok(())
+}
+
+pub fn draw_nup_physical_page(
+    hdc: HDC,
+    logical_pages: &[&DecodedImage],
+    cells: &[CellRect],
+) -> Result<(), String> {
+    if unsafe { StartPage(hdc) } <= 0 {
+        return Err("StartPage 失败".to_string());
+    }
+
+    let result = (|| {
+        for (page, cell) in logical_pages.iter().zip(cells.iter()) {
+            let (left, top, w, h) = fit_image_in_cell(cell, page.width, page.height);
+            draw_image_to_rect(hdc, page, left, top, w, h)?;
+        }
+        Ok(())
+    })();
+
+    if unsafe { EndPage(hdc) } <= 0 {
+        return Err("EndPage 失败".to_string());
+    }
+
+    result
+}
+
+fn draw_image_on_page(hdc: HDC, image: &DecodedImage, mode: PageScaleMode) -> Result<(), String> {
+    let dest = compute_page_destination_rect(hdc, image, mode);
+    draw_image_to_rect(
+        hdc,
+        image,
+        dest.left,
+        dest.top,
+        dest.right - dest.left,
+        dest.bottom - dest.top,
+    )
 }
 
 /// Computes the destination rectangle according to the specified scale mode:

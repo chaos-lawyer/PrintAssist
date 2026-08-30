@@ -17,6 +17,7 @@ import {
   RefreshCw,
   Star,
   Trash2,
+  Upload,
 } from 'lucide-react';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -39,10 +40,13 @@ import {
   deletePrinterProfile,
   duplicatePrinterProfile,
   exportPrinterProfile,
+  importPrinterProfile,
   loadPrinterProfile,
+  pickImportProfileFile,
   rebuildPrinterProfile,
   renamePrinterProfile,
   reorderPrinterProfiles,
+  saveExportProfilePath,
   setDefaultPrinterProfile,
 } from '../../api/nativeBridge';
 import type {
@@ -446,11 +450,31 @@ export function PrinterProfileManagerModal({
         /[\\/:*?"<>|]/g,
         '_',
       );
-      const targetPath = `${defaultFileName}`;
-      await exportPrinterProfile(profile.id, targetPath);
-      message.success(`已成功导出配置到 ${targetPath}`);
+      const chosenPath = await saveExportProfilePath(defaultFileName);
+      if (!chosenPath) {
+        return;
+      }
+      await exportPrinterProfile(profile.id, chosenPath);
+      message.success(`已成功导出配置到 ${chosenPath}`);
     } catch (error) {
       message.error(error instanceof Error ? error.message : '导出配置失败');
+    }
+  };
+
+  const handleImport = async () => {
+    try {
+      const chosenPath = await pickImportProfileFile();
+      if (!chosenPath) {
+        return;
+      }
+      setLoadingAction('import');
+      const imported = await importPrinterProfile(chosenPath, currentPrinterName);
+      message.success(`已成功导入配置“${imported.name}”`);
+      await onRefreshProfiles();
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '导入配置失败');
+    } finally {
+      setLoadingAction(null);
     }
   };
 
@@ -575,7 +599,19 @@ export function PrinterProfileManagerModal({
   return (
     <>
       <Modal
-        title={<span>打印机配置管理（{currentPrinterName}）</span>}
+        title={
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingRight: 32 }}>
+            <span>打印机配置管理（{currentPrinterName}）</span>
+            <Button
+              size="small"
+              icon={<Upload size={13} style={{ verticalAlign: -1.5, marginRight: 4 }} />}
+              onClick={handleImport}
+              loading={loadingAction === 'import'}
+            >
+              导入配置
+            </Button>
+          </div>
+        }
         width={640}
         open={open}
         onCancel={onClose}

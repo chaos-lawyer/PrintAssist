@@ -49,11 +49,18 @@ export type QueueOrder =
   | { mode: 'manual' }
   | { mode: 'fileName'; direction: 'asc' | 'desc' };
 
+export type BatchPhase =
+  | 'empty'
+  | 'editing'
+  | 'printing'
+  | 'completed';
+
 export interface QueueState {
   items: QueueItem[];
   isPrinting: boolean;
   lastSummary: PrintJobSummary | null;
   order: QueueOrder;
+  phase: BatchPhase;
 }
 
 export function createEmptyQueueState(): QueueState {
@@ -62,5 +69,6 @@ export function createEmptyQueueState(): QueueState {
     isPrinting: false,
     lastSummary: null,
     order: { mode: 'manual' },
+    phase: 'empty',
   };
 }

@@ -56,14 +56,17 @@ impl DispatchObject {
     pub fn create_application(prog_id: &str) -> Result<Self, String> {
         let prog_id_wide = windows::core::HSTRING::from(prog_id);
         let class_id = unsafe { CLSIDFromProgID(&prog_id_wide) }
-            .map_err(|error| format!("找不到 {prog_id}（请确认已安装桌面版 Office）：{error}"))?;
+            .map_err(|error| format!("找不到 {prog_id}：{error}"))?;
 
         let dispatch: IDispatch = unsafe { CoCreateInstance(&class_id, None, CLSCTX_LOCAL_SERVER) }
-            .map_err(|error| {
-                format!("创建 {prog_id} 失败（请确认已安装桌面版 Office）：{error}")
-            })?;
+            .map_err(|error| format!("启动 {prog_id} 失败：{error}"))?;
 
         Ok(Self { dispatch })
+    }
+
+    pub fn prog_id_available(prog_id: &str) -> bool {
+        let prog_id_wide = windows::core::HSTRING::from(prog_id);
+        unsafe { CLSIDFromProgID(&prog_id_wide).is_ok() }
     }
 
     pub fn from_variant(variant: &VARIANT) -> Result<Self, String> {
@@ -243,13 +246,15 @@ pub fn absolute_path_text(path: &Path) -> Result<String, String> {
 }
 
 pub fn temporary_pdf_output_path(source_path: &Path) -> PathBuf {
+    let stem = source_path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or("document");
     std::env::temp_dir().join(format!(
-        "printassist-{}-{}.pdf",
+        "printassist-{}-{}-{}.pdf",
         std::process::id(),
-        source_path
-            .file_stem()
-            .and_then(|stem| stem.to_str())
-            .unwrap_or("document")
+        uuid::Uuid::new_v4(),
+        stem
     ))
 }
 

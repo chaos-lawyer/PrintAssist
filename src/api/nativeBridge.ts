@@ -181,6 +181,20 @@ export async function importPrinterProfile(
   });
 }
 
+export async function saveExportProfilePath(defaultName: string): Promise<string | null> {
+  if (!isTauriRuntime()) {
+    return null;
+  }
+  return invokeCommand<string | null>('save_export_profile_path', { defaultName });
+}
+
+export async function pickImportProfileFile(): Promise<string | null> {
+  if (!isTauriRuntime()) {
+    return null;
+  }
+  return invokeCommand<string | null>('pick_import_profile_file');
+}
+
 export async function pickFiles(): Promise<string[]> {
   if (!isTauriRuntime()) {
     return [];

@@ -1,7 +1,9 @@
 import {
   Button,
+  message,
   Space,
   Table,
+  Tag,
   Tooltip,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
@@ -12,6 +14,7 @@ import {
   ArrowUpDown,
   CheckCircle2,
   CircleDot,
+  Copy,
   FileSpreadsheet,
   FileText,
   FolderOpen,
@@ -23,7 +26,7 @@ import {
   Settings2,
   Trash2,
 } from 'lucide-react';
-import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
   DndContext,
   PointerSensor,
@@ -40,18 +43,23 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { showInFolder } from '../../api/nativeBridge';
-import type { QueueItem, QueueOrder } from '../../domain/queueTypes';
+import type { BatchPhase, QueueItem, QueueOrder } from '../../domain/queueTypes';
 import { describePageRange } from '../../domain/pageRange';
 import {
   hasFileOverride,
   mergePrintSettings,
   type PrintSettings,
 } from '../../domain/printSettings';
+import { normalizeLocalPath } from './duplicateDetection';
+import type { QueueItemSnapshot } from './queueReducer';
+
+let queueClipboard: QueueItemSnapshot[] = [];
 
 interface PrintQueueProps {
   items: QueueItem[];
   globalSettings: PrintSettings;
   isPrinting: boolean;
+  phase?: BatchPhase;
   selectedRowKeys: React.Key[];
   sortOrder?: QueueOrder;
   onSelectionChange: (keys: React.Key[]) => void;
@@ -61,11 +69,63 @@ interface PrintQueueProps {
     targetId: string,
     position: 'before' | 'after',
   ) => void;
+  onCloneItems?: (
+    movingIds: string[],
+    targetId: string,
+    position: 'before' | 'after',
+  ) => void;
+  onPasteSnapshots?: (
+    snapshots: QueueItemSnapshot[],
+    targetId: string | null,
+  ) => string[] | void;
   onRemove: (id: string) => void;
   onOpenSettings: (id: string) => void;
   onAddFiles?: () => void;
   activeId?: string | null;
   onActiveIdChange?: (id: string | null) => void;
+}
+
+export function formatPrintErrorMessage(errorMessage?: string): string {
+  if (!errorMessage) return '打印失败';
+  const lower = errorMessage.toLowerCase();
+
+  // 1. 未安装 Office / COM 损坏
+  if (
+    errorMessage.includes('请确认已安装桌面版 Office') ||
+    errorMessage.includes('Word.Application') ||
+    errorMessage.includes('Excel.Application') ||
+    errorMessage.includes('PowerPoint.Application') ||
+    errorMessage.includes('CLSIDFromProgID') ||
+    errorMessage.includes('0x800401F3')
+  ) {
+    return '未检测到本机安装的桌面版 Office (Word/Excel/PPT)，请安装 Office 或另存为 PDF 后打印';
+  }
+
+  // 2. 文件被其他程序独占打开或受密码保护
+  if (
+    lower.includes('0x800a14bb') ||
+    lower.includes('locked') ||
+    errorMessage.includes('正在被另一进程使用') ||
+    errorMessage.includes('被占用') ||
+    errorMessage.includes('密码')
+  ) {
+    return '文件被其他程序占用或受密码保护，请关闭正在编辑该文件的软件后重试';
+  }
+
+  // 3. Office 导出 PDF 异常
+  if (
+    errorMessage.includes('未生成 PDF 文件') ||
+    errorMessage.includes('ExportAsFixedFormat')
+  ) {
+    return 'Office 导出 PDF 异常，建议在 Office 中手动另存为 PDF 后打印';
+  }
+
+  // 4. Excel/PowerPoint 自定义页码
+  if (errorMessage.includes('Excel/PowerPoint 自定义页码')) {
+    return 'Excel/PPT 暂不支持自定义抽取单页，请转为 PDF 后指定页码打印';
+  }
+
+  return `打印失败：${errorMessage}`;
 }
 
 function renderStatusIcon(status: QueueItem['status'], errorMessage?: string) {
@@ -97,7 +157,7 @@ function renderStatusIcon(status: QueueItem['status'], errorMessage?: string) {
       );
     case 'failed':
       return (
-        <Tooltip title={errorMessage ? `打印失败：${errorMessage}` : '打印失败'}>
+        <Tooltip title={formatPrintErrorMessage(errorMessage)}>
           <span className="queue-status-icon status-failed" aria-label="打印失败">
             <AlertCircle size={16} />
           </span>
@@ -177,6 +237,7 @@ interface RowContextProps {
   listeners?: Record<string, any>;
   attributes?: Record<string, any>;
   isDragging?: boolean;
+  isCopyDragging?: boolean;
 }
 
 const RowContext = createContext<RowContextProps>({
@@ -201,6 +262,8 @@ function DraggableRow({ className, style, ...restProps }: DraggableRowProps) {
     id: rowKey ?? '',
   });
 
+  const { isCopyDragging } = useContext(RowContext);
+
   const rowStyle: React.CSSProperties = {
     ...style,
     transform: CSS.Translate.toString(transform),
@@ -209,18 +272,23 @@ function DraggableRow({ className, style, ...restProps }: DraggableRowProps) {
       ? {
           position: 'relative',
           zIndex: 999,
-          opacity: 0.5,
+          opacity: 0.6,
           boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
+          cursor: isCopyDragging ? 'copy' : 'grabbing',
         }
       : {}),
   };
 
   return (
-    <RowContext.Provider value={{ setActivatorNodeRef, listeners, attributes, isDragging }}>
+    <RowContext.Provider
+      value={{ setActivatorNodeRef, listeners, attributes, isDragging, isCopyDragging }}
+    >
       <tr
         {...restProps}
         ref={setNodeRef}
-        className={`${className ?? ''}${isDragging ? ' is-dragging' : ''}`}
+        className={`${className ?? ''}${isDragging ? ' is-dragging' : ''}${
+          isDragging && isCopyDragging ? ' is-copy-dragging' : ''
+        }`}
         style={rowStyle}
       />
     </RowContext.Provider>
@@ -232,16 +300,21 @@ function FileNameCell({
   record,
   isDuplicate,
   parentDir,
+  duplicateStat,
   isPrinting,
   onKeyboardMove,
+  onSelectDuplicates,
 }: {
   record: QueueItem;
   isDuplicate: boolean;
   parentDir: string;
+  duplicateStat?: { index: number; total: number };
   isPrinting: boolean;
   onKeyboardMove: (id: string, e: React.KeyboardEvent) => void;
+  onSelectDuplicates?: (id: string) => void;
 }) {
-  const { setActivatorNodeRef, attributes, listeners } = useContext(RowContext);
+  const { setActivatorNodeRef, attributes, listeners, isDragging, isCopyDragging } =
+    useContext(RowContext);
 
   return (
     <div className="queue-file-cell">
@@ -249,7 +322,7 @@ function FileNameCell({
         ref={setActivatorNodeRef}
         type="button"
         className="queue-drag-handle"
-        title="拖动调整打印顺序（Alt+上下键键盘排序）"
+        title="拖动调整打印顺序（按住 Ctrl 拖动为复制；Alt+上下键键盘排序）"
         aria-label={`拖动调整 ${record.fileName} 的顺序`}
         disabled={isPrinting}
         tabIndex={0}
@@ -261,24 +334,70 @@ function FileNameCell({
       </button>
       {renderFileIcon(record.kind)}
       <div className="queue-file-info">
-        <Tooltip
-          title={
-            <div style={{ wordBreak: 'break-all' }}>
-              <div style={{ fontWeight: 600 }}>{record.fileName}</div>
-              {record.path && record.path !== record.fileName && (
-                <div style={{ fontSize: 11, opacity: 0.8, marginTop: 2 }}>{record.path}</div>
-              )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          <Tooltip
+            title={
+              <div style={{ wordBreak: 'break-all' }}>
+                <div style={{ fontWeight: 600 }}>{record.fileName}</div>
+                {record.path && record.path !== record.fileName && (
+                  <div style={{ fontSize: 11, opacity: 0.8, marginTop: 2 }}>{record.path}</div>
+                )}
+              </div>
+            }
+            placement="topLeft"
+            mouseEnterDelay={0.3}
+          >
+            <span className="queue-file-name">{record.fileName}</span>
+          </Tooltip>
+          {isDragging && isCopyDragging && (
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 3,
+                background: '#2563eb',
+                color: '#fff',
+                fontSize: 10,
+                fontWeight: 600,
+                padding: '1px 5px',
+                borderRadius: 3,
+              }}
+            >
+              <Copy size={11} /> 复制
+            </span>
+          )}
+        </div>
+        {duplicateStat ? (
+          <Tooltip title={`快捷键 Ctrl+Shift+A 可快速选中本文件的全部 ${duplicateStat.total} 个副本（点击亦可选中）`}>
+            <div
+              className="queue-file-duplicate-badge"
+              onClick={(e) => {
+                e.stopPropagation();
+                onSelectDuplicates?.(record.id);
+              }}
+            >
+              <Tag
+                color="orange"
+                bordered={false}
+                style={{
+                  margin: '2px 0 0',
+                  fontSize: 11,
+                  lineHeight: '16px',
+                  padding: '0 4px',
+                  cursor: 'pointer',
+                }}
+              >
+                重复 {duplicateStat.index}/{duplicateStat.total}
+              </Tag>
             </div>
-          }
-          placement="topLeft"
-          mouseEnterDelay={0.3}
-        >
-          <span className="queue-file-name">{record.fileName}</span>
-        </Tooltip>
-        {isDuplicate && parentDir && (
-          <div className="queue-file-disambiguation" title={record.path}>
-            来自：{parentDir}
-          </div>
+          </Tooltip>
+        ) : (
+          isDuplicate &&
+          parentDir && (
+            <div className="queue-file-disambiguation" title={record.path}>
+              来自：{parentDir}
+            </div>
+          )
         )}
       </div>
     </div>
@@ -289,17 +408,22 @@ export function PrintQueue({
   items,
   globalSettings,
   isPrinting,
+  phase,
   selectedRowKeys,
   sortOrder,
   onSelectionChange,
   onToggleSort,
   onReorderItems,
+  onCloneItems,
+  onPasteSnapshots,
   onRemove,
   onOpenSettings,
   onAddFiles,
   activeId: propsActiveId,
   onActiveIdChange,
 }: PrintQueueProps) {
+  const isCompleted = phase === 'completed';
+  const isLocked = isPrinting || isCompleted;
   const [internalActiveId, setInternalActiveId] = useState<string | null>(null);
   const activeId = propsActiveId !== undefined ? propsActiveId : internalActiveId;
   const setActiveId = (id: string | null) => {
@@ -322,6 +446,30 @@ export function PrintQueue({
   const isDraggingMarquee = useRef(false);
   const isReordering = useRef(false);
 
+  // Ctrl tracking for copy drag
+  const isCtrlKeyRef = useRef(false);
+  const isCopyDraggingRef = useRef(false);
+  const [, setIsCopyDraggingState] = useState(false);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Control' || e.key === 'Meta') {
+        isCtrlKeyRef.current = true;
+      }
+    };
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.key === 'Control' || e.key === 'Meta') {
+        isCtrlKeyRef.current = false;
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, []);
+
   // Configure sensors for drag and drop
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -339,6 +487,124 @@ export function PrintQueue({
     }
     return counts;
   }, [items]);
+
+  // Track occurrences of identical paths for compact "重复 X/Y" tags
+  const duplicatePathStats = useMemo(() => {
+    const pathMap: Record<string, string[]> = {};
+    for (const item of items) {
+      const key = normalizeLocalPath(item.path);
+      if (!pathMap[key]) pathMap[key] = [];
+      pathMap[key].push(item.id);
+    }
+    const stats: Record<string, { index: number; total: number }> = {};
+    for (const ids of Object.values(pathMap)) {
+      if (ids.length > 1) {
+        ids.forEach((id, idx) => {
+          stats[id] = { index: idx + 1, total: ids.length };
+        });
+      }
+    }
+    return stats;
+  }, [items]);
+
+  // Select all duplicate copies of the active or specified file (Ctrl+Shift+A)
+  const handleSelectAllDuplicates = useCallback(
+    (fromId?: string) => {
+      if (items.length === 0) return;
+      const targetId =
+        fromId || activeId || (selectedRowKeys.length > 0 ? String(selectedRowKeys[0]) : null);
+      if (!targetId) {
+        message.info('请先选择一个文件');
+        return;
+      }
+      const targetItem = items.find((i) => i.id === targetId);
+      if (!targetItem) {
+        message.info('请先选择一个文件');
+        return;
+      }
+      const targetKey = normalizeLocalPath(targetItem.path);
+      const duplicateIds = items
+        .filter((i) => normalizeLocalPath(i.path) === targetKey)
+        .map((i) => i.id);
+
+      onSelectionChange(duplicateIds);
+      setActiveId(targetItem.id);
+      if (duplicateIds.length > 1) {
+        message.success(`已选中“${targetItem.fileName}”的全部 ${duplicateIds.length} 个副本`);
+      } else {
+        message.info(`“${targetItem.fileName}”在列表中仅有 1 项（无其他副本）`);
+      }
+    },
+    [items, activeId, selectedRowKeys, onSelectionChange],
+  );
+
+  // Global Ctrl+C / Ctrl+V / Ctrl+Shift+A keyboard shortcuts
+  useEffect(() => {
+    const handleGlobalCopyPaste = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.isContentEditable ||
+          target.closest('.ant-modal') ||
+          target.closest('.ant-drawer'))
+      ) {
+        return;
+      }
+
+      const isModKey = e.ctrlKey || e.metaKey;
+      if (!isModKey) return;
+
+      if (e.key.toLowerCase() === 'a' && e.shiftKey) {
+        e.preventDefault();
+        handleSelectAllDuplicates();
+        return;
+      }
+
+      if (e.key.toLowerCase() === 'c') {
+        if (selectedRowKeys.length === 0) {
+          message.info('请先选择文件');
+          return;
+        }
+        const selectedSet = new Set(selectedRowKeys.map(String));
+        const toCopy = items.filter((i) => selectedSet.has(i.id));
+        if (toCopy.length === 0) return;
+
+        queueClipboard = toCopy.map((i) => ({
+          path: i.path,
+          fileName: i.fileName,
+          kind: i.kind,
+          pageCount: i.pageCount,
+          override: { ...i.override },
+        }));
+        message.success(`已复制 ${queueClipboard.length} 个文件`);
+        e.preventDefault();
+      } else if (e.key.toLowerCase() === 'v') {
+        if (isLocked) {
+          message.warning(isPrinting ? '打印进行中，暂不可修改队列' : '当前批次已完成，请先开始新批次');
+          e.preventDefault();
+          return;
+        }
+        if (queueClipboard.length === 0) {
+          return;
+        }
+        const targetId = activeId || (items.length > 0 ? items[items.length - 1].id : null);
+        const newIds = onPasteSnapshots?.(queueClipboard, targetId);
+        if (newIds && newIds.length > 0) {
+          onSelectionChange(newIds);
+          setActiveId(newIds[newIds.length - 1]);
+        }
+        message.success(`已粘贴 ${queueClipboard.length} 个文件`);
+        e.preventDefault();
+      }
+    };
+
+    window.addEventListener('keydown', handleGlobalCopyPaste);
+    return () => {
+      window.removeEventListener('keydown', handleGlobalCopyPaste);
+    };
+  }, [items, selectedRowKeys, activeId, isLocked, isPrinting, onPasteSnapshots, onSelectionChange, handleSelectAllDuplicates]);
 
   // Synchronize activeId and rangeAnchorId if files were removed
   useEffect(() => {
@@ -398,8 +664,10 @@ export function PrintQueue({
     setRangeAnchorId(id);
   };
 
+  const isGlobalBySet = globalSettings.collateMode === 'bySet' && globalSettings.copies > 1;
+
   const handleRowDoubleClick = (id: string) => {
-    if (isPrinting) return;
+    if (isLocked || isGlobalBySet) return;
     onOpenSettings(id);
   };
 
@@ -407,21 +675,27 @@ export function PrintQueue({
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (items.length === 0) return;
 
-    if ((event.ctrlKey || event.metaKey) && event.key === 'a') {
+    if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 'a') {
+      event.preventDefault();
+      handleSelectAllDuplicates();
+      return;
+    }
+
+    if ((event.ctrlKey || event.metaKey) && !event.shiftKey && event.key.toLowerCase() === 'a') {
       event.preventDefault();
       onSelectionChange(items.map((i) => i.id));
       return;
     }
 
     if (event.key === 'Delete' || event.key === 'Backspace') {
-      if (selectedRowKeys.length > 0 && !isPrinting) {
+      if (selectedRowKeys.length > 0 && !isLocked) {
         event.preventDefault();
         return;
       }
     }
 
     if (event.key === 'Enter') {
-      if (activeId && !isPrinting) {
+      if (activeId && !isLocked && !isGlobalBySet) {
         event.preventDefault();
         onOpenSettings(activeId);
       }
@@ -473,12 +747,23 @@ export function PrintQueue({
     marqueeStartRef.current = null;
     isDraggingMarquee.current = false;
     setMarqueeBox(null);
+
+    const isCopy = Boolean(
+      isCtrlKeyRef.current ||
+        (window.event as MouseEvent | undefined)?.ctrlKey ||
+        (window.event as MouseEvent | undefined)?.metaKey,
+    );
+    isCopyDraggingRef.current = isCopy;
+    setIsCopyDraggingState(isCopy);
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
+    const wasCopy = isCopyDraggingRef.current;
+    isCopyDraggingRef.current = false;
+    setIsCopyDraggingState(false);
     isReordering.current = false;
     const { active, over } = event;
-    if (!over || active.id === over.id || !onReorderItems) return;
+    if (!over || active.id === over.id) return;
 
     const activeId = String(active.id);
     const overId = String(over.id);
@@ -502,17 +787,26 @@ export function PrintQueue({
     }
 
     const position = newIndex > oldIndex ? 'after' : 'before';
-    onReorderItems(movingIds, overId, position);
 
-    const movedItem = items[oldIndex];
-    if (movedItem) {
-      setAnnouncement(`已将“${movedItem.fileName}”移动到第 ${newIndex + 1} 位`);
+    if (wasCopy) {
+      if (onCloneItems) {
+        onCloneItems(movingIds, overId, position);
+        setAnnouncement(`已复制 ${movingIds.length} 个文件到第 ${newIndex + 1} 位`);
+      }
+    } else {
+      if (onReorderItems) {
+        onReorderItems(movingIds, overId, position);
+        const movedItem = items[oldIndex];
+        if (movedItem) {
+          setAnnouncement(`已将“${movedItem.fileName}”移动到第 ${newIndex + 1} 位`);
+        }
+      }
     }
   };
 
   // Keyboard reordering handler
   const handleKeyboardMove = (id: string, e: React.KeyboardEvent) => {
-    if (!e.altKey || !onReorderItems || isPrinting) return;
+    if (!e.altKey || !onReorderItems || isLocked) return;
 
     const currentIndex = items.findIndex((i) => i.id === id);
     if (currentIndex < 0) return;
@@ -712,14 +1006,17 @@ export function PrintQueue({
       render: (fileName: string, record) => {
         const isDuplicate = (fileNameCounts[fileName] || 0) > 1;
         const parentDir = isDuplicate ? getParentDirectoryName(record.path) : '';
+        const duplicateStat = duplicatePathStats[record.id];
 
         return (
           <FileNameCell
             record={record}
             isDuplicate={isDuplicate}
             parentDir={parentDir}
-            isPrinting={isPrinting}
+            duplicateStat={duplicateStat}
+            isPrinting={isLocked}
             onKeyboardMove={handleKeyboardMove}
+            onSelectDuplicates={(id) => handleSelectAllDuplicates(id)}
           />
         );
       },
@@ -741,7 +1038,15 @@ export function PrintQueue({
       align: 'center',
       render: (_, record) => {
         const resolved = mergePrintSettings(globalSettings, record.override);
-        const isOverridden = hasFileOverride(record.override);
+        const isOverridden = !isGlobalBySet && hasFileOverride(record.override);
+        const collateLabel =
+          resolved.copies > 1
+            ? resolved.collateMode === 'byPage'
+              ? ' · 逐页'
+              : resolved.collateMode === 'bySet'
+                ? ' · 逐套'
+                : ' · 逐份'
+            : '';
         return (
           <div className="queue-setting-summary">
             <div className="queue-setting-primary">
@@ -749,7 +1054,7 @@ export function PrintQueue({
               {resolved.sidesMode === 'duplex'
                 ? `双面(${resolved.flipMode === 'longEdge' ? '长边' : '短边'})`
                 : '单面'}{' '}
-              · {resolved.copies}份
+              · {resolved.copies}份{collateLabel}
             </div>
             <div className="queue-setting-sub">
               {describePageRange(resolved.pageRange)}
@@ -776,17 +1081,30 @@ export function PrintQueue({
       align: 'center',
       render: (_, record) => (
         <Space size={4}>
-          <Button
-            size="small"
-            icon={<Settings2 size={13} />}
-            disabled={isPrinting}
-            onClick={(e) => {
-              e.stopPropagation();
-              onOpenSettings(record.id);
-            }}
-            title="设置此文件的打印参数（也可双击行打开）"
-            aria-label="设置此文件参数"
-          />
+          <Tooltip
+            title={
+              isGlobalBySet
+                ? '全局已设置为逐套打印，所有文档统一按套输出，禁止单文件修改配置'
+                : isPrinting
+                  ? '打印中暂不支持修改配置'
+                  : isCompleted
+                    ? '当前批次已完成，请在下方开始新批次或重试'
+                    : '设置此文件的打印参数（也可双击行打开）'
+            }
+          >
+            <span>
+              <Button
+                size="small"
+                icon={<Settings2 size={13} />}
+                disabled={isLocked || isGlobalBySet}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenSettings(record.id);
+                }}
+                aria-label="设置此文件参数"
+              />
+            </span>
+          </Tooltip>
           <Button
             size="small"
             icon={<FolderOpen size={13} />}
@@ -801,12 +1119,12 @@ export function PrintQueue({
             size="small"
             danger
             icon={<Trash2 size={13} />}
-            disabled={isPrinting}
+            disabled={isLocked}
             onClick={(e) => {
               e.stopPropagation();
               onRemove(record.id);
             }}
-            title="从列表中移除此文件"
+            title={isCompleted ? '当前批次已完成' : '从列表中移除此文件'}
             aria-label="移除文件"
           />
         </Space>
@@ -830,7 +1148,7 @@ export function PrintQueue({
           </div>
           <div className="queue-empty-title">将文件或文件夹拖到此处，或点击添加</div>
           <div className="queue-empty-desc">
-            支持 PDF、图片及 Office 文档（Word、Excel、PPT），可继续批量追加
+            支持 PDF、图片及 Office 文档（Word、Excel、PPT）
           </div>
         </div>
       </div>
@@ -877,6 +1195,8 @@ export function PrintQueue({
         onDragEnd={handleDragEnd}
         onDragCancel={() => {
           isReordering.current = false;
+          isCopyDraggingRef.current = false;
+          setIsCopyDraggingState(false);
         }}
       >
         <SortableContext

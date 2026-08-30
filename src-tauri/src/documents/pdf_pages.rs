@@ -57,8 +57,9 @@ pub fn extract_pages_to_temp_pdf(
 
     let sequence = OUTPUT_SEQUENCE.fetch_add(1, Ordering::Relaxed);
     let output_path = staging_dir()?.join(format!(
-        "printassist-pages-{}-{}-{}.pdf",
+        "printassist-pages-{}-{}-{}-{}.pdf",
         std::process::id(),
+        uuid::Uuid::new_v4(),
         sequence,
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

@@ -73,14 +73,13 @@ pub fn run() {
             commands::rebuild_printer_profile,
             commands::export_printer_profile,
             commands::import_printer_profile,
+            commands::save_export_profile_path,
+            commands::pick_import_profile_file,
             commands::pick_files,
             commands::pick_folder_files,
             commands::expand_file_paths,
             commands::run_print_batch,
             commands::cancel_print_batch,
-            commands::check_for_app_update,
-            commands::download_and_install_update,
-            commands::open_release_page,
             commands::validate_supported_path,
             commands::show_in_folder
         ])

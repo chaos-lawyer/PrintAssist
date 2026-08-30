@@ -1,6 +1,13 @@
-import type { ColorMode, FlipMode, PageScaleMode, SidesMode } from '../../domain/printSettings';
+import type {
+  ColorMode,
+  FlipMode,
+  NupLayout,
+  NupScope,
+  PageScaleMode,
+  SidesMode,
+} from '../../domain/printSettings';
 
-export type { PageScaleMode };
+export type { NupLayout, NupScope, PageScaleMode };
 
 export interface ResolvedPrintSettingsPayload {
   printerName: string;
@@ -11,6 +18,8 @@ export interface ResolvedPrintSettingsPayload {
   sourceCode?: number;
   sourceName?: string;
   scaleMode?: PageScaleMode;
+  nupLayout?: NupLayout;
+  nupScope?: NupScope;
   pageRangeMode: 'all' | 'custom';
   pageRangeExpression: string;
   collate?: boolean;
@@ -27,6 +36,8 @@ export interface PrintQueueItemPayload {
 
 export interface PrintBatchRequest {
   items: PrintQueueItemPayload[];
+  nupLayout?: NupLayout;
+  nupScope?: NupScope;
 }
 
 export interface PrintBatchResultItem {
