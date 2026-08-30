@@ -664,10 +664,8 @@ export function PrintQueue({
     setRangeAnchorId(id);
   };
 
-  const isGlobalBySet = globalSettings.collateMode === 'bySet' && globalSettings.copies > 1;
-
   const handleRowDoubleClick = (id: string) => {
-    if (isLocked || isGlobalBySet) return;
+    if (isLocked) return;
     onOpenSettings(id);
   };
 
@@ -695,7 +693,7 @@ export function PrintQueue({
     }
 
     if (event.key === 'Enter') {
-      if (activeId && !isLocked && !isGlobalBySet) {
+      if (activeId && !isLocked) {
         event.preventDefault();
         onOpenSettings(activeId);
       }
@@ -1038,7 +1036,7 @@ export function PrintQueue({
       align: 'center',
       render: (_, record) => {
         const resolved = mergePrintSettings(globalSettings, record.override);
-        const isOverridden = !isGlobalBySet && hasFileOverride(record.override);
+        const isOverridden = hasFileOverride(record.override);
         const collateLabel =
           resolved.copies > 1
             ? resolved.collateMode === 'byPage'
@@ -1083,20 +1081,18 @@ export function PrintQueue({
         <Space size={4}>
           <Tooltip
             title={
-              isGlobalBySet
-                ? '全局已设置为逐套打印，所有文档统一按套输出，禁止单文件修改配置'
-                : isPrinting
-                  ? '打印中暂不支持修改配置'
-                  : isCompleted
-                    ? '当前批次已完成，请在下方开始新批次或重试'
-                    : '设置此文件的打印参数（也可双击行打开）'
+              isPrinting
+                ? '打印中暂不支持修改配置'
+                : isCompleted
+                  ? '当前批次已完成，请在下方开始新批次或重试'
+                  : '设置此文件的打印参数（也可双击行打开）'
             }
           >
             <span>
               <Button
                 size="small"
                 icon={<Settings2 size={13} />}
-                disabled={isLocked || isGlobalBySet}
+                disabled={isLocked}
                 onClick={(e) => {
                   e.stopPropagation();
                   onOpenSettings(record.id);

@@ -25,15 +25,13 @@ describe('N-up printing domain logic', () => {
     expect(NUP_TEMPLATES.map((t) => t.id)).toEqual(['2x1', '1x2', '2x2', '3x2', '3x3']);
     expect(NUP_TEMPLATES[0]).toEqual({
       id: '2x1',
-      label: '2合1·横排',
-      subtitle: '2 × 1',
+      label: '2 × 1',
       layout: { cols: 2, rows: 1 },
       description: '两页并排，适合文档对照和讲义',
     });
     expect(NUP_TEMPLATES[1]).toEqual({
       id: '1x2',
-      label: '2合1·纵排',
-      subtitle: '1 × 2',
+      label: '1 × 2',
       layout: { cols: 1, rows: 2 },
       description: '两页上下排列，兼容纵排布局',
     });
@@ -72,11 +70,11 @@ describe('N-up printing domain logic', () => {
     expect(summary2x1.slots).toBe(2);
     expect(summary2x1.slotsText).toBe('2 × 1，每个打印面容纳 2 页');
     expect(summary2x1.orientationHint).toBe('预计横向纸张');
-    expect(summary2x1.customLabel).toBe('2合1·横排（2 × 1）');
+    expect(summary2x1.customLabel).toBe('2 × 1');
 
     const summary1x2 = getNupLayoutSummary({ cols: 1, rows: 2 });
     expect(summary1x2.orientationHint).toBe('预计纵向纸张');
-    expect(summary1x2.customLabel).toBe('2合1·纵排（1 × 2）');
+    expect(summary1x2.customLabel).toBe('1 × 2');
 
     const summary2x2 = getNupLayoutSummary({ cols: 2, rows: 2 });
     expect(summary2x2.orientationHint).toBe('预计保持纸张方向');

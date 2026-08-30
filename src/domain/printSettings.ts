@@ -21,7 +21,6 @@ export type NupScope = 'perFile' | 'crossFile';
 export interface NupTemplate {
   id: string;
   label: string;
-  subtitle: string;
   layout: NupLayout;
   description: string;
 }
@@ -29,36 +28,31 @@ export interface NupTemplate {
 export const NUP_TEMPLATES: NupTemplate[] = [
   {
     id: '2x1',
-    label: '2合1·横排',
-    subtitle: '2 × 1',
+    label: '2 × 1',
     layout: { cols: 2, rows: 1 },
     description: '两页并排，适合文档对照和讲义',
   },
   {
     id: '1x2',
-    label: '2合1·纵排',
-    subtitle: '1 × 2',
+    label: '1 × 2',
     layout: { cols: 1, rows: 2 },
     description: '两页上下排列，兼容纵排布局',
   },
   {
     id: '2x2',
-    label: '4合1',
-    subtitle: '2 × 2',
+    label: '2 × 2',
     layout: { cols: 2, rows: 2 },
     description: '常用均衡四格布局',
   },
   {
     id: '3x2',
-    label: '6合1',
-    subtitle: '3 × 2',
+    label: '3 × 2',
     layout: { cols: 3, rows: 2 },
     description: '密集审阅（自动横向纸张）',
   },
   {
     id: '3x3',
-    label: '9合1',
-    subtitle: '3 × 3',
+    label: '3 × 3',
     layout: { cols: 3, rows: 3 },
     description: '缩略总览',
   },
@@ -110,9 +104,7 @@ export function getNupLayoutSummary(layout?: NupLayout): NupLayoutSummary {
     orientationHint = '预计纵向纸张';
   }
 
-  const customLabel = matchingTemplate
-    ? `${matchingTemplate.label}（${cols} × ${rows}）`
-    : `自定义 ${cols} × ${rows}`;
+  const customLabel = matchingTemplate?.label ?? `自定义 ${cols} × ${rows}`;
 
   return {
     slots,

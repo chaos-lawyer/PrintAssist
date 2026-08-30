@@ -1,4 +1,4 @@
-import { InputNumber, Segmented, Tooltip } from 'antd';
+import { InputNumber, Segmented, Select, Tooltip } from 'antd';
 import React, { useEffect, useRef } from 'react';
 import {
   clampNupDimension,
@@ -105,27 +105,26 @@ export function NupSettings({ settings, onChange }: NupSettingsProps) {
           role="group"
           aria-label="拼接布局设置"
         >
-          {/* 内置模板 */}
-          <div className="nup-section">
-            <span className="nup-section-label">内置模板</span>
-            <div className="nup-templates-grid">
-              {NUP_TEMPLATES.map((template) => {
-                const isSelected = summary.matchingTemplate?.id === template.id;
-                return (
-                  <Tooltip key={template.id} title={template.description}>
-                    <button
-                      type="button"
-                      className={`nup-template-btn ${isSelected ? 'is-selected' : ''}`}
-                      aria-pressed={isSelected}
-                      onClick={() => handleSelectTemplate(template)}
-                    >
-                      <span className="nup-template-name">{template.label}</span>
-                      <span className="nup-template-sub">{template.subtitle}</span>
-                    </button>
-                  </Tooltip>
-                );
-              })}
-            </div>
+          <div className="nup-template-select">
+            <span className="nup-section-label" id="nup-template-label">
+              快捷模板
+            </span>
+            <Select
+              size="small"
+              aria-labelledby="nup-template-label"
+              placeholder="选择快捷布局"
+              value={summary.matchingTemplate?.id}
+              options={NUP_TEMPLATES.map((template) => ({
+                value: template.id,
+                label: template.label,
+                title: template.description,
+              }))}
+              onChange={(templateId) => {
+                const template = NUP_TEMPLATES.find((item) => item.id === templateId);
+                if (template) handleSelectTemplate(template);
+              }}
+              style={{ width: '100%' }}
+            />
           </div>
 
           {/* 横向与纵向计数 */}
@@ -181,16 +180,12 @@ export function NupSettings({ settings, onChange }: NupSettingsProps) {
             </div>
           </div>
 
-          {/* 拼接范围 */}
           <div className="nup-section nup-scope-section">
-            <span className="nup-section-label" id="nup-scope-label">
-              拼接范围
-            </span>
             <Segmented
               className="setting-segmented"
               size="small"
               block
-              aria-labelledby="nup-scope-label"
+              aria-label="拼接范围"
               value={settings.nupScope ?? 'perFile'}
               options={[
                 {

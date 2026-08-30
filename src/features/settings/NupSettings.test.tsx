@@ -40,7 +40,7 @@ describe('NupSettings component', () => {
 
     // Nested panel should NOT be visible
     expect(screen.queryByLabelText('拼接布局设置')).toBeNull();
-    expect(screen.queryByText('内置模板')).toBeNull();
+    expect(screen.queryByLabelText('快捷模板')).toBeNull();
     expect(screen.queryByLabelText('横向页数（列）')).toBeNull();
   });
 
@@ -75,14 +75,8 @@ describe('NupSettings component', () => {
     expect(panel.classList.contains('setting-submenu')).toBe(true);
     expect(panel.classList.contains('setting-submenu-wide')).toBe(true);
     expect(panel.classList.contains('nup-config-panel')).toBe(true);
-    expect(screen.getByText('内置模板')).toBeDefined();
-
-    // Standard templates
-    expect(screen.getByText('2合1·横排')).toBeDefined();
-    expect(screen.getByText('2合1·纵排')).toBeDefined();
-    expect(screen.getByText('4合1')).toBeDefined();
-    expect(screen.getByText('6合1')).toBeDefined();
-    expect(screen.getByText('9合1')).toBeDefined();
+    const templateSelect = screen.getByLabelText('快捷模板');
+    expect(templateSelect).toBeDefined();
 
     // Inputs
     const colsInput = screen.getByLabelText('横向页数（列）');
@@ -91,7 +85,7 @@ describe('NupSettings component', () => {
     expect(rowsInput).toBeDefined();
 
     // Summary
-    expect(screen.getByText('2合1·横排（2 × 1）')).toBeDefined();
+    expect(screen.getAllByText('2 × 1').length).toBeGreaterThan(0);
     expect(screen.getByText('2 × 1，每个打印面容纳 2 页')).toBeDefined();
     expect(screen.getByText('预计横向纸张')).toBeDefined();
 
@@ -100,7 +94,7 @@ describe('NupSettings component', () => {
     expect(screen.getByText('跨文件拼接')).toBeDefined();
   });
 
-  it('updates layout when clicking a template', () => {
+  it('updates layout when selecting a template', () => {
     const settings: PrintSettings = {
       ...createDefaultGlobalSettings(),
       nupLayout: { cols: 2, rows: 1 },
@@ -109,9 +103,8 @@ describe('NupSettings component', () => {
 
     render(<NupSettings settings={settings} onChange={handleChange} />);
 
-    // Click "4合1" template button
-    const btn4in1 = screen.getByRole('button', { name: /4合1/i });
-    fireEvent.click(btn4in1);
+    fireEvent.mouseDown(screen.getByLabelText('快捷模板'));
+    fireEvent.click(screen.getByText('2 × 2'));
 
     expect(handleChange).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -120,7 +113,7 @@ describe('NupSettings component', () => {
     );
   });
 
-  it('supports custom layout and highlights matching template or custom summary', () => {
+  it('supports custom layouts and shows a custom summary', () => {
     const settingsCustom: PrintSettings = {
       ...createDefaultGlobalSettings(),
       nupLayout: { cols: 4, rows: 3 },
@@ -133,11 +126,6 @@ describe('NupSettings component', () => {
     expect(screen.getByText('4 × 3，每个打印面容纳 12 页')).toBeDefined();
     expect(screen.getByText('预计横向纸张')).toBeDefined();
 
-    // None of the template buttons should have is-selected
-    const templateButtons = screen.getAllByRole('button', { name: /合1/i });
-    for (const btn of templateButtons) {
-      expect(btn.getAttribute('aria-pressed')).toBe('false');
-    }
   });
 
   it('restores last valid layout when toggling off and on within session', () => {
@@ -180,9 +168,6 @@ describe('NupSettings component', () => {
 
     render(<NupSettings settings={settings1x2} onChange={() => {}} />);
 
-    // "2合1·纵排" should be highlighted
-    const btn1x2 = screen.getByRole('button', { name: /2合1·纵排/i });
-    expect(btn1x2.getAttribute('aria-pressed')).toBe('true');
     expect(screen.getByText('预计纵向纸张')).toBeDefined();
   });
 

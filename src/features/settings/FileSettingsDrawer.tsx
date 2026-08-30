@@ -104,13 +104,15 @@ export function FileSettingsDrawer({
   }
 
   // Compute effective display values dynamically from globalSettings + draftOverride
-  const isGlobalBySet = globalSettings.collateMode === 'bySet' && globalSettings.copies > 1;
+  const isGlobalBySet = globalSettings.collateMode === 'bySet';
   const isGlobalCrossFileNup = Boolean(
     globalSettings.nupLayout &&
     globalSettings.nupLayout.cols * globalSettings.nupLayout.rows > 1 &&
     globalSettings.nupScope === 'crossFile',
   );
-  const isDevmodeLocked = isGlobalBySet || isGlobalCrossFileNup;
+  const isDevmodeLocked = isGlobalCrossFileNup;
+  const isCopiesLocked = isGlobalBySet || isGlobalCrossFileNup;
+  const isCollateLocked = isGlobalBySet || isGlobalCrossFileNup;
   const isNupActiveGlobal = Boolean(
     globalSettings.nupLayout &&
     globalSettings.nupLayout.cols * globalSettings.nupLayout.rows > 1,
@@ -183,16 +185,25 @@ export function FileSettingsDrawer({
       }
     }
 
+    const finalOverride = { ...draftOverride };
+    if (isCopiesLocked) {
+      delete finalOverride.copies;
+    }
+    if (isCollateLocked) {
+      delete finalOverride.collate;
+      delete finalOverride.collateMode;
+    }
+
     if (isBatch) {
-      if (totalOverriddenCount === 0) {
+      if (Object.keys(finalOverride).length === 0) {
         message.info('未修改任何配置');
         onClose();
         return;
       }
-      onBatchSave?.(draftOverride);
+      onBatchSave?.(finalOverride);
       message.success(`已对 ${batchItems!.length} 个文件应用批量设置`);
     } else {
-      onSave(draftOverride);
+      onSave(finalOverride);
     }
     onClose();
   };
@@ -264,33 +275,21 @@ export function FileSettingsDrawer({
             type="link"
             size="small"
             style={{ padding: 0 }}
-            disabled={isGlobalBySet || totalOverriddenCount === 0}
+            disabled={totalOverriddenCount === 0}
             onClick={handleResetAll}
           >
             {isBatch ? '清空本次修改' : '全部恢复为全局设置'}
           </Button>
           <Space>
             <Button onClick={onClose}>取消</Button>
-            <Tooltip title={isGlobalBySet ? '全局已设置为逐套打印，所有文档统一按套输出，禁止单文件修改配置' : undefined}>
-              <span>
-                <Button type="primary" onClick={handleSave} disabled={isGlobalBySet}>
-                  {isBatch ? `应用到 ${batchItems!.length} 个文件` : '保存设置'}
-                </Button>
-              </span>
-            </Tooltip>
+            <Button type="primary" onClick={handleSave}>
+              {isBatch ? `应用到 ${batchItems!.length} 个文件` : '保存设置'}
+            </Button>
           </Space>
         </div>
       }
     >
       <div className="file-settings-modal-body">
-      {isGlobalBySet && (
-        <Alert
-          type="warning"
-          showIcon
-          style={{ marginBottom: 14 }}
-          message="当前全局已设置为逐套打印，所有文档统一按套循环输出，禁止单文件修改配置。"
-        />
-      )}
       {isGlobalCrossFileNup && (
         <Alert
           type="info"
@@ -416,27 +415,32 @@ export function FileSettingsDrawer({
       <div className="drawer-field">
         <div className="drawer-field-head">
           <Typography.Text strong>打印份数</Typography.Text>
-          {renderStatus(isCopiesOverridden, () => handleResetField('copies'))}
+          {!isCopiesLocked && renderStatus(isCopiesOverridden, () => handleResetField('copies'))}
         </div>
         <InputNumber
-          disabled={isDevmodeLocked}
+          disabled={isCopiesLocked}
           min={1}
           max={99}
-          value={effective.copies}
+          value={isGlobalBySet ? globalSettings.copies : effective.copies}
           onChange={(value) => {
             const nextVal = typeof value === 'number' && value > 0 ? value : 1;
             setDraftOverride((prev) => ({ ...prev, copies: nextVal }));
           }}
         />
+        {isGlobalBySet && (
+          <Typography.Text type="secondary" className="field-hint" style={{ color: '#fa8c16' }}>
+            全局已启用逐套打印，份数由全局设置统一控制，不能按单个文件修改
+          </Typography.Text>
+        )}
       </div>
 
       <div className="drawer-field">
         <div className="drawer-field-head">
           <Typography.Text strong>分发</Typography.Text>
-          {renderStatus(isCollateOverridden, () => handleResetField('collate'))}
+          {!isCollateLocked && renderStatus(isCollateOverridden, () => handleResetField('collate'))}
         </div>
         <Radio.Group
-          disabled={isDevmodeLocked}
+          disabled={isCollateLocked}
           value={effective.collateMode === 'byPage' ? 'byPage' : 'byDocument'}
           onChange={(event) => {
             const val = event.target.value as CollateMode;
@@ -448,13 +452,13 @@ export function FileSettingsDrawer({
           }}
         >
           <Radio.Button value="byPage">
-            <Tooltip title="单页连打后印下页">
-              <span>逐页</span>
+            <Tooltip title="逐页：先打印所有副本的第 1 页，再打印第 2 页，依此类推。" mouseEnterDelay={0.2}>
+              <span title="逐页：先打印所有副本的第 1 页，再打印第 2 页，依此类推。">逐页</span>
             </Tooltip>
           </Radio.Button>
           <Radio.Button value="byDocument">
-            <Tooltip title="单篇连打整份成册">
-              <span>逐份</span>
+            <Tooltip title="逐份：先完整打印一份文件，再打印下一份。" mouseEnterDelay={0.2}>
+              <span title="逐份：先完整打印一份文件，再打印下一份。">逐份</span>
             </Tooltip>
           </Radio.Button>
         </Radio.Group>

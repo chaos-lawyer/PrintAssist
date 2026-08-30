@@ -2047,63 +2047,11 @@ button,
   letter-spacing: 0.02em;
 }
 
-.nup-templates-grid {
+.nup-template-select {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 6px;
-}
-
-.nup-template-btn {
-  display: flex;
-  flex-direction: column;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
-  justify-content: center;
-  gap: 2px;
-  min-height: 38px;
-  padding: 5px 6px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--color-border-soft);
-  background: var(--color-surface);
-  color: var(--color-text);
-  cursor: pointer;
-  transition: all var(--motion-fast);
-  text-align: center;
-}
-
-.nup-template-btn:hover {
-  border-color: var(--color-primary-hover);
-  background: var(--color-primary-soft);
-}
-
-.nup-template-btn:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
-}
-
-.nup-template-btn.is-selected {
-  border-color: var(--color-primary);
-  background: var(--color-primary-soft);
-  font-weight: 600;
-}
-
-.nup-template-btn.is-selected .nup-template-name {
-  color: var(--color-primary);
-}
-
-.nup-template-name {
-  font-size: 12px;
-  line-height: 1.2;
-}
-
-.nup-template-sub {
-  font-size: 10px;
-  color: var(--color-text-faint);
-  line-height: 1.1;
-}
-
-.nup-template-btn.is-selected .nup-template-sub {
-  color: var(--color-primary);
-  opacity: 0.85;
+  gap: 8px;
 }
 
 .nup-counts-container {
@@ -2183,7 +2131,5 @@ button,
   min-width: 76px !important;
   justify-content: center !important;
 }
-
-
 
 

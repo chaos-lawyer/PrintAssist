@@ -1062,24 +1062,14 @@ export function App() {
               </div>
               <Space size={8}>
                 {selectedRowKeys.length > 1 && queueState.phase !== 'completed' && (
-                  <Tooltip
-                    title={
-                      globalSettings.collateMode === 'bySet' && globalSettings.copies > 1
-                        ? '全局已设置为逐套打印，所有文档统一按套输出，禁止批量修改配置'
-                        : undefined
-                    }
+                  <Button
+                    type="text"
+                    icon={<Settings2 size={14} />}
+                    disabled={queueState.isPrinting}
+                    onClick={() => setIsBatchSettingsOpen(true)}
                   >
-                    <span>
-                      <Button
-                        type="text"
-                        icon={<Settings2 size={14} />}
-                        disabled={queueState.isPrinting || (globalSettings.collateMode === 'bySet' && globalSettings.copies > 1)}
-                        onClick={() => setIsBatchSettingsOpen(true)}
-                      >
-                        批量设置（{selectedRowKeys.length}）
-                      </Button>
-                    </span>
-                  </Tooltip>
+                    批量设置（{selectedRowKeys.length}）
+                  </Button>
                 )}
                 {selectedRowKeys.length > 0 && queueState.phase !== 'completed' && (
                   <Button

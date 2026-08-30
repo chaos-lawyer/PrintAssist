@@ -21,6 +21,12 @@ const PRINTER_MENU_GAP_PIXELS = 6;
 const PRINTER_MENU_VIEWPORT_PADDING_PIXELS = 8;
 const PRINTER_MENU_PREFERRED_MAX_HEIGHT_PIXELS = 280;
 
+const collateModeDescriptions: Record<CollateMode, string> = {
+  byPage: '逐页：先打印所有副本的第 1 页，再打印第 2 页，依此类推。',
+  byDocument: '逐份：先完整打印一份文件，再打印下一份。',
+  bySet: '逐套：按队列顺序完整打印所有文件，再开始下一套。',
+};
+
 interface GlobalSettingsPanelProps {
   printers: SystemPrinter[];
   settings: PrintSettings;
@@ -772,73 +778,96 @@ export function GlobalSettingsPanel({
           </Tooltip>
         </div>
 
-        <div className="setting-row setting-row-copies">
-          <label className="setting-row-label" htmlFor="copies-input">
-            份数
-          </label>
-          <div className="copies-control">
-            <InputNumber
-              id="copies-input"
-              size="small"
-              min={1}
-              max={99}
-              value={settings.copies}
-              onChange={(value) =>
-                onChange({
-                  ...settings,
-                  copies: typeof value === 'number' && value > 0 ? value : 1,
-                })
-              }
-            />
-            <Typography.Text type="secondary">份</Typography.Text>
+        <div className="setting-group">
+          <div className="setting-row setting-row-copies">
+            <label className="setting-row-label" htmlFor="copies-input">
+              份数
+            </label>
+            <div className="copies-control">
+              <InputNumber
+                id="copies-input"
+                size="small"
+                min={1}
+                max={99}
+                value={settings.copies}
+                onChange={(value) =>
+                  onChange({
+                    ...settings,
+                    copies: typeof value === 'number' && value > 0 ? value : 1,
+                  })
+                }
+              />
+              <Typography.Text type="secondary">份</Typography.Text>
+            </div>
           </div>
-        </div>
 
-        {settings.copies > 1 && (
-          <div className="setting-row">
-            <span className="setting-row-label">分发</span>
-            <Segmented
-              className="setting-segmented"
-              size="small"
-              block
-              value={settings.collateMode ?? (settings.collate ? 'byDocument' : 'byPage')}
-              options={[
-                {
-                  label: (
-                    <Tooltip title="单页连打后印下页">
-                      <span style={{ display: 'inline-block', width: '100%' }}>逐页</span>
-                    </Tooltip>
-                  ),
-                  value: 'byPage',
-                },
-                {
-                  label: (
-                    <Tooltip title="单篇连打整份成册">
-                      <span style={{ display: 'inline-block', width: '100%' }}>逐份</span>
-                    </Tooltip>
-                  ),
-                  value: 'byDocument',
-                },
-                {
-                  label: (
-                    <Tooltip title="全部文件循环成套">
-                      <span style={{ display: 'inline-block', width: '100%' }}>逐套</span>
-                    </Tooltip>
-                  ),
-                  value: 'bySet',
-                },
-              ]}
-              onChange={(value) => {
-                const nextMode = value as CollateMode;
-                onChange({
-                  ...settings,
-                  collateMode: nextMode,
-                  collate: nextMode !== 'byPage',
-                });
-              }}
-            />
-          </div>
-        )}
+          {settings.copies > 1 && (
+            <div className="setting-submenu setting-submenu-compact">
+              <span className="setting-row-label" id="collate-mode-label">
+                分发
+              </span>
+              <Segmented
+                className="setting-segmented"
+                size="small"
+                block
+                aria-labelledby="collate-mode-label"
+                value={settings.collateMode ?? (settings.collate ? 'byDocument' : 'byPage')}
+                options={[
+                  {
+                    label: (
+                      <Tooltip title={collateModeDescriptions.byPage} mouseEnterDelay={0.2}>
+                        <span
+                          aria-label={collateModeDescriptions.byPage}
+                          title={collateModeDescriptions.byPage}
+                          style={{ display: 'inline-block', width: '100%' }}
+                        >
+                          逐页
+                        </span>
+                      </Tooltip>
+                    ),
+                    value: 'byPage',
+                  },
+                  {
+                    label: (
+                      <Tooltip title={collateModeDescriptions.byDocument} mouseEnterDelay={0.2}>
+                        <span
+                          aria-label={collateModeDescriptions.byDocument}
+                          title={collateModeDescriptions.byDocument}
+                          style={{ display: 'inline-block', width: '100%' }}
+                        >
+                          逐份
+                        </span>
+                      </Tooltip>
+                    ),
+                    value: 'byDocument',
+                  },
+                  {
+                    label: (
+                      <Tooltip title={collateModeDescriptions.bySet} mouseEnterDelay={0.2}>
+                        <span
+                          aria-label={collateModeDescriptions.bySet}
+                          title={collateModeDescriptions.bySet}
+                          style={{ display: 'inline-block', width: '100%' }}
+                        >
+                          逐套
+                        </span>
+                      </Tooltip>
+                    ),
+                    value: 'bySet',
+                  },
+                ]}
+                onChange={(value) => {
+                  const nextMode = value as CollateMode;
+                  onChange({
+                    ...settings,
+                    collateMode: nextMode,
+                    collate: nextMode !== 'byPage',
+                  });
+                }}
+              />
+            </div>
+          )}
+        </div>
 
         <div className="setting-group">
           <div className="setting-row">
