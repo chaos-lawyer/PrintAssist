@@ -122,6 +122,61 @@ export function App() {
     phase: BatchPhase;
   } | null>(null);
   const [canRestoreBatch, setCanRestoreBatch] = useState(false);
+  const [siderWidth, setSiderWidth] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('printassist_sider_width');
+      if (saved) {
+        const val = Number(saved);
+        if (val >= 280 && val <= 600) return val;
+      }
+    } catch {
+      // ignore
+    }
+    return 320;
+  });
+  const [isResizingSplitter, setIsResizingSplitter] = useState(false);
+
+  const handleSplitterMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizingSplitter(true);
+    const startX = e.clientX;
+    const startWidth = siderWidth;
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      moveEvent.preventDefault();
+      const delta = startX - moveEvent.clientX;
+      const minSider = 280;
+      const maxSider = Math.min(600, Math.floor(window.innerWidth * 0.45));
+      const nextWidth = Math.max(minSider, Math.min(maxSider, startWidth + delta));
+      setSiderWidth(nextWidth);
+    };
+
+    const handleMouseUp = () => {
+      setIsResizingSplitter(false);
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+      setSiderWidth((latest) => {
+        try {
+          localStorage.setItem('printassist_sider_width', String(latest));
+        } catch {
+          // ignore
+        }
+        return latest;
+      });
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+  };
+
+  const handleSplitterDoubleClick = () => {
+    setSiderWidth(320);
+    try {
+      localStorage.setItem('printassist_sider_width', '320');
+    } catch {
+      // ignore
+    }
+  };
 
   useEffect(() => {
     try {
@@ -1280,7 +1335,23 @@ export function App() {
               )}
             </div>
           </Content>
-          <Sider width={320} theme="light" className="control-rail">
+          <div
+            className={`layout-splitter${isResizingSplitter ? ' is-resizing' : ''}`}
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="拖动调整待打印文件表格宽度"
+            title="左右拖动调整表格宽度，双击恢复默认"
+            onMouseDown={handleSplitterMouseDown}
+            onDoubleClick={handleSplitterDoubleClick}
+          >
+            <div className="layout-splitter-line" />
+          </div>
+          <Sider
+            width={siderWidth}
+            theme="light"
+            className="control-rail"
+            style={{ width: siderWidth, flex: `0 0 ${siderWidth}px`, maxWidth: siderWidth }}
+          >
             <GlobalSettingsPanel
               printers={printers}
               settings={globalSettings}

@@ -56,6 +56,7 @@ import {
 import { normalizeLocalPath } from './duplicateDetection';
 import type { QueueItemSnapshot } from './queueReducer';
 import { AppContextMenu, type AppContextMenuItem } from '../../components/AppContextMenu';
+import { OverflowTooltipText } from '../../components/OverflowTooltipText';
 
 let queueClipboard: QueueItemSnapshot[] = [];
 
@@ -228,6 +229,15 @@ function kindLabel(kind: QueueItem['kind']) {
   }
 }
 
+export function getDirectoryOnly(filePath: string): string {
+  if (!filePath) return '—';
+  const lastSlash = Math.max(filePath.lastIndexOf('/'), filePath.lastIndexOf('\\'));
+  if (lastSlash === -1) return '—';
+  if (lastSlash === 0) return '/';
+  if (lastSlash === 2 && filePath[1] === ':') return filePath.slice(0, 3);
+  return filePath.slice(0, lastSlash);
+}
+
 function getParentDirectoryName(filePath: string): string {
   const normalized = filePath.replace(/\\/g, '/');
   const parts = normalized.split('/').filter(Boolean);
@@ -237,13 +247,50 @@ function getParentDirectoryName(filePath: string): string {
   return '';
 }
 
-type QueueColumnKey = 'path' | 'createdAt' | 'modifiedAt' | 'fileSize' | 'kind' | 'settings' | 'status';
+export type QueueColumnKey =
+  | 'path'
+  | 'createdAt'
+  | 'modifiedAt'
+  | 'fileSize'
+  | 'kind'
+  | 'settings'
+  | 'status'
+  | 'actions';
+export type QueueResizableColumnKey = QueueColumnKey | 'fileName';
 
+export const DEFAULT_COLUMN_WIDTHS: Record<QueueResizableColumnKey, number> = {
+  fileName: 240,
+  path: 240,
+  createdAt: 155,
+  modifiedAt: 155,
+  fileSize: 100,
+  kind: 80,
+  settings: 220,
+  status: 70,
+  actions: 100,
+};
+
+export const COLUMN_WIDTHS_STORAGE_KEY = 'printassist_queue_column_widths';
 const COLUMN_VISIBILITY_STORAGE_KEY = 'printassist_queue_visible_columns';
-const DEFAULT_VISIBLE_COLUMNS: QueueColumnKey[] = ['path', 'createdAt', 'modifiedAt', 'fileSize', 'kind', 'settings', 'status'];
+const DEFAULT_VISIBLE_COLUMNS: QueueColumnKey[] = [
+  'path',
+  'createdAt',
+  'modifiedAt',
+  'fileSize',
+  'kind',
+  'settings',
+  'status',
+  'actions',
+];
 const COLUMN_LABELS: Record<QueueColumnKey, string> = {
-  path: '文件路径', createdAt: '创建时间', modifiedAt: '修改时间', fileSize: '文件大小',
-  kind: '类型', settings: '设置', status: '状态',
+  path: '文件路径',
+  createdAt: '创建时间',
+  modifiedAt: '修改时间',
+  fileSize: '文件大小',
+  kind: '类型',
+  settings: '设置',
+  status: '状态',
+  actions: '操作',
 };
 
 function formatDateTime(timestamp?: number): string {
@@ -366,8 +413,10 @@ function FileNameCell({
       {renderFileIcon(record.kind)}
       <div className="queue-file-info">
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-          <Tooltip
-            title={
+          <OverflowTooltipText
+            text={record.fileName}
+            className="queue-file-name queue-double-click-file"
+            tooltipTitle={
               <div style={{ wordBreak: 'break-all' }}>
                 <div style={{ fontWeight: 600 }}>{record.fileName}</div>
                 {record.path && record.path !== record.fileName && (
@@ -376,14 +425,11 @@ function FileNameCell({
               </div>
             }
             placement="topLeft"
-            mouseEnterDelay={0.3}
-          >
-            <span
-              className="queue-file-name queue-double-click-file"
-              title="双击打开文件"
-              onDoubleClick={(event) => { event.stopPropagation(); onOpenFile(record.path); }}
-            >{record.fileName}</span>
-          </Tooltip>
+            onDoubleClick={(event) => {
+              event.stopPropagation();
+              onOpenFile(record.path);
+            }}
+          />
           {isDragging && isCopyDragging && (
             <span
               style={{
@@ -480,11 +526,90 @@ export function PrintQueue({
       const value = localStorage.getItem(COLUMN_VISIBILITY_STORAGE_KEY);
       if (value) {
         const saved = JSON.parse(value) as unknown;
-        if (Array.isArray(saved)) return DEFAULT_VISIBLE_COLUMNS.filter((key) => saved.includes(key));
+        if (Array.isArray(saved)) {
+          const hasExplicitActions =
+            saved.includes('actions') ||
+            localStorage.getItem('printassist_queue_actions_explicit');
+          return DEFAULT_VISIBLE_COLUMNS.filter((key) => {
+            if (key === 'actions' && !hasExplicitActions) return true;
+            return saved.includes(key);
+          });
+        }
       }
     } catch { /* use defaults */ }
     return DEFAULT_VISIBLE_COLUMNS;
   });
+  const [columnWidths, setColumnWidths] = useState<Record<string, number>>(() => {
+    try {
+      const value = localStorage.getItem(COLUMN_WIDTHS_STORAGE_KEY);
+      if (value) {
+        const saved = JSON.parse(value);
+        if (saved && typeof saved === 'object') {
+          return { ...DEFAULT_COLUMN_WIDTHS, ...saved };
+        }
+      }
+    } catch {
+      /* use defaults */
+    }
+    return DEFAULT_COLUMN_WIDTHS;
+  });
+
+  const handleColumnResizeStart = (
+    colKey: string,
+    defaultWidth: number,
+    e: React.MouseEvent,
+  ) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const startX = e.clientX;
+    const startWidth = columnWidths[colKey] ?? defaultWidth;
+    const minWidth = colKey === 'kind' || colKey === 'status' ? 60 : 80;
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      moveEvent.preventDefault();
+      const delta = moveEvent.clientX - startX;
+      const nextWidth = Math.max(minWidth, startWidth + delta);
+      setColumnWidths((prev) => ({
+        ...prev,
+        [colKey]: nextWidth,
+      }));
+    };
+
+    const handleMouseUp = () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+      setColumnWidths((latest) => {
+        try {
+          localStorage.setItem(COLUMN_WIDTHS_STORAGE_KEY, JSON.stringify(latest));
+        } catch {
+          /* ignore */
+        }
+        return latest;
+      });
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+  };
+
+  const handleColumnReset = (
+    colKey: string,
+    defaultWidth: number,
+    e: React.MouseEvent,
+  ) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setColumnWidths((prev) => {
+      const next = { ...prev, [colKey]: defaultWidth };
+      try {
+        localStorage.setItem(COLUMN_WIDTHS_STORAGE_KEY, JSON.stringify(next));
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  };
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [contextMenu, setContextMenu] = useState<
     | { type: 'row'; position: { x: number; y: number }; item: QueueItem }
@@ -728,6 +853,13 @@ export function PrintQueue({
   };
 
   const toggleColumn = (key: QueueColumnKey) => {
+    if (key === 'actions') {
+      try {
+        localStorage.setItem('printassist_queue_actions_explicit', 'true');
+      } catch {
+        /* ignore */
+      }
+    }
     setVisibleColumns((previous) => {
       const next = previous.includes(key) ? previous.filter((item) => item !== key) : [...previous, key];
       try {
@@ -748,7 +880,12 @@ export function PrintQueue({
     });
   };
 
-  const renderSortableTitle = (label: string, field: QueueSortField) => (
+  const renderSortableTitle = (
+    label: string,
+    field: QueueSortField,
+    colKey: string,
+    defaultWidth: number,
+  ) => (
     <div className="queue-th-sort-wrapper" onContextMenu={handleHeaderContextMenu}>
       <span>{label}</span>
       {sortOrder?.mode === field ? (
@@ -760,11 +897,37 @@ export function PrintQueue({
       ) : (
         <ArrowUpDown size={13} className="queue-sort-icon is-inactive" />
       )}
+      <span
+        className="queue-col-resizer"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label={`调整 ${label} 列宽`}
+        title="左右拖动调整列宽，双击恢复默认"
+        onMouseDown={(e) => handleColumnResizeStart(colKey, defaultWidth, e)}
+        onDoubleClick={(e) => handleColumnReset(colKey, defaultWidth, e)}
+        onClick={(e) => e.stopPropagation()}
+      />
     </div>
   );
 
-  const renderColumnMenuTitle = (label: string) => (
-    <span onContextMenu={handleHeaderContextMenu}>{label}</span>
+  const renderColumnMenuTitle = (
+    label: string,
+    colKey: string,
+    defaultWidth: number,
+  ) => (
+    <div className="queue-th-title-wrapper" onContextMenu={handleHeaderContextMenu}>
+      <span>{label}</span>
+      <span
+        className="queue-col-resizer"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label={`调整 ${label} 列宽`}
+        title="左右拖动调整列宽，双击恢复默认"
+        onMouseDown={(e) => handleColumnResizeStart(colKey, defaultWidth, e)}
+        onDoubleClick={(e) => handleColumnReset(colKey, defaultWidth, e)}
+        onClick={(e) => e.stopPropagation()}
+      />
+    </div>
   );
 
   const handleRowContextMenu = (record: QueueItem, event: React.MouseEvent) => {
@@ -834,10 +997,16 @@ export function PrintQueue({
           icon: <RotateCcw size={14} />,
           onClick: () => {
             setVisibleColumns(DEFAULT_VISIBLE_COLUMNS);
+            setColumnWidths(DEFAULT_COLUMN_WIDTHS);
             try {
+              localStorage.removeItem('printassist_queue_actions_explicit');
               localStorage.setItem(
                 COLUMN_VISIBILITY_STORAGE_KEY,
                 JSON.stringify(DEFAULT_VISIBLE_COLUMNS),
+              );
+              localStorage.setItem(
+                COLUMN_WIDTHS_STORAGE_KEY,
+                JSON.stringify(DEFAULT_COLUMN_WIDTHS),
               );
             } catch {
               /* ignore */
@@ -1329,12 +1498,16 @@ export function PrintQueue({
   // Columns definition
   const columns: ColumnsType<QueueItem> = [
     {
-      title: renderSortableTitle('文件', 'fileName'),
+      title: renderSortableTitle('文件', 'fileName', 'fileName', DEFAULT_COLUMN_WIDTHS.fileName),
       dataIndex: 'fileName',
       key: 'fileName',
+      width: columnWidths.fileName ?? DEFAULT_COLUMN_WIDTHS.fileName,
       className: 'queue-col-file',
       onHeaderCell: () => ({
-        onClick: () => onToggleSort?.('fileName'),
+        onClick: (e: React.MouseEvent) => {
+          if ((e.target as HTMLElement).closest('.queue-col-resizer')) return;
+          onToggleSort?.('fileName');
+        },
         onKeyDown: (e: React.KeyboardEvent) => {
           if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
@@ -1375,36 +1548,94 @@ export function PrintQueue({
       },
     },
     {
-      title: renderSortableTitle('文件路径', 'path'), dataIndex: 'path', key: 'path', width: 240,
-      onHeaderCell: () => ({ onClick: () => onToggleSort?.('path'), className: 'queue-th-sortable' }),
-      render: (path: string, record) => <span className="queue-path-cell queue-double-click-path" title="双击打开所在文件夹" onDoubleClick={(event) => { event.stopPropagation(); void handleShowInFolder(record.path); }}>{path}</span>,
+      title: renderSortableTitle('文件路径', 'path', 'path', DEFAULT_COLUMN_WIDTHS.path),
+      dataIndex: 'path',
+      key: 'path',
+      width: columnWidths.path ?? DEFAULT_COLUMN_WIDTHS.path,
+      onHeaderCell: () => ({
+        onClick: (e: React.MouseEvent) => {
+          if ((e.target as HTMLElement).closest('.queue-col-resizer')) return;
+          onToggleSort?.('path');
+        },
+        className: 'queue-th-sortable',
+      }),
+      render: (_: string, record) => {
+        const dirOnly = getDirectoryOnly(record.path);
+        return (
+          <OverflowTooltipText
+            text={dirOnly}
+            className="queue-path-cell queue-double-click-path"
+            tooltipTitle={
+              <div style={{ wordBreak: 'break-all', maxWidth: 450 }}>
+                {dirOnly}
+              </div>
+            }
+            placement="topLeft"
+            onDoubleClick={(event) => {
+              event.stopPropagation();
+              void handleShowInFolder(record.path);
+            }}
+          />
+        );
+      },
     },
     {
-      title: renderSortableTitle('创建时间', 'createdAt'), dataIndex: 'createdAt', key: 'createdAt', width: 155,
-      onHeaderCell: () => ({ onClick: () => onToggleSort?.('createdAt'), className: 'queue-th-sortable' }), render: (value) => formatDateTime(value),
+      title: renderSortableTitle('创建时间', 'createdAt', 'createdAt', DEFAULT_COLUMN_WIDTHS.createdAt),
+      dataIndex: 'createdAt',
+      key: 'createdAt',
+      width: columnWidths.createdAt ?? DEFAULT_COLUMN_WIDTHS.createdAt,
+      onHeaderCell: () => ({
+        onClick: (e: React.MouseEvent) => {
+          if ((e.target as HTMLElement).closest('.queue-col-resizer')) return;
+          onToggleSort?.('createdAt');
+        },
+        className: 'queue-th-sortable',
+      }),
+      render: (value) => formatDateTime(value),
     },
     {
-      title: renderSortableTitle('修改时间', 'modifiedAt'), dataIndex: 'modifiedAt', key: 'modifiedAt', width: 155,
-      onHeaderCell: () => ({ onClick: () => onToggleSort?.('modifiedAt'), className: 'queue-th-sortable' }), render: (value) => formatDateTime(value),
+      title: renderSortableTitle('修改时间', 'modifiedAt', 'modifiedAt', DEFAULT_COLUMN_WIDTHS.modifiedAt),
+      dataIndex: 'modifiedAt',
+      key: 'modifiedAt',
+      width: columnWidths.modifiedAt ?? DEFAULT_COLUMN_WIDTHS.modifiedAt,
+      onHeaderCell: () => ({
+        onClick: (e: React.MouseEvent) => {
+          if ((e.target as HTMLElement).closest('.queue-col-resizer')) return;
+          onToggleSort?.('modifiedAt');
+        },
+        className: 'queue-th-sortable',
+      }),
+      render: (value) => formatDateTime(value),
     },
     {
-      title: renderSortableTitle('文件大小', 'fileSize'), dataIndex: 'fileSize', key: 'fileSize', width: 100, align: 'right',
-      onHeaderCell: () => ({ onClick: () => onToggleSort?.('fileSize'), className: 'queue-th-sortable' }), render: (value) => formatFileSize(value),
+      title: renderSortableTitle('文件大小', 'fileSize', 'fileSize', DEFAULT_COLUMN_WIDTHS.fileSize),
+      dataIndex: 'fileSize',
+      key: 'fileSize',
+      width: columnWidths.fileSize ?? DEFAULT_COLUMN_WIDTHS.fileSize,
+      align: 'right',
+      onHeaderCell: () => ({
+        onClick: (e: React.MouseEvent) => {
+          if ((e.target as HTMLElement).closest('.queue-col-resizer')) return;
+          onToggleSort?.('fileSize');
+        },
+        className: 'queue-th-sortable',
+      }),
+      render: (value) => formatFileSize(value),
     },
     {
-      title: renderColumnMenuTitle('类型'),
+      title: renderColumnMenuTitle('类型', 'kind', DEFAULT_COLUMN_WIDTHS.kind),
       dataIndex: 'kind',
       key: 'kind',
-      width: 80,
+      width: columnWidths.kind ?? DEFAULT_COLUMN_WIDTHS.kind,
       align: 'center',
       render: (kind: QueueItem['kind']) => (
         <span className="queue-type-badge">{kindLabel(kind)}</span>
       ),
     },
     {
-      title: renderColumnMenuTitle('设置'),
+      title: renderColumnMenuTitle('设置', 'settings', DEFAULT_COLUMN_WIDTHS.settings),
       key: 'settings',
-      width: 220,
+      width: columnWidths.settings ?? DEFAULT_COLUMN_WIDTHS.settings,
       align: 'center',
       render: (_, record) => {
         const resolved = mergePrintSettings(globalSettings, record.override);
@@ -1437,17 +1668,17 @@ export function PrintQueue({
       },
     },
     {
-      title: renderColumnMenuTitle('状态'),
+      title: renderColumnMenuTitle('状态', 'status', DEFAULT_COLUMN_WIDTHS.status),
       dataIndex: 'status',
       key: 'status',
-      width: 70,
+      width: columnWidths.status ?? DEFAULT_COLUMN_WIDTHS.status,
       align: 'center',
       render: (status: QueueItem['status'], record) => renderStatusIcon(status, record.errorMessage),
     },
     {
-      title: renderColumnMenuTitle('操作'),
+      title: renderColumnMenuTitle('操作', 'actions', DEFAULT_COLUMN_WIDTHS.actions),
       key: 'actions',
-      width: 100,
+      width: columnWidths.actions ?? DEFAULT_COLUMN_WIDTHS.actions,
       align: 'center',
       render: (_, record) => (
         <Space size={4}>
@@ -1500,7 +1731,19 @@ export function PrintQueue({
     },
   ];
 
-  const displayedColumns = columns.filter((column) => !column.key || !Object.prototype.hasOwnProperty.call(COLUMN_LABELS, String(column.key)) || visibleColumns.includes(column.key as QueueColumnKey));
+  const displayedColumns = columns.filter(
+    (column) =>
+      !column.key ||
+      !Object.prototype.hasOwnProperty.call(COLUMN_LABELS, String(column.key)) ||
+      visibleColumns.includes(column.key as QueueColumnKey),
+  );
+
+  const totalScrollWidth = useMemo(() => {
+    return displayedColumns.reduce((sum, col) => {
+      const w = typeof col.width === 'number' ? col.width : 200;
+      return sum + w;
+    }, 60);
+  }, [displayedColumns]);
 
   if (items.length === 0) {
     return (
@@ -1597,7 +1840,7 @@ export function PrintQueue({
             size="small"
             pagination={false}
             columns={displayedColumns}
-            scroll={{ x: 1180 }}
+            scroll={{ x: Math.max(1000, totalScrollWidth) }}
             dataSource={items}
             className="queue-compact-table"
             rowSelection={{

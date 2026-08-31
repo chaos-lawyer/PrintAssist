@@ -237,18 +237,46 @@ button,
   height: calc(100% - 28px) !important;
   max-height: calc(100% - 28px);
   align-self: stretch;
-  flex: 0 0 320px;
-  max-width: 342px;
-  min-width: 0;
+  min-width: 280px;
+  max-width: 600px;
   padding: 20px 18px 24px;
   overflow-x: hidden;
   overflow-y: auto;
   border: 1px solid var(--color-border-soft);
-  margin: 14px 18px 14px 12px;
+  margin: 14px 18px 14px 4px;
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-soft);
   background: rgba(255, 255, 255, 0.92);
   box-sizing: border-box;
+}
+
+.layout-splitter {
+  width: 10px;
+  margin: 14px 0;
+  cursor: col-resize;
+  position: relative;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+  flex-shrink: 0;
+  background: transparent;
+}
+
+.layout-splitter-line {
+  width: 3px;
+  height: 48px;
+  border-radius: 2px;
+  background: var(--color-border-soft, #e2e8f0);
+  transition: background 0.15s ease, height 0.15s ease, width 0.15s ease;
+}
+
+.layout-splitter:hover .layout-splitter-line,
+.layout-splitter.is-resizing .layout-splitter-line {
+  background: var(--color-primary, #1677ff);
+  height: 96px;
+  width: 4px;
 }
 
 .control-rail .ant-layout-sider-children {
@@ -1155,12 +1183,30 @@ button,
   color: var(--color-text);
 }
 
-.queue-th-sort-wrapper {
+.queue-th-sort-wrapper,
+.queue-th-title-wrapper {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
   width: 100%;
+}
+
+.queue-col-resizer {
+  position: absolute;
+  right: -10px;
+  top: -8px;
+  bottom: -8px;
+  width: 8px;
+  cursor: col-resize;
+  z-index: 10;
+  user-select: none;
+}
+
+.queue-col-resizer:hover,
+.queue-col-resizer.is-resizing {
+  border-right: 2px solid var(--color-primary, #1677ff);
 }
 
 .queue-sort-icon {
@@ -1316,6 +1362,20 @@ button,
   text-overflow: ellipsis;
   word-break: break-all;
   overflow-wrap: anywhere;
+}
+
+.queue-path-cell {
+  font-size: 12px;
+  color: var(--color-text-secondary, #475569);
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  word-break: break-all;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .queue-file-disambiguation {
