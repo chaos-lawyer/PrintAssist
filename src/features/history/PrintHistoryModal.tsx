@@ -13,7 +13,11 @@ import {
 import type { ColumnsType } from 'antd/es/table';
 import {
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
   Clock,
+  FileText,
+  FolderOpen,
   MinusCircle,
   RotateCcw,
   Search,
@@ -22,6 +26,8 @@ import {
   XCircle,
 } from 'lucide-react';
 import React, { useEffect, useMemo, useState } from 'react';
+import { openFile, showInFolder } from '../../api/nativeBridge';
+import { AppContextMenu, type AppContextMenuItem } from '../../components/AppContextMenu';
 import {
   filterHistoryRecords,
   formatHistoryTime,
@@ -51,6 +57,11 @@ export function PrintHistoryModal({
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'favorite'>('all');
   const [expandedRowKeys, setExpandedRowKeys] = useState<React.Key[]>([]);
+  const [contextMenu, setContextMenu] = useState<
+    | { type: 'batch'; position: { x: number; y: number }; record: PrintHistoryRecord }
+    | { type: 'file'; position: { x: number; y: number }; file: { fileName: string; path?: string } }
+    | null
+  >(null);
 
   const reloadHistory = () => {
     setHistory(loadPrintHistory());
@@ -62,6 +73,7 @@ export function PrintHistoryModal({
       setSearchQuery('');
       setFilterType('all');
       setExpandedRowKeys([]);
+      setContextMenu(null);
     }
   }, [open]);
 
@@ -134,6 +146,74 @@ export function PrintHistoryModal({
     setExpandedRowKeys((prev) =>
       prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
     );
+  };
+
+  const getContextMenuItems = (): AppContextMenuItem[] => {
+    if (!contextMenu) return [];
+
+    if (contextMenu.type === 'batch') {
+      const isExpanded = expandedRowKeys.includes(contextMenu.record.id);
+      return [
+        {
+          key: 'toggle-expand',
+          label: isExpanded ? '收起详情' : '展开详情',
+          icon: isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />,
+          onClick: () => toggleRowExpansion(contextMenu.record.id),
+        },
+        {
+          key: 'reload',
+          label: '重新加载此批文件',
+          icon: <RotateCcw size={14} />,
+          onClick: () => handleReloadRecordFiles(contextMenu.record),
+        },
+        {
+          key: 'favorite',
+          label: contextMenu.record.isFavorite ? '取消收藏' : '收藏此记录',
+          icon: <Star size={14} fill={contextMenu.record.isFavorite ? 'currentColor' : 'none'} />,
+          onClick: () => handleToggleFavorite(contextMenu.record),
+        },
+        { type: 'divider' },
+        {
+          key: 'delete',
+          label: '删除记录',
+          icon: <Trash2 size={14} />,
+          danger: true,
+          onClick: () => handleDeleteRecord(contextMenu.record),
+        },
+      ];
+    }
+
+    if (contextMenu.type === 'file') {
+      const hasPath = Boolean(contextMenu.file.path);
+      return [
+        {
+          key: 'open-file',
+          label: '打开文件',
+          icon: <FileText size={14} />,
+          disabled: !hasPath,
+          disabledReason: !hasPath ? '该文件无本地路径' : undefined,
+          onClick: () => {
+            if (contextMenu.file.path) {
+              void openFile(contextMenu.file.path);
+            }
+          },
+        },
+        {
+          key: 'show-in-folder',
+          label: '在文件夹中显示',
+          icon: <FolderOpen size={14} />,
+          disabled: !hasPath,
+          disabledReason: !hasPath ? '该文件无本地路径' : undefined,
+          onClick: () => {
+            if (contextMenu.file.path) {
+              void showInFolder(contextMenu.file.path);
+            }
+          },
+        },
+      ];
+    }
+
+    return [];
   };
 
   const handleResetFilter = () => {
@@ -314,7 +394,19 @@ export function PrintHistoryModal({
 
         <div className="history-expand-file-list">
           {record.files.map((file, idx) => (
-            <div key={idx} className="history-expand-file-item">
+            <div
+              key={idx}
+              className="history-expand-file-item"
+              onContextMenu={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setContextMenu({
+                  type: 'file',
+                  position: { x: e.clientX, y: e.clientY },
+                  file,
+                });
+              }}
+            >
               <div className="history-expand-file-main">
                 {file.status === 'succeeded' ? (
                   <CheckCircle2 size={14} color="#52c41a" style={{ flexShrink: 0 }} />
@@ -449,12 +541,30 @@ export function PrintHistoryModal({
                     onExpandedRowsChange: (keys) => setExpandedRowKeys(keys as React.Key[]),
                     rowExpandable: (record) => record.files.length > 0,
                   }}
+                  onRow={(record) => ({
+                    onContextMenu: (e: React.MouseEvent) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setContextMenu({
+                        type: 'batch',
+                        position: { x: e.clientX, y: e.clientY },
+                        record,
+                      });
+                    },
+                  })}
                 />
               </div>
             )}
           </>
         )}
       </div>
+
+      <AppContextMenu
+        open={Boolean(contextMenu)}
+        position={contextMenu ? contextMenu.position : null}
+        onClose={() => setContextMenu(null)}
+        items={getContextMenuItems()}
+      />
     </Modal>
   );
 }

@@ -6,6 +6,7 @@ import type {
   QueueState,
   SupportedDocumentKind,
   QueueOrder,
+  QueueSortField,
 } from '../../domain/queueTypes';
 import { createEmptyQueueState } from '../../domain/queueTypes';
 import type { FileSettingsOverride } from '../../domain/printSettings';
@@ -21,7 +22,9 @@ export type QueueAction =
   | { type: 'restore_batch'; items: QueueItem[]; summary: PrintJobSummary | null; phase: BatchPhase }
   | { type: 'update_override'; id: string; override: FileSettingsOverride }
   | { type: 'batch_set_override'; ids: string[]; override: Partial<FileSettingsOverride> }
+  | { type: 'toggle_sort'; field: QueueSortField }
   | { type: 'toggle_filename_sort' }
+  | { type: 'set_file_metadata'; metadata: Record<string, { fileSize?: number; createdAt?: number; modifiedAt?: number }> }
   | { type: 'reorder_items'; movingIds: string[]; targetId: string; position: 'before' | 'after' }
   | { type: 'clone_items'; sourceIds: string[]; targetId: string; position: 'before' | 'after' }
   | { type: 'paste_snapshots'; snapshots: QueueItemSnapshot[]; targetId: string | null }
@@ -151,12 +154,11 @@ export function createCloneItem(source: {
   };
 }
 
-function naturalSort(items: QueueItem[], direction: 'asc' | 'desc'): QueueItem[] {
+function sortItems(items: QueueItem[], field: QueueSortField, direction: 'asc' | 'desc'): QueueItem[] {
   const sorted = [...items].sort((a, b) => {
-    const cmp = a.fileName.localeCompare(b.fileName, 'zh-Hans', {
-      numeric: true,
-      sensitivity: 'base',
-    });
+    const cmp = field === 'fileName' || field === 'path'
+      ? String(a[field]).localeCompare(String(b[field]), 'zh-Hans', { numeric: true, sensitivity: 'base' })
+      : (a[field] ?? -1) - (b[field] ?? -1);
     return direction === 'desc' ? -cmp : cmp;
   });
   return sorted;
@@ -173,8 +175,8 @@ export function queueReducer(state: QueueState, action: QueueAction): QueueState
         nextItems.push(createQueueItem(filePath));
       }
 
-      const finalItems = state.order.mode === 'fileName'
-        ? naturalSort(nextItems, state.order.direction)
+      const finalItems = state.order.mode !== 'manual'
+        ? sortItems(nextItems, state.order.mode, state.order.direction)
         : nextItems;
 
       return {
@@ -278,13 +280,29 @@ export function queueReducer(state: QueueState, action: QueueAction): QueueState
       };
     }
 
+    case 'toggle_sort':
     case 'toggle_filename_sort': {
+      const field: QueueSortField = action.type === 'toggle_sort' ? action.field : 'fileName';
       const nextDirection: 'asc' | 'desc' =
-        state.order.mode === 'fileName' && state.order.direction === 'asc' ? 'desc' : 'asc';
+        state.order.mode === field && state.order.direction === 'asc' ? 'desc' : 'asc';
       return {
         ...state,
-        items: naturalSort(state.items, nextDirection),
-        order: { mode: 'fileName', direction: nextDirection },
+        items: sortItems(state.items, field, nextDirection),
+        order: { mode: field, direction: nextDirection },
+      };
+    }
+
+    case 'set_file_metadata': {
+      return {
+        ...state,
+        items: state.items.map((item) => {
+          const metadata = action.metadata[item.path];
+          return {
+            ...item,
+            ...(metadata ?? {}),
+            metadataLoaded: true,
+          };
+        }),
       };
     }
 

@@ -296,4 +296,21 @@ describe('PrintHistoryModal', () => {
 
     confirmSpy.mockRestore();
   });
+
+  it('opens context menu on history row right click and triggers reload', () => {
+    setupSampleData();
+    const handleReload = vi.fn();
+    render(<PrintHistoryModal open={true} onClose={() => {}} onReloadFiles={handleReload} />);
+
+    const cell = screen.getByText('Warehouse-Canon-Printer');
+    fireEvent.contextMenu(cell, { clientX: 100, clientY: 100 });
+
+    expect(screen.getByRole('menuitem', { name: /展开详情/ })).toBeDefined();
+    expect(screen.getByRole('menuitem', { name: /重新加载此批文件/ })).toBeDefined();
+    expect(screen.getByRole('menuitem', { name: /收藏此记录/ })).toBeDefined();
+    expect(screen.getByRole('menuitem', { name: /删除记录/ })).toBeDefined();
+
+    fireEvent.click(screen.getByRole('menuitem', { name: /重新加载此批文件/ }));
+    expect(handleReload).toHaveBeenCalledWith(['C:\\labels\\ShippingLabel.pdf']);
+  });
 });

@@ -1705,54 +1705,127 @@ button,
   font-style: italic;
 }
 
-/* Profile Context Menu */
+/* Unified App Context Menu */
+.app-context-menu,
 .profile-context-menu {
   position: fixed;
-  z-index: 13000;
-  display: grid;
+  z-index: 14000;
+  display: flex;
+  flex-direction: column;
   gap: 2px;
-  min-width: 140px;
-  padding: 6px;
+  min-width: 180px;
+  max-width: 280px;
+  padding: 5px;
   box-sizing: border-box;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-card);
+  background: var(--color-surface, #ffffff);
+  border: 1px solid var(--color-border, #e2e8f0);
+  border-radius: var(--radius-md, 8px);
+  box-shadow: var(--shadow-card, 0 4px 16px rgba(0, 0, 0, 0.12));
+  user-select: none;
+  animation: contextMenuFadeIn 0.12s ease-out;
 }
 
+@keyframes contextMenuFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.app-context-menu-item,
 .profile-context-menu-item {
   display: flex;
   align-items: center;
   gap: 8px;
   width: 100%;
-  padding: 6px 10px;
+  height: 32px;
+  padding: 0 10px;
   color: var(--color-text);
-  font-size: 12px;
+  font-size: 13px;
   background: transparent;
   border: none;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-sm, 6px);
   cursor: pointer;
   text-align: left;
+  transition: background 0.1s ease, color 0.1s ease;
+  box-sizing: border-box;
 }
 
+.app-context-menu-item:hover,
+.app-context-menu-item:focus-visible,
 .profile-context-menu-item:hover,
 .profile-context-menu-item:focus-visible {
-  background: var(--color-primary-soft);
+  background: var(--color-primary-soft, #e6f4ff);
+  color: var(--color-primary, #1677ff);
   outline: none;
 }
 
+.app-context-menu-item.is-danger,
 .profile-context-menu-item.is-danger {
   color: var(--color-danger, #ff4d4f);
 }
 
+.app-context-menu-item.is-danger:hover,
+.app-context-menu-item.is-danger:focus-visible,
 .profile-context-menu-item.is-danger:hover,
 .profile-context-menu-item.is-danger:focus-visible {
   background: var(--color-danger-bg, #fff1f0);
+  color: var(--color-danger, #ff4d4f);
 }
 
+.app-context-menu-item.is-disabled,
+.app-context-menu-item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.app-context-menu-disabled-wrapper {
+  display: block;
+  width: 100%;
+  cursor: not-allowed;
+}
+
+.app-context-menu-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: inherit;
+}
+
+.app-context-menu-check-placeholder {
+  width: 14px;
+  height: 14px;
+}
+
+.app-context-menu-check-icon {
+  color: var(--color-primary, #1677ff);
+}
+
+.app-context-menu-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-context-menu-shortcut {
+  font-size: 11px;
+  color: var(--color-text-muted, #8c8c8c);
+  margin-left: 12px;
+  font-family: inherit;
+}
+
+.app-context-menu-divider,
 .profile-context-menu-divider {
   height: 1px;
-  margin: 4px 0;
+  margin: 4px 2px;
   background: var(--color-border-soft, #f0f0f0);
 }
 

@@ -342,6 +342,23 @@ export async function showInFolder(path: string): Promise<void> {
   await invokeCommand('show_in_folder', { path });
 }
 
+export interface FileMetadata {
+  path: string;
+  fileSize: number;
+  createdAt?: number;
+  modifiedAt?: number;
+}
+
+export async function getFileMetadata(paths: string[]): Promise<FileMetadata[]> {
+  if (!isTauriRuntime() || paths.length === 0) return [];
+  return invokeCommand<FileMetadata[]>('get_file_metadata', { paths });
+}
+
+export async function openFile(path: string): Promise<void> {
+  if (!isTauriRuntime()) return;
+  await invokeCommand('open_file', { path });
+}
+
 export interface PrintItemStartedEvent {
   queueItemId: string;
   index: number;

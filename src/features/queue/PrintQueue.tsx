@@ -1,5 +1,6 @@
 import {
   Button,
+  Checkbox,
   message,
   Space,
   Table,
@@ -15,6 +16,7 @@ import {
   CheckCircle2,
   CircleDot,
   Copy,
+  FilePlus2,
   FileSpreadsheet,
   FileText,
   FolderOpen,
@@ -23,6 +25,7 @@ import {
   Loader2,
   MinusCircle,
   Presentation,
+  RotateCcw,
   Settings2,
   Trash2,
 } from 'lucide-react';
@@ -42,8 +45,8 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { showInFolder } from '../../api/nativeBridge';
-import type { BatchPhase, QueueItem, QueueOrder } from '../../domain/queueTypes';
+import { openFile, showInFolder } from '../../api/nativeBridge';
+import type { BatchPhase, QueueItem, QueueOrder, QueueSortField } from '../../domain/queueTypes';
 import { describePageRange } from '../../domain/pageRange';
 import {
   hasFileOverride,
@@ -52,6 +55,7 @@ import {
 } from '../../domain/printSettings';
 import { normalizeLocalPath } from './duplicateDetection';
 import type { QueueItemSnapshot } from './queueReducer';
+import { AppContextMenu, type AppContextMenuItem } from '../../components/AppContextMenu';
 
 let queueClipboard: QueueItemSnapshot[] = [];
 
@@ -63,7 +67,7 @@ interface PrintQueueProps {
   selectedRowKeys: React.Key[];
   sortOrder?: QueueOrder;
   onSelectionChange: (keys: React.Key[]) => void;
-  onToggleSort?: () => void;
+  onToggleSort?: (field: QueueSortField) => void;
   onReorderItems?: (
     movingIds: string[],
     targetId: string,
@@ -80,6 +84,8 @@ interface PrintQueueProps {
   ) => string[] | void;
   onRemove: (id: string) => void;
   onOpenSettings: (id: string) => void;
+  onBatchSettings?: () => void;
+  onBatchRemove?: () => void;
   onAddFiles?: () => void;
   activeId?: string | null;
   onActiveIdChange?: (id: string | null) => void;
@@ -231,6 +237,29 @@ function getParentDirectoryName(filePath: string): string {
   return '';
 }
 
+type QueueColumnKey = 'path' | 'createdAt' | 'modifiedAt' | 'fileSize' | 'kind' | 'settings' | 'status';
+
+const COLUMN_VISIBILITY_STORAGE_KEY = 'printassist_queue_visible_columns';
+const DEFAULT_VISIBLE_COLUMNS: QueueColumnKey[] = ['path', 'createdAt', 'modifiedAt', 'fileSize', 'kind', 'settings', 'status'];
+const COLUMN_LABELS: Record<QueueColumnKey, string> = {
+  path: '文件路径', createdAt: '创建时间', modifiedAt: '修改时间', fileSize: '文件大小',
+  kind: '类型', settings: '设置', status: '状态',
+};
+
+function formatDateTime(timestamp?: number): string {
+  return timestamp ? new Intl.DateTimeFormat('zh-CN', { dateStyle: 'short', timeStyle: 'medium' }).format(timestamp) : '—';
+}
+
+function formatFileSize(bytes?: number): string {
+  if (bytes === undefined) return '—';
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let value = bytes / 1024;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit++; }
+  return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[unit]}`;
+}
+
 // ── Drag & Drop Context for Ant Design Table Rows ─────────────────────────────
 interface RowContextProps {
   setActivatorNodeRef: (element: HTMLElement | null) => void;
@@ -304,6 +333,7 @@ function FileNameCell({
   isPrinting,
   onKeyboardMove,
   onSelectDuplicates,
+  onOpenFile,
 }: {
   record: QueueItem;
   isDuplicate: boolean;
@@ -312,6 +342,7 @@ function FileNameCell({
   isPrinting: boolean;
   onKeyboardMove: (id: string, e: React.KeyboardEvent) => void;
   onSelectDuplicates?: (id: string) => void;
+  onOpenFile: (path: string) => void;
 }) {
   const { setActivatorNodeRef, attributes, listeners, isDragging, isCopyDragging } =
     useContext(RowContext);
@@ -347,7 +378,11 @@ function FileNameCell({
             placement="topLeft"
             mouseEnterDelay={0.3}
           >
-            <span className="queue-file-name">{record.fileName}</span>
+            <span
+              className="queue-file-name queue-double-click-file"
+              title="双击打开文件"
+              onDoubleClick={(event) => { event.stopPropagation(); onOpenFile(record.path); }}
+            >{record.fileName}</span>
           </Tooltip>
           {isDragging && isCopyDragging && (
             <span
@@ -418,12 +453,19 @@ export function PrintQueue({
   onPasteSnapshots,
   onRemove,
   onOpenSettings,
+  onBatchSettings,
+  onBatchRemove,
   onAddFiles,
   activeId: propsActiveId,
   onActiveIdChange,
 }: PrintQueueProps) {
   const isCompleted = phase === 'completed';
   const isLocked = isPrinting || isCompleted;
+  const lockReason = isPrinting
+    ? '打印进行中，暂不可修改队列'
+    : isCompleted
+      ? '当前批次已完成，请先开始新批次'
+      : undefined;
   const [internalActiveId, setInternalActiveId] = useState<string | null>(null);
   const activeId = propsActiveId !== undefined ? propsActiveId : internalActiveId;
   const setActiveId = (id: string | null) => {
@@ -433,9 +475,23 @@ export function PrintQueue({
 
   const [rangeAnchorId, setRangeAnchorId] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState<string>('');
+  const [visibleColumns, setVisibleColumns] = useState<QueueColumnKey[]>(() => {
+    try {
+      const value = localStorage.getItem(COLUMN_VISIBILITY_STORAGE_KEY);
+      if (value) {
+        const saved = JSON.parse(value) as unknown;
+        if (Array.isArray(saved)) return DEFAULT_VISIBLE_COLUMNS.filter((key) => saved.includes(key));
+      }
+    } catch { /* use defaults */ }
+    return DEFAULT_VISIBLE_COLUMNS;
+  });
   const containerRef = useRef<HTMLDivElement | null>(null);
-
-  // Marquee and reordering mutual exclusion refs
+  const [contextMenu, setContextMenu] = useState<
+    | { type: 'row'; position: { x: number; y: number }; item: QueueItem }
+    | { type: 'blank'; position: { x: number; y: number } }
+    | { type: 'header'; position: { x: number; y: number } }
+    | null
+  >(null);
   const [marqueeBox, setMarqueeBox] = useState<{
     left: number;
     top: number;
@@ -535,8 +591,77 @@ export function PrintQueue({
         message.info(`“${targetItem.fileName}”在列表中仅有 1 项（无其他副本）`);
       }
     },
-    [items, activeId, selectedRowKeys, onSelectionChange],
+    [items, activeId, selectedRowKeys, onSelectionChange, setActiveId],
   );
+
+  const copySelection = useCallback(() => {
+    if (selectedRowKeys.length === 0) {
+      message.info('请先选择文件');
+      return;
+    }
+    const selectedSet = new Set(selectedRowKeys.map(String));
+    const toCopy = items.filter((i) => selectedSet.has(i.id));
+    if (toCopy.length === 0) return;
+
+    queueClipboard = toCopy.map((i) => ({
+      path: i.path,
+      fileName: i.fileName,
+      kind: i.kind,
+      pageCount: i.pageCount,
+      override: { ...i.override },
+    }));
+    message.success(`已复制 ${queueClipboard.length} 个文件`);
+  }, [items, selectedRowKeys]);
+
+  const pasteAfterTarget = useCallback(
+    (targetId: string | null) => {
+      if (isLocked) {
+        message.warning(isPrinting ? '打印进行中，暂不可修改队列' : '当前批次已完成，请先开始新批次');
+        return;
+      }
+      if (queueClipboard.length === 0) {
+        return;
+      }
+      const effectiveTargetId = targetId || activeId || (items.length > 0 ? items[items.length - 1].id : null);
+      const newIds = onPasteSnapshots?.(queueClipboard, effectiveTargetId);
+      if (newIds && newIds.length > 0) {
+        onSelectionChange(newIds);
+        setActiveId(newIds[newIds.length - 1]);
+      }
+      message.success(`已粘贴 ${queueClipboard.length} 个文件`);
+    },
+    [activeId, isLocked, isPrinting, items, onPasteSnapshots, onSelectionChange, setActiveId],
+  );
+
+  const selectDuplicates = useCallback(
+    (targetPath: string) => {
+      const norm = normalizeLocalPath(targetPath);
+      const duplicateIds = items.filter((i) => normalizeLocalPath(i.path) === norm).map((i) => i.id);
+      if (duplicateIds.length > 0) {
+        onSelectionChange(duplicateIds);
+        message.info(`已选中 ${duplicateIds.length} 个相同路径的文件`);
+      }
+    },
+    [items, onSelectionChange],
+  );
+
+  const removeSelection = useCallback(() => {
+    if (isLocked) {
+      message.warning(isPrinting ? '打印进行中，暂不可修改队列' : '当前批次已完成，请先开始新批次');
+      return;
+    }
+    if (selectedRowKeys.length > 1) {
+      if (onBatchRemove) {
+        onBatchRemove();
+      } else {
+        selectedRowKeys.forEach((k) => onRemove(String(k)));
+        onSelectionChange([]);
+      }
+    } else if (selectedRowKeys.length === 1) {
+      onRemove(String(selectedRowKeys[0]));
+      onSelectionChange([]);
+    }
+  }, [isLocked, isPrinting, onBatchRemove, onRemove, onSelectionChange, selectedRowKeys]);
 
   // Global Ctrl+C / Ctrl+V / Ctrl+Shift+A keyboard shortcuts
   useEffect(() => {
@@ -563,39 +688,10 @@ export function PrintQueue({
       }
 
       if (e.key.toLowerCase() === 'c') {
-        if (selectedRowKeys.length === 0) {
-          message.info('请先选择文件');
-          return;
-        }
-        const selectedSet = new Set(selectedRowKeys.map(String));
-        const toCopy = items.filter((i) => selectedSet.has(i.id));
-        if (toCopy.length === 0) return;
-
-        queueClipboard = toCopy.map((i) => ({
-          path: i.path,
-          fileName: i.fileName,
-          kind: i.kind,
-          pageCount: i.pageCount,
-          override: { ...i.override },
-        }));
-        message.success(`已复制 ${queueClipboard.length} 个文件`);
+        copySelection();
         e.preventDefault();
       } else if (e.key.toLowerCase() === 'v') {
-        if (isLocked) {
-          message.warning(isPrinting ? '打印进行中，暂不可修改队列' : '当前批次已完成，请先开始新批次');
-          e.preventDefault();
-          return;
-        }
-        if (queueClipboard.length === 0) {
-          return;
-        }
-        const targetId = activeId || (items.length > 0 ? items[items.length - 1].id : null);
-        const newIds = onPasteSnapshots?.(queueClipboard, targetId);
-        if (newIds && newIds.length > 0) {
-          onSelectionChange(newIds);
-          setActiveId(newIds[newIds.length - 1]);
-        }
-        message.success(`已粘贴 ${queueClipboard.length} 个文件`);
+        pasteAfterTarget(activeId || null);
         e.preventDefault();
       }
     };
@@ -604,7 +700,7 @@ export function PrintQueue({
     return () => {
       window.removeEventListener('keydown', handleGlobalCopyPaste);
     };
-  }, [items, selectedRowKeys, activeId, isLocked, isPrinting, onPasteSnapshots, onSelectionChange, handleSelectAllDuplicates]);
+  }, [handleSelectAllDuplicates, copySelection, pasteAfterTarget, activeId]);
 
   // Synchronize activeId and rangeAnchorId if files were removed
   useEffect(() => {
@@ -613,7 +709,7 @@ export function PrintQueue({
       setActiveId(nextActive);
       setRangeAnchorId(nextActive);
     }
-  }, [items, activeId]);
+  }, [items, activeId, setActiveId]);
 
   const handleShowInFolder = async (filePath: string) => {
     try {
@@ -621,6 +717,262 @@ export function PrintQueue({
     } catch (error) {
       console.error('Failed to show file in folder', error);
     }
+  };
+
+  const handleOpenFile = async (filePath: string) => {
+    try {
+      await openFile(filePath);
+    } catch (error) {
+      console.error('Failed to open file', error);
+    }
+  };
+
+  const toggleColumn = (key: QueueColumnKey) => {
+    setVisibleColumns((previous) => {
+      const next = previous.includes(key) ? previous.filter((item) => item !== key) : [...previous, key];
+      try {
+        localStorage.setItem(COLUMN_VISIBILITY_STORAGE_KEY, JSON.stringify(next));
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  };
+
+  const handleHeaderContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setContextMenu({
+      type: 'header',
+      position: { x: e.clientX, y: e.clientY },
+    });
+  };
+
+  const renderSortableTitle = (label: string, field: QueueSortField) => (
+    <div className="queue-th-sort-wrapper" onContextMenu={handleHeaderContextMenu}>
+      <span>{label}</span>
+      {sortOrder?.mode === field ? (
+        sortOrder.direction === 'asc' ? (
+          <ArrowUp size={13} className="queue-sort-icon is-active" />
+        ) : (
+          <ArrowDown size={13} className="queue-sort-icon is-active" />
+        )
+      ) : (
+        <ArrowUpDown size={13} className="queue-sort-icon is-inactive" />
+      )}
+    </div>
+  );
+
+  const renderColumnMenuTitle = (label: string) => (
+    <span onContextMenu={handleHeaderContextMenu}>{label}</span>
+  );
+
+  const handleRowContextMenu = (record: QueueItem, event: React.MouseEvent) => {
+    const isAlreadySelected = selectedRowKeys.map(String).includes(record.id);
+    if (!isAlreadySelected) {
+      onSelectionChange([record.id]);
+      setActiveId(record.id);
+      setRangeAnchorId(record.id);
+    }
+    setContextMenu({
+      type: 'row',
+      position: { x: event.clientX, y: event.clientY },
+      item: record,
+    });
+  };
+
+  const handleContainerContextMenu = (event: React.MouseEvent) => {
+    const target = event.target as HTMLElement;
+    if (target.closest('.ant-table-thead, [data-row-id]')) {
+      return;
+    }
+    event.preventDefault();
+    setContextMenu({
+      type: 'blank',
+      position: { x: event.clientX, y: event.clientY },
+    });
+  };
+
+  const getContextMenuItems = (): AppContextMenuItem[] => {
+    if (!contextMenu) return [];
+
+    if (contextMenu.type === 'blank') {
+      const itemsList: AppContextMenuItem[] = [
+        {
+          key: 'add-files',
+          label: '选择文件',
+          icon: <FilePlus2 size={14} />,
+          onClick: () => onAddFiles?.(),
+        },
+      ];
+      if (queueClipboard.length > 0) {
+        itemsList.push({
+          key: 'paste',
+          label: `粘贴文件项（${queueClipboard.length} 项）`,
+          icon: <Copy size={14} />,
+          shortcut: 'Ctrl+V',
+          disabled: isLocked,
+          disabledReason: lockReason,
+          onClick: () => pasteAfterTarget(null),
+        });
+      }
+      return itemsList;
+    }
+
+    if (contextMenu.type === 'header') {
+      return [
+        ...(Object.keys(COLUMN_LABELS) as QueueColumnKey[]).map((key) => ({
+          key,
+          label: COLUMN_LABELS[key],
+          checked: visibleColumns.includes(key),
+          onClick: () => toggleColumn(key),
+        })),
+        { type: 'divider' as const },
+        {
+          key: 'reset-columns',
+          label: '恢复默认列',
+          icon: <RotateCcw size={14} />,
+          onClick: () => {
+            setVisibleColumns(DEFAULT_VISIBLE_COLUMNS);
+            try {
+              localStorage.setItem(
+                COLUMN_VISIBILITY_STORAGE_KEY,
+                JSON.stringify(DEFAULT_VISIBLE_COLUMNS),
+              );
+            } catch {
+              /* ignore */
+            }
+          },
+        },
+      ];
+    }
+
+    // contextMenu.type === 'row'
+    const isMulti = selectedRowKeys.length > 1;
+    const isBatchSettingsDisabled =
+      isLocked || (globalSettings.collateMode === 'bySet' && globalSettings.copies > 1);
+    const batchSettingsDisabledReason =
+      lockReason ||
+      (globalSettings.collateMode === 'bySet' && globalSettings.copies > 1
+        ? '全局已设置为逐套打印，禁止批量修改配置'
+        : undefined);
+
+    if (isMulti) {
+      const itemsList: AppContextMenuItem[] = [
+        {
+          key: 'batch-settings',
+          label: `批量设置（${selectedRowKeys.length} 项）`,
+          icon: <Settings2 size={14} />,
+          disabled: isBatchSettingsDisabled,
+          disabledReason: batchSettingsDisabledReason,
+          onClick: () => onBatchSettings?.(),
+        },
+        {
+          key: 'copy',
+          label: `复制文件项（${selectedRowKeys.length} 项）`,
+          icon: <Copy size={14} />,
+          shortcut: 'Ctrl+C',
+          onClick: copySelection,
+        },
+      ];
+
+      if (queueClipboard.length > 0) {
+        itemsList.push({
+          key: 'paste-after',
+          label: `粘贴到此项之后（${queueClipboard.length} 项）`,
+          icon: <Copy size={14} />,
+          shortcut: 'Ctrl+V',
+          disabled: isLocked,
+          disabledReason: lockReason,
+          onClick: () => pasteAfterTarget(contextMenu.item.id),
+        });
+      }
+
+      itemsList.push(
+        { type: 'divider' },
+        {
+          key: 'remove',
+          label: `移除（${selectedRowKeys.length} 项）`,
+          icon: <Trash2 size={14} />,
+          shortcut: 'Delete',
+          danger: true,
+          disabled: isLocked,
+          disabledReason: lockReason,
+          onClick: removeSelection,
+        },
+      );
+
+      return itemsList;
+    }
+
+    // Single item
+    const itemsList: AppContextMenuItem[] = [
+      {
+        key: 'open-file',
+        label: '打开文件',
+        icon: <FileText size={14} />,
+        onClick: () => void handleOpenFile(contextMenu.item.path),
+      },
+      {
+        key: 'show-in-folder',
+        label: '在文件夹中显示',
+        icon: <FolderOpen size={14} />,
+        onClick: () => void handleShowInFolder(contextMenu.item.path),
+      },
+      {
+        key: 'settings',
+        label: '文件打印设置',
+        icon: <Settings2 size={14} />,
+        disabled: isLocked,
+        disabledReason: lockReason,
+        onClick: () => onOpenSettings(contextMenu.item.id),
+      },
+      { type: 'divider' },
+      {
+        key: 'select-duplicates',
+        label: '选择此文件的全部副本',
+        icon: <CircleDot size={14} />,
+        onClick: () => selectDuplicates(contextMenu.item.path),
+      },
+      {
+        key: 'copy',
+        label: '复制文件项',
+        icon: <Copy size={14} />,
+        shortcut: 'Ctrl+C',
+        onClick: copySelection,
+      },
+    ];
+
+    if (queueClipboard.length > 0) {
+      itemsList.push({
+        key: 'paste-after',
+        label: `粘贴到此项之后（${queueClipboard.length} 项）`,
+        icon: <Copy size={14} />,
+        shortcut: 'Ctrl+V',
+        disabled: isLocked,
+        disabledReason: lockReason,
+        onClick: () => pasteAfterTarget(contextMenu.item.id),
+      });
+    }
+
+    itemsList.push(
+      { type: 'divider' },
+      {
+        key: 'remove',
+        label: '移除',
+        icon: <Trash2 size={14} />,
+        shortcut: 'Delete',
+        danger: true,
+        disabled: isLocked,
+        disabledReason: lockReason,
+        onClick: () => {
+          onRemove(contextMenu.item.id);
+          onSelectionChange(selectedRowKeys.filter((k) => k !== contextMenu.item.id));
+        },
+      },
+    );
+
+    return itemsList;
   };
 
   // Row selection logic
@@ -662,11 +1014,6 @@ export function PrintQueue({
     onSelectionChange([id]);
     setActiveId(id);
     setRangeAnchorId(id);
-  };
-
-  const handleRowDoubleClick = (id: string) => {
-    if (isLocked) return;
-    onOpenSettings(id);
   };
 
   // Keyboard navigation
@@ -730,6 +1077,26 @@ export function PrintQueue({
           onSelectionChange([nextItem.id]);
         }
       }
+    }
+
+    if ((event.shiftKey && event.key === 'F10') || event.key === 'ContextMenu') {
+      const targetId = activeId || (selectedRowKeys.length > 0 ? String(selectedRowKeys[0]) : null);
+      if (targetId) {
+        const item = items.find((i) => i.id === targetId);
+        if (item) {
+          event.preventDefault();
+          const rowEl = containerRef.current?.querySelector(`[data-row-id="${targetId}"]`) as HTMLElement | null;
+          const rect = rowEl?.getBoundingClientRect();
+          setContextMenu({
+            type: 'row',
+            position: rect
+              ? { x: rect.left + Math.min(160, rect.width / 2), y: rect.top + rect.height / 2 }
+              : { x: 200, y: 200 },
+            item,
+          });
+        }
+      }
+      return;
     }
 
     if (event.key === 'Escape') {
@@ -962,29 +1329,16 @@ export function PrintQueue({
   // Columns definition
   const columns: ColumnsType<QueueItem> = [
     {
-      title: (
-        <div className="queue-th-sort-wrapper">
-          <span>文件</span>
-          {sortOrder?.mode === 'fileName' ? (
-            sortOrder.direction === 'asc' ? (
-              <ArrowUp size={13} className="queue-sort-icon is-active" />
-            ) : (
-              <ArrowDown size={13} className="queue-sort-icon is-active" />
-            )
-          ) : (
-            <ArrowUpDown size={13} className="queue-sort-icon is-inactive" />
-          )}
-        </div>
-      ),
+      title: renderSortableTitle('文件', 'fileName'),
       dataIndex: 'fileName',
       key: 'fileName',
       className: 'queue-col-file',
       onHeaderCell: () => ({
-        onClick: () => onToggleSort?.(),
+        onClick: () => onToggleSort?.('fileName'),
         onKeyDown: (e: React.KeyboardEvent) => {
           if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
-            onToggleSort?.();
+            onToggleSort?.('fileName');
           }
         },
         tabIndex: 0,
@@ -1015,12 +1369,30 @@ export function PrintQueue({
             isPrinting={isLocked}
             onKeyboardMove={handleKeyboardMove}
             onSelectDuplicates={(id) => handleSelectAllDuplicates(id)}
+            onOpenFile={(path) => void handleOpenFile(path)}
           />
         );
       },
     },
     {
-      title: '类型',
+      title: renderSortableTitle('文件路径', 'path'), dataIndex: 'path', key: 'path', width: 240,
+      onHeaderCell: () => ({ onClick: () => onToggleSort?.('path'), className: 'queue-th-sortable' }),
+      render: (path: string, record) => <span className="queue-path-cell queue-double-click-path" title="双击打开所在文件夹" onDoubleClick={(event) => { event.stopPropagation(); void handleShowInFolder(record.path); }}>{path}</span>,
+    },
+    {
+      title: renderSortableTitle('创建时间', 'createdAt'), dataIndex: 'createdAt', key: 'createdAt', width: 155,
+      onHeaderCell: () => ({ onClick: () => onToggleSort?.('createdAt'), className: 'queue-th-sortable' }), render: (value) => formatDateTime(value),
+    },
+    {
+      title: renderSortableTitle('修改时间', 'modifiedAt'), dataIndex: 'modifiedAt', key: 'modifiedAt', width: 155,
+      onHeaderCell: () => ({ onClick: () => onToggleSort?.('modifiedAt'), className: 'queue-th-sortable' }), render: (value) => formatDateTime(value),
+    },
+    {
+      title: renderSortableTitle('文件大小', 'fileSize'), dataIndex: 'fileSize', key: 'fileSize', width: 100, align: 'right',
+      onHeaderCell: () => ({ onClick: () => onToggleSort?.('fileSize'), className: 'queue-th-sortable' }), render: (value) => formatFileSize(value),
+    },
+    {
+      title: renderColumnMenuTitle('类型'),
       dataIndex: 'kind',
       key: 'kind',
       width: 80,
@@ -1030,7 +1402,7 @@ export function PrintQueue({
       ),
     },
     {
-      title: '设置',
+      title: renderColumnMenuTitle('设置'),
       key: 'settings',
       width: 220,
       align: 'center',
@@ -1046,7 +1418,7 @@ export function PrintQueue({
                 : ' · 逐份'
             : '';
         return (
-          <div className="queue-setting-summary">
+          <div className="queue-setting-summary queue-double-click-settings" title="双击打开文件配置" onDoubleClick={(event) => { event.stopPropagation(); if (!isLocked) onOpenSettings(record.id); }}>
             <div className="queue-setting-primary">
               {resolved.colorMode === 'color' ? '彩色' : '黑白'} ·{' '}
               {resolved.sidesMode === 'duplex'
@@ -1065,7 +1437,7 @@ export function PrintQueue({
       },
     },
     {
-      title: '状态',
+      title: renderColumnMenuTitle('状态'),
       dataIndex: 'status',
       key: 'status',
       width: 70,
@@ -1073,7 +1445,7 @@ export function PrintQueue({
       render: (status: QueueItem['status'], record) => renderStatusIcon(status, record.errorMessage),
     },
     {
-      title: '操作',
+      title: renderColumnMenuTitle('操作'),
       key: 'actions',
       width: 100,
       align: 'center',
@@ -1128,6 +1500,8 @@ export function PrintQueue({
     },
   ];
 
+  const displayedColumns = columns.filter((column) => !column.key || !Object.prototype.hasOwnProperty.call(COLUMN_LABELS, String(column.key)) || visibleColumns.includes(column.key as QueueColumnKey));
+
   if (items.length === 0) {
     return (
       <div
@@ -1136,6 +1510,13 @@ export function PrintQueue({
           if (!isPrinting) {
             onAddFiles?.();
           }
+        }}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          setContextMenu({
+            type: 'blank',
+            position: { x: e.clientX, y: e.clientY },
+          });
         }}
       >
         <div className="queue-empty-inner">
@@ -1147,6 +1528,12 @@ export function PrintQueue({
             支持 PDF、图片及 Office 文档（Word、Excel、PPT）
           </div>
         </div>
+        <AppContextMenu
+          open={Boolean(contextMenu)}
+          position={contextMenu ? contextMenu.position : null}
+          onClose={() => setContextMenu(null)}
+          items={getContextMenuItems()}
+        />
       </div>
     );
   }
@@ -1158,6 +1545,7 @@ export function PrintQueue({
       tabIndex={0}
       onKeyDown={handleKeyDown}
       onMouseDown={handleMouseDown}
+      onContextMenu={handleContainerContextMenu}
     >
       <div
         aria-live="polite"
@@ -1208,7 +1596,8 @@ export function PrintQueue({
             rowKey="id"
             size="small"
             pagination={false}
-            columns={columns}
+            columns={displayedColumns}
+            scroll={{ x: 1180 }}
             dataSource={items}
             className="queue-compact-table"
             rowSelection={{
@@ -1242,21 +1631,22 @@ export function PrintQueue({
                 }
                 handleRowClick(record.id, rowIndex ?? 0, event);
               },
-              onDoubleClick: (event: React.MouseEvent) => {
-                const target = event.target as HTMLElement;
-                if (
-                  target.closest(
-                    'button, input, a, .ant-checkbox-wrapper, .ant-dropdown-trigger, .queue-drag-handle',
-                  )
-                ) {
-                  return;
-                }
-                handleRowDoubleClick(record.id);
+              onContextMenu: (event: React.MouseEvent) => {
+                event.preventDefault();
+                event.stopPropagation();
+                handleRowContextMenu(record, event);
               },
             })}
           />
         </SortableContext>
       </DndContext>
+
+      <AppContextMenu
+        open={Boolean(contextMenu)}
+        position={contextMenu ? contextMenu.position : null}
+        onClose={() => setContextMenu(null)}
+        items={getContextMenuItems()}
+      />
     </div>
   );
 }

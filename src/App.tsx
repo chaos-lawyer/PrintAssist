@@ -25,6 +25,7 @@ import type { DragEvent } from 'react';
 import {
   cancelPrintBatch,
   expandFilePaths,
+  getFileMetadata,
   isTauriRuntime,
   listSavedPrinterProfiles,
   listSystemPrinters,
@@ -129,6 +130,24 @@ export function App() {
       // ignore
     }
   }, []);
+
+  useEffect(() => {
+    const paths = [...new Set(queueState.items.filter((item) => !item.metadataLoaded).map((item) => item.path))];
+    if (paths.length === 0) return;
+    let cancelled = false;
+    void getFileMetadata(paths)
+      .then((entries) => {
+        if (cancelled) return;
+        dispatch({
+          type: 'set_file_metadata',
+          metadata: Object.fromEntries(entries.map((entry) => [entry.path, entry])),
+        });
+      })
+      .catch(() => {
+        if (!cancelled) dispatch({ type: 'set_file_metadata', metadata: {} });
+      });
+    return () => { cancelled = true; };
+  }, [queueState.items]);
 
   const selectedPrinter = useMemo(
     () => printers.find((printer) => printer.name === globalSettings.printerName),
@@ -987,7 +1006,19 @@ export function App() {
         },
       }}
     >
-      <Layout className="app-shell">
+      <Layout
+        className="app-shell"
+        onContextMenu={(e) => {
+          const target = e.target as HTMLElement | null;
+          const isEditable =
+            target instanceof HTMLInputElement ||
+            target instanceof HTMLTextAreaElement ||
+            Boolean(target?.isContentEditable);
+          if (!isEditable && !e.defaultPrevented) {
+            e.preventDefault();
+          }
+        }}
+      >
         <Header className="app-header">
           <div className="brand-group">
             <div className="brand-mark">
@@ -1111,7 +1142,7 @@ export function App() {
                 selectedRowKeys={selectedRowKeys}
                 sortOrder={queueState.order}
                 onSelectionChange={(keys) => setSelectedRowKeys(keys)}
-                onToggleSort={() => dispatch({ type: 'toggle_filename_sort' })}
+                onToggleSort={(field) => dispatch({ type: 'toggle_sort', field })}
                 onReorderItems={(movingIds, targetId, position) =>
                   dispatch({ type: 'reorder_items', movingIds, targetId, position })
                 }
@@ -1122,6 +1153,8 @@ export function App() {
                   setSelectedRowKeys((prev) => prev.filter((k) => k !== id));
                 }}
                 onOpenSettings={(id) => setSettingsItemId(id)}
+                onBatchSettings={() => setIsBatchSettingsOpen(true)}
+                onBatchRemove={handleBatchRemove}
                 onAddFiles={() => void handlePickFiles()}
               />
             </div>

@@ -19,8 +19,7 @@ import {
   Trash2,
   Upload,
 } from 'lucide-react';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   DndContext,
   PointerSensor,
@@ -36,6 +35,7 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import { AppContextMenu, type AppContextMenuItem } from '../../components/AppContextMenu';
 import {
   deletePrinterProfile,
   duplicatePrinterProfile,
@@ -77,8 +77,8 @@ export function reorderProfileList(
 
 interface MenuState {
   profile: SavedPrinterProfileSummary;
-  top: number;
-  left: number;
+  x: number;
+  y: number;
 }
 
 interface PrinterProfileManagerModalProps {
@@ -169,6 +169,15 @@ function SortableProfileCard({
       className={`profile-card${isActive ? ' is-active' : ''}${
         !isCompatible ? ' is-incompatible' : ''
       }${isDragging ? ' is-dragging' : ''}`}
+      onContextMenu={(e) => {
+        const target = e.target as HTMLElement;
+        if (target.closest('button, input, a')) {
+          return;
+        }
+        e.preventDefault();
+        e.stopPropagation();
+        onOpenMenu(profile, e);
+      }}
     >
       <div className="profile-card-header">
         <div className="profile-card-title-row">
@@ -301,8 +310,6 @@ export function PrinterProfileManagerModal({
   const [menuState, setMenuState] = useState<MenuState | null>(null);
   const [announcement, setAnnouncement] = useState<string>('');
 
-  const menuRef = useRef<HTMLDivElement>(null);
-
   useEffect(() => {
     setLocalProfiles(profiles);
   }, [profiles]);
@@ -314,37 +321,6 @@ export function PrinterProfileManagerModal({
       setEditingProfileId(null);
     }
   }, [open]);
-
-  // Click outside and escape key handling for context menu
-  useEffect(() => {
-    if (!menuState) return;
-
-    const handleMouseDown = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setMenuState(null);
-      }
-    };
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setMenuState(null);
-      }
-    };
-
-    const handleScroll = () => {
-      setMenuState(null);
-    };
-
-    document.addEventListener('mousedown', handleMouseDown);
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('scroll', handleScroll, true);
-
-    return () => {
-      document.removeEventListener('mousedown', handleMouseDown);
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('scroll', handleScroll, true);
-    };
-  }, [menuState]);
 
   // Sensor configuration with activation distance of 5px
   const sensors = useSensors(
@@ -585,15 +561,58 @@ export function PrinterProfileManagerModal({
     e: React.MouseEvent<HTMLElement>,
   ) => {
     e.stopPropagation();
-    const rect = e.currentTarget.getBoundingClientRect();
-    const viewportHeight = window.innerHeight;
-    const preferTop = viewportHeight - rect.bottom < 170;
-
+    let x = e.clientX;
+    let y = e.clientY;
+    if (e.currentTarget.classList.contains('profile-more-btn')) {
+      const rect = e.currentTarget.getBoundingClientRect();
+      x = rect.right - 180;
+      y = rect.bottom + 4;
+    }
     setMenuState({
       profile,
-      top: preferTop ? Math.max(10, rect.top - 165) : rect.bottom + 4,
-      left: Math.max(10, rect.right - 140),
+      x: Math.max(10, x),
+      y: Math.max(10, y),
     });
+  };
+
+  const getProfileMenuItems = (): AppContextMenuItem[] => {
+    if (!menuState) return [];
+
+    const isBusy = Boolean(loadingAction);
+    const isEditing = editingProfileId === menuState.profile.id;
+
+    return [
+      {
+        key: 'rename',
+        label: '重命名',
+        icon: <Edit2 size={14} />,
+        disabled: isBusy || isEditing,
+        onClick: () => handleStartInlineRename(menuState.profile),
+      },
+      {
+        key: 'duplicate',
+        label: '复制配置',
+        icon: <Copy size={14} />,
+        disabled: isBusy,
+        onClick: () => openDuplicateModal(menuState.profile),
+      },
+      {
+        key: 'export',
+        label: '导出配置',
+        icon: <Download size={14} />,
+        disabled: isBusy,
+        onClick: () => void handleExport(menuState.profile),
+      },
+      { type: 'divider' },
+      {
+        key: 'delete',
+        label: '删除配置',
+        icon: <Trash2 size={14} />,
+        danger: true,
+        disabled: isBusy,
+        onClick: () => confirmDelete(menuState.profile),
+      },
+    ];
   };
 
   return (
@@ -666,53 +685,12 @@ export function PrinterProfileManagerModal({
         </div>
       </Modal>
 
-      {/* Fixed-position safe context menu */}
-      {menuState &&
-        createPortal(
-          <div
-            ref={menuRef}
-            className="profile-context-menu"
-            style={{
-              top: menuState.top,
-              left: menuState.left,
-            }}
-          >
-            <button
-              type="button"
-              className="profile-context-menu-item"
-              onClick={() => handleStartInlineRename(menuState.profile)}
-            >
-              <Edit2 size={13} />
-              <span>重命名</span>
-            </button>
-            <button
-              type="button"
-              className="profile-context-menu-item"
-              onClick={() => openDuplicateModal(menuState.profile)}
-            >
-              <Copy size={13} />
-              <span>复制配置</span>
-            </button>
-            <button
-              type="button"
-              className="profile-context-menu-item"
-              onClick={() => void handleExport(menuState.profile)}
-            >
-              <Download size={13} />
-              <span>导出配置</span>
-            </button>
-            <div className="profile-context-menu-divider" />
-            <button
-              type="button"
-              className="profile-context-menu-item is-danger"
-              onClick={() => confirmDelete(menuState.profile)}
-            >
-              <Trash2 size={13} />
-              <span>删除配置</span>
-            </button>
-          </div>,
-          document.body,
-        )}
+      <AppContextMenu
+        open={Boolean(menuState)}
+        position={menuState ? { x: menuState.x, y: menuState.y } : null}
+        onClose={() => setMenuState(null)}
+        items={getProfileMenuItems()}
+      />
 
       {/* Duplicate Modal: explicitly high z-index and centered */}
       <Modal

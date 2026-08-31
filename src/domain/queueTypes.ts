@@ -28,6 +28,10 @@ export interface QueueItem {
   override: FileSettingsOverride;
   errorMessage?: string;
   addedAt: number;
+  fileSize?: number;
+  createdAt?: number;
+  modifiedAt?: number;
+  metadataLoaded?: boolean;
 }
 
 export interface PrintJobResultItem {
@@ -45,9 +49,11 @@ export interface PrintJobSummary {
   results: PrintJobResultItem[];
 }
 
+export type QueueSortField = 'fileName' | 'path' | 'createdAt' | 'modifiedAt' | 'fileSize';
+
 export type QueueOrder =
   | { mode: 'manual' }
-  | { mode: 'fileName'; direction: 'asc' | 'desc' };
+  | { mode: QueueSortField; direction: 'asc' | 'desc' };
 
 export type BatchPhase =
   | 'empty'

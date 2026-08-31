@@ -84,7 +84,9 @@ pub fn run() {
             commands::terminate_print_batch,
             commands::cancel_print_batch,
             commands::validate_supported_path,
-            commands::show_in_folder
+            commands::show_in_folder,
+            commands::get_file_metadata,
+            commands::open_file
         ])
         .run(tauri::generate_context!())
         .expect("error while running PrintAssist");

@@ -103,8 +103,8 @@ describe('NupSettings component', () => {
 
     render(<NupSettings settings={settings} onChange={handleChange} />);
 
-    fireEvent.mouseDown(screen.getByLabelText('快捷模板'));
-    fireEvent.click(screen.getByText('2 × 2'));
+    fireEvent.click(screen.getByLabelText('快捷模板'));
+    fireEvent.click(screen.getByRole('option', { name: '2 × 2' }));
 
     expect(handleChange).toHaveBeenCalledWith(
       expect.objectContaining({

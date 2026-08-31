@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, time::UNIX_EPOCH};
 
 use tauri::AppHandle;
 use tauri_plugin_dialog::DialogExt;
@@ -6,7 +6,7 @@ use tauri_plugin_dialog::DialogExt;
 #[cfg(windows)]
 use crate::contracts::PrinterPropertiesStatus;
 use crate::contracts::{
-    ExportPrinterProfilePayload, LoadedPrinterProfileResult, PaperSourceCapability,
+    ExportPrinterProfilePayload, FileMetadata, LoadedPrinterProfileResult, PaperSourceCapability,
     PrintBatchRequest, PrintBatchResult, PrinterPropertiesResult, SavePrinterProfileRequest,
     SavedPrinterProfileSummary, SystemPrinter,
 };
@@ -535,4 +535,27 @@ pub async fn show_in_folder(path: String) -> Result<(), String> {
         }
     }
     open::that(p).map_err(|error| format!("打开文件位置失败：{error}"))
+}
+
+#[tauri::command]
+pub async fn get_file_metadata(paths: Vec<String>) -> Result<Vec<FileMetadata>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        Ok::<Vec<FileMetadata>, String>(paths.into_iter().filter_map(|path| {
+            let metadata = std::fs::metadata(&path).ok()?;
+            let to_timestamp = |time: std::io::Result<std::time::SystemTime>| {
+                time.ok().and_then(|value| value.duration_since(UNIX_EPOCH).ok()).map(|duration| duration.as_millis() as i64)
+            };
+            Some(FileMetadata {
+                path,
+                file_size: metadata.len(),
+                created_at: to_timestamp(metadata.created()),
+                modified_at: to_timestamp(metadata.modified()),
+            })
+        }).collect())
+    }).await.map_err(|error| format!("读取文件属性失败：{error}"))?
+}
+
+#[tauri::command]
+pub async fn open_file(path: String) -> Result<(), String> {
+    open::that(path).map_err(|error| format!("打开文件失败：{error}"))
 }

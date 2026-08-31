@@ -1,5 +1,6 @@
-import { InputNumber, Segmented, Select, Tooltip } from 'antd';
+import { InputNumber, Segmented, Tooltip } from 'antd';
 import React, { useEffect, useRef } from 'react';
+import { SettingSelect } from '../../components/SettingSelect';
 import {
   clampNupDimension,
   getLinkedNupMin,
@@ -109,11 +110,10 @@ export function NupSettings({ settings, onChange }: NupSettingsProps) {
             <span className="nup-section-label" id="nup-template-label">
               快捷模板
             </span>
-            <Select
-              size="small"
-              aria-labelledby="nup-template-label"
+            <SettingSelect
+              ariaLabelledBy="nup-template-label"
               placeholder="选择快捷布局"
-              value={summary.matchingTemplate?.id}
+              value={summary.matchingTemplate?.id ?? ''}
               options={NUP_TEMPLATES.map((template) => ({
                 value: template.id,
                 label: template.label,
@@ -123,7 +123,6 @@ export function NupSettings({ settings, onChange }: NupSettingsProps) {
                 const template = NUP_TEMPLATES.find((item) => item.id === templateId);
                 if (template) handleSelectTemplate(template);
               }}
-              style={{ width: '100%' }}
             />
           </div>
 
