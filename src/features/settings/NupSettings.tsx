@@ -107,7 +107,7 @@ export function NupSettings({ settings, onChange }: NupSettingsProps) {
           aria-label="拼接布局设置"
         >
           <div className="nup-template-select">
-            <span className="nup-section-label" id="nup-template-label">
+            <span className="setting-row-label nup-section-label" id="nup-template-label">
               快捷模板
             </span>
             <SettingSelect

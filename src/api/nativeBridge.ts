@@ -168,6 +168,19 @@ export async function exportPrinterProfile(
   });
 }
 
+export async function exportAllPrinterProfiles(
+  printerName: string,
+  targetPath: string,
+): Promise<number> {
+  if (!isTauriRuntime()) {
+    return 0;
+  }
+  return invokeCommand<number>('export_all_printer_profiles', {
+    printerName,
+    targetPath,
+  });
+}
+
 export async function importPrinterProfile(
   sourcePath: string,
   targetPrinterName?: string,
@@ -177,6 +190,19 @@ export async function importPrinterProfile(
   }
   return invokeCommand<SavedPrinterProfileSummary>('import_printer_profile', {
     sourcePath,
+    targetPrinterName: targetPrinterName ?? null,
+  });
+}
+
+export async function importPrinterProfiles(
+  sourcePaths: string[],
+  targetPrinterName?: string,
+): Promise<SavedPrinterProfileSummary[]> {
+  if (!isTauriRuntime()) {
+    throw new Error('当前不在桌面端运行环境');
+  }
+  return invokeCommand<SavedPrinterProfileSummary[]>('import_printer_profiles', {
+    sourcePaths,
     targetPrinterName: targetPrinterName ?? null,
   });
 }
@@ -193,6 +219,13 @@ export async function pickImportProfileFile(): Promise<string | null> {
     return null;
   }
   return invokeCommand<string | null>('pick_import_profile_file');
+}
+
+export async function pickImportProfileFiles(): Promise<string[]> {
+  if (!isTauriRuntime()) {
+    return [];
+  }
+  return invokeCommand<string[]>('pick_import_profile_files');
 }
 
 export async function pickFiles(): Promise<string[]> {

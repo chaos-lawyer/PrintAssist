@@ -20,6 +20,7 @@ export type QueueAction =
   | { type: 'prepare_reprint_all' }
   | { type: 'keep_failed_only' }
   | { type: 'restore_batch'; items: QueueItem[]; summary: PrintJobSummary | null; phase: BatchPhase }
+  | { type: 'restore_snapshot'; state: QueueState }
   | { type: 'update_override'; id: string; override: FileSettingsOverride }
   | { type: 'batch_set_override'; ids: string[]; override: Partial<FileSettingsOverride> }
   | { type: 'toggle_sort'; field: QueueSortField }
@@ -247,6 +248,9 @@ export function queueReducer(state: QueueState, action: QueueAction): QueueState
         lastSummary: action.summary,
         phase: action.phase,
       };
+
+    case 'restore_snapshot':
+      return action.state;
 
     case 'update_override':
       return {

@@ -75,6 +75,8 @@ describe('NupSettings component', () => {
     expect(panel.classList.contains('setting-submenu')).toBe(true);
     expect(panel.classList.contains('setting-submenu-wide')).toBe(true);
     expect(panel.classList.contains('nup-config-panel')).toBe(true);
+    const templateLabel = screen.getByText('快捷模板');
+    expect(templateLabel.classList.contains('setting-row-label')).toBe(true);
     const templateSelect = screen.getByLabelText('快捷模板');
     expect(templateSelect).toBeDefined();
 

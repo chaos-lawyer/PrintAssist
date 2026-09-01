@@ -12,6 +12,7 @@ import {
 } from 'antd';
 import {
   CheckCircle2,
+  CircleHelp,
   Clock,
   FilePlus2,
   FolderPlus,
@@ -56,9 +57,20 @@ import {
   sanitizeSettingsForPrinter,
   type PrintSettings,
 } from './domain/printSettings';
-import { createEmptyQueueState, type BatchPhase, type PrintJobSummary, type QueueItem } from './domain/queueTypes';
+import {
+  createEmptyQueueState,
+  type BatchPhase,
+  type PrintJobSummary,
+  type QueueItem,
+  type QueueSortField,
+} from './domain/queueTypes';
 import { parsePageRangeExpression } from './domain/pageRange';
 import { PrintQueue } from './features/queue/PrintQueue';
+import {
+  type QueueColumnKey,
+  getStoredVisibleColumns,
+  getVisibleSortableColumns,
+} from './features/queue/queueColumns';
 import {
   createCloneItem,
   createPrintSummary,
@@ -79,6 +91,18 @@ import { FileSettingsDrawer } from './features/settings/FileSettingsDrawer';
 import { GlobalSettingsPanel } from './features/settings/GlobalSettingsPanel';
 import { SavePrinterProfileModal } from './features/settings/SavePrinterProfileModal';
 import { PrinterProfileManagerModal } from './features/settings/PrinterProfileManagerModal';
+import { PrinterManagerModal } from './features/printers/PrinterManagerModal';
+import {
+  applyPrinterPreferences,
+  loadPrinterPreferences,
+  savePrinterPreferences,
+  type PrinterPreferencesV1,
+} from './features/printers/printerPreferences';
+import { shouldIgnoreShortcut } from './features/shortcuts/shortcutGuards';
+import { ShortcutHelpModal } from './features/shortcuts/ShortcutHelpModal';
+import { useUndoHistory } from './features/undo/useUndoHistory';
+import { UndoRedoControls } from './features/undo/UndoRedoControls';
+import type { WorkspaceSnapshot } from './features/undo/undoTypes';
 import type {
   PrinterDriverSettings,
   SavedPrinterProfileSummary,
@@ -90,8 +114,26 @@ const { Header, Content, Sider } = Layout;
 
 export function App() {
   const [queueState, dispatch] = useReducer(queueReducer, undefined, createEmptyQueueState);
-  const [printers, setPrinters] = useState<SystemPrinter[]>([]);
+  const [systemPrinters, setSystemPrinters] = useState<SystemPrinter[]>([]);
+  const [printerPreferences, setPrinterPreferences] = useState<PrinterPreferencesV1>(loadPrinterPreferences);
+  const printerPreferencesRef = useRef(printerPreferences);
+  printerPreferencesRef.current = printerPreferences;
+
   const [loadingPrinters, setLoadingPrinters] = useState(true);
+  const [printerManagerOpen, setPrinterManagerOpen] = useState(false);
+  const knownPrinterNamesRef = useRef<Set<string> | null>(null);
+
+  const orderedPrinters = useMemo(
+    () => applyPrinterPreferences(systemPrinters, printerPreferences),
+    [systemPrinters, printerPreferences],
+  );
+
+  const visiblePrinters = useMemo(
+    () => orderedPrinters.filter((p) => !p.hidden),
+    [orderedPrinters],
+  );
+
+  const printers = visiblePrinters;
   const [sessionProfiles, setSessionProfiles] = useState<
     Record<string, { profileId: string; settings: PrinterDriverSettings; summary: string }>
   >({});
@@ -108,6 +150,7 @@ export function App() {
   const [settingsItemId, setSettingsItemId] = useState<string | null>(null);
   const [isBatchSettingsOpen, setIsBatchSettingsOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [isShortcutHelpOpen, setIsShortcutHelpOpen] = useState(false);
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
   const [pendingDuplicateResult, setPendingDuplicateResult] = useState<PartitionResult | null>(null);
@@ -177,6 +220,73 @@ export function App() {
       // ignore
     }
   };
+
+  const [visibleColumns, setVisibleColumns] = useState<QueueColumnKey[]>(getStoredVisibleColumns);
+  const visibleSortableColumns = useMemo(
+    () => getVisibleSortableColumns(visibleColumns),
+    [visibleColumns],
+  );
+
+  const currentSnapshotRef = useRef<WorkspaceSnapshot>({
+    queueState,
+    globalSettings,
+    selectedRowKeys: selectedRowKeys.map(String),
+    activeId,
+  });
+  currentSnapshotRef.current = {
+    queueState,
+    globalSettings,
+    selectedRowKeys: selectedRowKeys.map(String),
+    activeId,
+  };
+
+  const [announcement, setAnnouncement] = useState<string>('');
+
+  const isUndoLocked =
+    queueState.isPrinting ||
+    queueState.phase === 'pausing' ||
+    queueState.phase === 'paused' ||
+    queueState.phase === 'terminating';
+
+  const applyWorkspaceSnapshot = useCallback((snapshot: WorkspaceSnapshot) => {
+    dispatch({ type: 'restore_snapshot', state: snapshot.queueState });
+    setGlobalSettings(snapshot.globalSettings);
+    const validIds = new Set(snapshot.queueState.items.map((i) => i.id));
+    setSelectedRowKeys(snapshot.selectedRowKeys.filter((id) => validIds.has(id)));
+    setActiveId(snapshot.activeId && validIds.has(snapshot.activeId) ? snapshot.activeId : null);
+  }, []);
+
+  const {
+    commit,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
+    undoLabel,
+    redoLabel,
+    clearHistory,
+  } = useUndoHistory({
+    getCurrentSnapshot: () => currentSnapshotRef.current,
+    onRestore: (snapshot) => {
+      applyWorkspaceSnapshot(snapshot);
+      currentSnapshotRef.current = snapshot;
+    },
+    isLocked: isUndoLocked,
+  });
+
+  const handleUndo = useCallback(() => {
+    const label = undo();
+    if (label) {
+      setAnnouncement(`已撤销：${label}`);
+    }
+  }, [undo]);
+
+  const handleRedo = useCallback(() => {
+    const label = redo();
+    if (label) {
+      setAnnouncement(`已重做：${label}`);
+    }
+  }, [redo]);
 
   useEffect(() => {
     try {
@@ -330,17 +440,23 @@ export function App() {
 
   const handleSelectSavedProfile = async (profileId: string | null) => {
     if (!profileId) {
-      setGlobalSettings((curr) => ({
+      commit('重置为默认配置', (curr) => ({
         ...curr,
-        persistentProfileId: undefined,
-        persistentProfileName: undefined,
-        profileDirty: false,
+        globalSettings: {
+          ...curr.globalSettings,
+          persistentProfileId: undefined,
+          persistentProfileName: undefined,
+          profileDirty: false,
+        },
       }));
       return;
     }
     try {
       const loaded = await loadPrinterProfile(profileId);
-      setGlobalSettings((curr) => applyLoadedPersistentProfile(curr, loaded));
+      commit(`应用配置“${loaded.persistentProfile.name}”`, (curr) => ({
+        ...curr,
+        globalSettings: applyLoadedPersistentProfile(curr.globalSettings, loaded),
+      }));
       message.success(`已应用配置“${loaded.persistentProfile.name}”`);
     } catch (err) {
       message.error(err instanceof Error ? err.message : '加载配置失败');
@@ -359,21 +475,103 @@ export function App() {
     message.success(`已保存配置“${saved.name}”`);
   };
 
+  const handleSelectPrinter = useCallback(
+    async (nextPrinterName: string) => {
+      const printer = systemPrinters.find((item) => item.name === nextPrinterName);
+      if (!printer) return;
+
+      const baseSettings = sanitizeSettingsForPrinter(
+        {
+          ...globalSettingsRef.current,
+          printerName: nextPrinterName,
+          persistentProfileId: undefined,
+          persistentProfileName: undefined,
+          driverProfileId: undefined,
+          driverSummary: undefined,
+          profileDirty: false,
+        },
+        printer,
+      );
+
+      commit(`切换打印机“${nextPrinterName}”`, (curr) => ({
+        ...curr,
+        globalSettings: baseSettings,
+      }));
+
+      const profiles = await fetchSavedProfiles(nextPrinterName);
+      const defaultProfile = profiles.find(
+        (p) => p.isDefault && p.compatibility === 'compatible',
+      );
+      if (defaultProfile) {
+        try {
+          const loaded = await loadPrinterProfile(defaultProfile.id);
+          commit(`应用配置“${defaultProfile.name}”`, (curr) => ({
+            ...curr,
+            globalSettings: applyLoadedPersistentProfile(curr.globalSettings, loaded),
+          }));
+        } catch {
+          // ignore
+        }
+      }
+    },
+    [systemPrinters, commit, fetchSavedProfiles],
+  );
+
+  const handleSavePrinterPreferences = useCallback(
+    (nextPrefs: PrinterPreferencesV1) => {
+      savePrinterPreferences(nextPrefs);
+      setPrinterPreferences(nextPrefs);
+
+      const currentName = globalSettingsRef.current.printerName;
+      const nextDecorated = applyPrinterPreferences(systemPrinters, nextPrefs);
+      const nextVisible = nextDecorated.filter((p) => !p.hidden);
+
+      const isCurrentVisible = nextVisible.some((p) => p.name === currentName);
+      if (!isCurrentVisible && nextVisible.length > 0) {
+        const fallbackPrinter =
+          nextVisible.find((p) => p.isDefault) || nextVisible[0];
+        void handleSelectPrinter(fallbackPrinter.name);
+      }
+    },
+    [systemPrinters, handleSelectPrinter],
+  );
+
   const refreshPrinters = useCallback(async () => {
     const requestId = ++refreshRequestIdRef.current;
     setLoadingPrinters(true);
     try {
       const nextPrinters = await listSystemPrinters();
       if (requestId !== refreshRequestIdRef.current) return;
-      setPrinters(nextPrinters);
+      setSystemPrinters(nextPrinters);
+
+      // Check for newly discovered printers
+      if (knownPrinterNamesRef.current === null) {
+        knownPrinterNamesRef.current = new Set(nextPrinters.map((p) => p.name));
+      } else {
+        const newlyFound = nextPrinters.filter(
+          (p) => !knownPrinterNamesRef.current!.has(p.name),
+        );
+        if (newlyFound.length > 0) {
+          newlyFound.forEach((p) => knownPrinterNamesRef.current!.add(p.name));
+          if (newlyFound.length === 1) {
+            message.info(`发现新打印机“${newlyFound[0].name}”，已添加到列表末尾`);
+          } else {
+            message.info(`发现 ${newlyFound.length} 台新打印机，已添加到列表末尾`);
+          }
+        }
+      }
 
       const currentSettings = globalSettingsRef.current;
       const currentName = currentSettings.printerName;
-      const exists = nextPrinters.some((p) => p.name === currentName);
-      const preferredName = exists
+
+      const decorated = applyPrinterPreferences(nextPrinters, printerPreferencesRef.current);
+      const visible = decorated.filter((p) => !p.hidden);
+
+      const isCurrentVisible = visible.some((p) => p.name === currentName);
+      const preferredName = isCurrentVisible
         ? currentName
-        : nextPrinters.find((printer) => printer.isDefault)?.name ||
-          nextPrinters[0]?.name ||
+        : visible.find((printer) => printer.isDefault)?.name ||
+          visible[0]?.name ||
           '';
       const preferredPrinter = nextPrinters.find((printer) => printer.name === preferredName);
 
@@ -384,7 +582,7 @@ export function App() {
         ),
       );
 
-      if (preferredName) {
+      if (preferredName && preferredName !== currentName) {
         const profiles = await fetchSavedProfiles(preferredName);
         if (requestId !== refreshRequestIdRef.current) return;
 
@@ -468,13 +666,19 @@ export function App() {
 
         if (decision === 'new-only') {
           if (result.newPaths.length > 0) {
-            dispatch({ type: 'append_files', paths: result.newPaths });
+            commit(`添加 ${result.newPaths.length} 个文件`, (curr) => ({
+              ...curr,
+              queueState: queueReducer(curr.queueState, { type: 'append_files', paths: result.newPaths }),
+            }));
             message.success(
               `已添加 ${result.newPaths.length} 个文件，跳过 ${result.duplicatePaths.length} 个重复文件`,
             );
           }
         } else {
-          dispatch({ type: 'append_files', paths });
+          commit(`添加 ${paths.length} 个文件`, (curr) => ({
+            ...curr,
+            queueState: queueReducer(curr.queueState, { type: 'append_files', paths }),
+          }));
           if (result.duplicatePaths.length > 0) {
             message.success(
               `已添加 ${paths.length} 个文件，其中 ${result.duplicatePaths.length} 个为重复文件`,
@@ -487,7 +691,7 @@ export function App() {
     } finally {
       isProcessingIngressRef.current = false;
     }
-  }, [queueState.isPrinting, queueState.phase, queueState.items, canRestoreBatch]);
+  }, [queueState.isPrinting, queueState.phase, queueState.items, canRestoreBatch, commit]);
 
   const requestAppendPaths = useCallback(
     (paths: string[]) => {
@@ -548,7 +752,7 @@ export function App() {
       const picked = await pickFiles();
       void requestAppendPaths(picked);
     } catch (error) {
-      message.error(error instanceof Error ? error.message : '选择文件失败');
+      message.error(error instanceof Error ? error.message : '添加文件失败');
     }
   };
 
@@ -561,7 +765,7 @@ export function App() {
       const picked = await pickFolderFiles();
       void requestAppendPaths(picked);
     } catch (error) {
-      message.error(error instanceof Error ? error.message : '选择文件夹失败');
+      message.error(error instanceof Error ? error.message : '添加文件夹失败');
     }
   };
 
@@ -722,6 +926,7 @@ export function App() {
       globalSettings.nupLayout.cols * globalSettings.nupLayout.rows > 1,
     );
 
+    clearHistory();
     dispatch({ type: 'begin_print' });
     try {
       const batchResult = await runPrintBatch({
@@ -803,31 +1008,18 @@ export function App() {
   };
 
   const handleStartNewBatch = () => {
-    if (queueState.items.length > 0) {
-      previousBatchBackupRef.current = {
-        items: queueState.items,
-        summary: queueState.lastSummary,
-        phase: queueState.phase,
-      };
-      setCanRestoreBatch(true);
-    }
-    dispatch({ type: 'start_new_batch' });
-    setSelectedRowKeys([]);
-    setActiveId(null);
+    commit('开始新批次', (curr) => ({
+      ...curr,
+      queueState: queueReducer(curr.queueState, { type: 'start_new_batch' }),
+      selectedRowKeys: [],
+      activeId: null,
+    }));
+    setCanRestoreBatch(true);
   };
 
   const handleRestorePreviousBatch = () => {
-    if (previousBatchBackupRef.current) {
-      dispatch({
-        type: 'restore_batch',
-        items: previousBatchBackupRef.current.items,
-        summary: previousBatchBackupRef.current.summary,
-        phase: previousBatchBackupRef.current.phase,
-      });
-      previousBatchBackupRef.current = null;
-      setCanRestoreBatch(false);
-      message.success('已恢复上一批文件及状态');
-    }
+    handleUndo();
+    setCanRestoreBatch(false);
   };
 
   const handleReprintAll = () => {
@@ -841,9 +1033,12 @@ export function App() {
   };
 
   const handleKeepFailedOnly = () => {
-    dispatch({ type: 'keep_failed_only' });
-    setSelectedRowKeys([]);
-    setActiveId(null);
+    commit('仅保留失败项', (curr) => ({
+      ...curr,
+      queueState: queueReducer(curr.queueState, { type: 'keep_failed_only' }),
+      selectedRowKeys: [],
+      activeId: null,
+    }));
     message.info('已移除成功文件，仅保留待处理项');
   };
 
@@ -856,7 +1051,7 @@ export function App() {
     try {
       await pausePrintBatch();
     } catch (err) {
-      message.error(err instanceof Error ? err.message : '请求暂停失败');
+      message.error(err instanceof Error ? err.message : '暂停打印失败');
     }
   };
 
@@ -865,7 +1060,7 @@ export function App() {
     try {
       await resumePrintBatch();
     } catch (err) {
-      message.error(err instanceof Error ? err.message : '请求继续失败');
+      message.error(err instanceof Error ? err.message : '继续打印失败');
     }
   };
 
@@ -878,59 +1073,146 @@ export function App() {
     }
   };
 
-  const handleBatchRemove = () => {
-    if (selectedRowKeys.length === 0 || queueState.isPrinting) return;
-    const count = selectedRowKeys.length;
-    Modal.confirm({
-      title: `确定移除选中的 ${count} 个文件？`,
-      content: '移除后可随时重新添加。',
-      okText: '确定移除',
-      okButtonProps: { danger: true },
-      cancelText: '取消',
-      onOk: () => {
-        dispatch({ type: 'batch_remove', ids: selectedRowKeys as string[] });
-        setSelectedRowKeys([]);
-        message.success(`已移除 ${count} 个文件`);
-      },
-    });
-  };
+  const handleRemoveItems = useCallback(
+    (idsToRemove: string[]) => {
+      if (idsToRemove.length === 0 || queueState.isPrinting) return;
+      const count = idsToRemove.length;
+      const label = count === 1 ? '移除 1 个文件' : `移除 ${count} 个文件`;
+      const idSet = new Set(idsToRemove);
 
-  const handleClearQueue = () => {
+      commit(label, (curr) => ({
+        ...curr,
+        queueState: queueReducer(curr.queueState, { type: 'batch_remove', ids: idsToRemove }),
+        selectedRowKeys: curr.selectedRowKeys.filter((k) => !idSet.has(k)),
+        activeId: curr.activeId && idSet.has(curr.activeId) ? null : curr.activeId,
+      }));
+
+      message.info({
+        content: (
+          <span className="undo-toast-content">
+            <span>{`已${label}`}</span>
+            <Button
+              type="link"
+              size="small"
+              className="undo-toast-btn"
+              onClick={() => {
+                message.destroy('queue_undo_toast');
+                handleUndo();
+              }}
+            >
+              撤销
+            </Button>
+          </span>
+        ),
+        key: 'queue_undo_toast',
+        duration: 4,
+      });
+    },
+    [queueState.isPrinting, commit, handleUndo],
+  );
+
+  const handleRemoveItem = useCallback(
+    (id: string) => {
+      handleRemoveItems([id]);
+    },
+    [handleRemoveItems],
+  );
+
+  const handleBatchRemove = useCallback(() => {
+    handleRemoveItems(selectedRowKeys as string[]);
+  }, [handleRemoveItems, selectedRowKeys]);
+
+  const handleClearQueue = useCallback(() => {
     if (queueState.items.length === 0 || queueState.isPrinting) return;
-    Modal.confirm({
-      title: '确定清空当前列表？',
-      content: '将移除待打印列表中的所有文件。',
-      okText: '确定清空',
-      okButtonProps: { danger: true },
-      cancelText: '取消',
-      onOk: () => {
-        dispatch({ type: 'clear_queue' });
-        setSelectedRowKeys([]);
-        setActiveId(null);
-        setCanRestoreBatch(false);
-        previousBatchBackupRef.current = null;
-        message.success('已清空待打印列表');
-      },
+    const count = queueState.items.length;
+    const label = `清空 ${count} 个文件`;
+
+    commit(label, (curr) => ({
+      ...curr,
+      queueState: queueReducer(curr.queueState, { type: 'clear_queue' }),
+      selectedRowKeys: [],
+      activeId: null,
+    }));
+
+    message.info({
+      content: (
+        <span className="undo-toast-content">
+          <span>{`已${label}`}</span>
+          <Button
+            type="link"
+            size="small"
+            className="undo-toast-btn"
+            onClick={() => {
+              message.destroy('queue_undo_toast');
+              handleUndo();
+            }}
+          >
+            撤销
+          </Button>
+        </span>
+      ),
+      key: 'queue_undo_toast',
+      duration: 4,
     });
-  };
+  }, [queueState.items.length, queueState.isPrinting, commit, handleUndo]);
 
   const handleCloneItems = useCallback(
     (sourceIds: string[], targetId: string, position: 'before' | 'after') => {
-      dispatch({ type: 'clone_items', sourceIds, targetId, position });
+      commit(`克隆 ${sourceIds.length} 个文件`, (curr) => ({
+        ...curr,
+        queueState: queueReducer(curr.queueState, {
+          type: 'clone_items',
+          sourceIds,
+          targetId,
+          position,
+        }),
+      }));
     },
-    [],
+    [commit],
   );
 
   const handlePasteSnapshots = useCallback(
     (snapshots: QueueItemSnapshot[], targetId: string | null) => {
       if (snapshots.length === 0) return [];
       const clones = snapshots.map(createCloneItem);
-      dispatch({ type: 'insert_items', items: clones, targetId });
       const newIds = clones.map((c) => c.id);
-      setSelectedRowKeys(newIds);
+      commit(`粘贴 ${clones.length} 个文件`, (curr) => ({
+        ...curr,
+        queueState: queueReducer(curr.queueState, {
+          type: 'insert_items',
+          items: clones,
+          targetId,
+        }),
+        selectedRowKeys: newIds,
+      }));
       return newIds;
     },
-    [],
+    [commit],
+  );
+
+  const handleReorderItems = useCallback(
+    (movingIds: string[], targetId: string, position: 'before' | 'after') => {
+      commit(`移动 ${movingIds.length} 个文件`, (curr) => ({
+        ...curr,
+        queueState: queueReducer(curr.queueState, {
+          type: 'reorder_items',
+          movingIds,
+          targetId,
+          position,
+        }),
+      }));
+    },
+    [commit],
+  );
+
+  const handleToggleSort = useCallback(
+    (field: QueueSortField) => {
+      commit('调整文件排序', (curr) => ({
+        ...curr,
+        queueState: queueReducer(curr.queueState, { type: 'toggle_sort', field }),
+      }));
+    },
+    [commit],
   );
 
   // 监听单文件打印实时进度事件
@@ -960,47 +1242,349 @@ export function App() {
     return unsubscribe;
   }, []);
 
-  // 全局快捷键支持：Delete/Backspace 移除选中，Ctrl/Cmd+A 全选，Ctrl/Cmd+P 触发打印
+  // 全局快捷键支持：
+  // 帮助 /，删除 Delete/Backspace，全选 Ctrl+A，开始打印 Ctrl+P
+  // 单键快捷键（受统一安全守卫保护）：A 添加文件，F 添加文件夹，H 打印历史，S 文件/批量设置，1~9 驱动配置
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      const activeEl = document.activeElement;
-      const isInputActive =
-        activeEl instanceof HTMLInputElement ||
-        activeEl instanceof HTMLTextAreaElement ||
-        activeEl?.getAttribute('contenteditable') === 'true';
-
-      // Delete / Backspace：批量删除选中
-      if ((event.key === 'Delete' || event.key === 'Backspace') && !isInputActive) {
-        if (selectedRowKeys.length > 0 && !queueState.isPrinting) {
+      // 1. '/' 或 '?'：呼出快捷键帮助
+      if (event.key === '/' || event.key === '?') {
+        if (!shouldIgnoreShortcut(event, { isSingleKey: true })) {
           event.preventDefault();
-          handleBatchRemove();
+          setIsShortcutHelpOpen(true);
+          return;
         }
       }
 
-      // Ctrl+A / Cmd+A：全选待打印文件
+      // 2. Delete / Backspace：批量删除选中
+      if (event.key === 'Delete' || event.key === 'Backspace') {
+        if (!shouldIgnoreShortcut(event, { isSingleKey: true })) {
+          if (selectedRowKeys.length > 0 && !queueState.isPrinting) {
+            event.preventDefault();
+            handleBatchRemove();
+            return;
+          }
+        }
+      }
+
+      // 3. Ctrl+A / Cmd+A：全选待打印文件
       if (
         (event.ctrlKey || event.metaKey) &&
-        (event.key === 'a' || event.key === 'A') &&
-        !isInputActive
+        (event.key === 'a' || event.key === 'A')
       ) {
-        if (queueState.items.length > 0 && !queueState.isPrinting) {
-          event.preventDefault();
-          setSelectedRowKeys(queueState.items.map((item) => item.id));
+        if (!shouldIgnoreShortcut(event, { isSingleKey: false })) {
+          if (queueState.items.length > 0 && !queueState.isPrinting) {
+            event.preventDefault();
+            setSelectedRowKeys(queueState.items.map((item) => item.id));
+            return;
+          }
         }
       }
 
-      // Ctrl+P / Cmd+P：开始打印
-      if ((event.ctrlKey || event.metaKey) && (event.key === 'p' || event.key === 'P')) {
+      // 4. Ctrl+P / Cmd+P：开始打印
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        (event.key === 'p' || event.key === 'P')
+      ) {
+        if (!shouldIgnoreShortcut(event, { isSingleKey: false })) {
+          event.preventDefault();
+          if (
+            availability.printEnabled &&
+            queueState.items.length > 0 &&
+            !queueState.isPrinting
+          ) {
+            void executePrint('remaining');
+            return;
+          }
+        }
+      }
+
+      // 单键快捷键（须符合严格统一守卫）
+      if (shouldIgnoreShortcut(event, { isSingleKey: true })) {
+        return;
+      }
+
+      // 5. 'A' / 'a'：添加文件
+      if (event.key === 'a' || event.key === 'A') {
+        if (queueState.isPrinting) {
+          message.warning('打印进行中，暂不可添加文件');
+          return;
+        }
         event.preventDefault();
-        if (availability.printEnabled && queueState.items.length > 0 && !queueState.isPrinting) {
-          void executePrint('remaining');
+        void handlePickFiles();
+        return;
+      }
+
+      // 6. 'F' / 'f'：添加文件夹
+      if (event.key === 'f' || event.key === 'F') {
+        if (queueState.isPrinting) {
+          message.warning('打印进行中，暂不可添加文件');
+          return;
+        }
+        event.preventDefault();
+        void handlePickFolder();
+        return;
+      }
+
+      // 7. 'H' / 'h'：打开打印历史
+      if (event.key === 'h' || event.key === 'H') {
+        event.preventDefault();
+        setHistoryOpen(true);
+        return;
+      }
+
+      // 8. 'E' / 'e'：文件设置（单项/批量）
+      if (event.key === 'e' || event.key === 'E') {
+        if (queueState.isPrinting) {
+          message.warning('打印进行中，暂不可修改配置');
+          return;
+        }
+        if (queueState.phase === 'completed') {
+          message.warning('当前批次已完成，请先开始新批次');
+          return;
+        }
+        if (selectedRowKeys.length > 1) {
+          event.preventDefault();
+          setIsBatchSettingsOpen(true);
+          return;
+        }
+        if (selectedRowKeys.length === 1) {
+          event.preventDefault();
+          setSettingsItemId(String(selectedRowKeys[0]));
+          return;
+        }
+        if (activeId) {
+          event.preventDefault();
+          setSettingsItemId(activeId);
+          return;
+        }
+        message.info('请先选择待配置的文件');
+        return;
+      }
+
+      // 0. 'Ctrl+Z'：撤销
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        !event.shiftKey &&
+        (event.key === 'z' || event.key === 'Z')
+      ) {
+        if (!shouldIgnoreShortcut(event, { isSingleKey: false })) {
+          event.preventDefault();
+          handleUndo();
+          return;
+        }
+      }
+
+      // 0.1 'Ctrl+Y' / 'Ctrl+Shift+Z'：重做
+      const isRedoKey =
+        (event.ctrlKey || event.metaKey) &&
+        ((event.shiftKey && (event.key === 'z' || event.key === 'Z')) ||
+          (!event.shiftKey && (event.key === 'y' || event.key === 'Y')));
+      if (isRedoKey) {
+        if (!shouldIgnoreShortcut(event, { isSingleKey: false })) {
+          event.preventDefault();
+          handleRedo();
+          return;
+        }
+      }
+
+      // 9. 'D' / 'd'：全局设置调整单双面
+      if (event.key === 'd' || event.key === 'D') {
+        if (queueState.isPrinting) {
+          message.warning('打印进行中，暂不可修改全局设置');
+          return;
+        }
+        if (queueState.phase === 'completed') {
+          message.warning('当前批次已完成，请先开始新批次');
+          return;
+        }
+        event.preventDefault();
+        const nextSides = globalSettings.sidesMode === 'duplex' ? 'simplex' : 'duplex';
+        if (nextSides === 'duplex' && !availability.duplexEnabled) {
+          message.warning('当前打印机不支持双面打印');
+          return;
+        }
+        commit('调整单双面设置', (curr) => ({
+          ...curr,
+          globalSettings: {
+            ...curr.globalSettings,
+            sidesMode: nextSides,
+            profileDirty: true,
+          },
+        }));
+        message.success(`全局设置：已切换为${nextSides === 'duplex' ? '双面' : '单面'}打印`);
+        return;
+      }
+
+      // 10. 'S' / 's'：全局设置调整黑白/彩色
+      if (event.key === 's' || event.key === 'S') {
+        if (queueState.isPrinting) {
+          message.warning('打印进行中，暂不可修改全局设置');
+          return;
+        }
+        if (queueState.phase === 'completed') {
+          message.warning('当前批次已完成，请先开始新批次');
+          return;
+        }
+        event.preventDefault();
+        const nextColor = globalSettings.colorMode === 'color' ? 'monochrome' : 'color';
+        if (nextColor === 'color' && !availability.colorEnabled) {
+          message.warning(
+            `当前打印机不支持彩色打印${selectedPrinter?.color.detail ? `（${selectedPrinter.color.detail}）` : ''}`,
+          );
+          return;
+        }
+        commit('调整黑白/彩色设置', (curr) => ({
+          ...curr,
+          globalSettings: {
+            ...curr.globalSettings,
+            colorMode: nextColor,
+            profileDirty: true,
+          },
+        }));
+        message.success(`全局设置：已切换为${nextColor === 'color' ? '彩色' : '黑白'}打印`);
+        return;
+      }
+
+      const isCtrlOrMeta = event.ctrlKey || event.metaKey;
+      // 11. ']'：下一个打印机 (单键)
+      if (event.key === ']' && !isCtrlOrMeta && !event.altKey && !event.shiftKey) {
+        if (!shouldIgnoreShortcut(event, { isSingleKey: true })) {
+          if (queueState.isPrinting) {
+            message.warning('打印进行中，暂不可切换打印机');
+            return;
+          }
+          if (visiblePrinters.length <= 1) {
+            return;
+          }
+          event.preventDefault();
+          const currIdx = visiblePrinters.findIndex((p) => p.name === globalSettings.printerName);
+          const nextIdx = (currIdx + 1) % visiblePrinters.length;
+          const target = visiblePrinters[nextIdx];
+          void handleSelectPrinter(target.name);
+          message.info(`已切换打印机：${target.name} (${nextIdx + 1} / ${visiblePrinters.length})`);
+          return;
+        }
+      }
+
+      // 12. '['：上一个打印机 (单键)
+      if (event.key === '[' && !isCtrlOrMeta && !event.altKey && !event.shiftKey) {
+        if (!shouldIgnoreShortcut(event, { isSingleKey: true })) {
+          if (queueState.isPrinting) {
+            message.warning('打印进行中，暂不可切换打印机');
+            return;
+          }
+          if (visiblePrinters.length <= 1) {
+            return;
+          }
+          event.preventDefault();
+          const currIdx = visiblePrinters.findIndex((p) => p.name === globalSettings.printerName);
+          const prevIdx = (currIdx - 1 + visiblePrinters.length) % visiblePrinters.length;
+          const target = visiblePrinters[prevIdx];
+          void handleSelectPrinter(target.name);
+          message.info(`已切换打印机：${target.name} (${prevIdx + 1} / ${visiblePrinters.length})`);
+          return;
+        }
+      }
+
+      // 13. 'Shift + 1~9'：选择对应顺序的打印机
+      const digitCodeMatch = event.code.match(/^Digit([1-9])$/);
+      if (event.shiftKey && digitCodeMatch && !isCtrlOrMeta && !event.altKey) {
+        if (!shouldIgnoreShortcut(event, { isSingleKey: false })) {
+          if (queueState.isPrinting) {
+            message.warning('打印进行中，暂不可切换打印机');
+            return;
+          }
+          const index = parseInt(digitCodeMatch[1], 10) - 1;
+          if (index < visiblePrinters.length) {
+            event.preventDefault();
+            const target = visiblePrinters[index];
+            if (target.name === globalSettings.printerName) {
+              message.info(`当前已是打印机：${target.name} (${index + 1} / ${visiblePrinters.length})`);
+              return;
+            }
+            void handleSelectPrinter(target.name);
+            message.info(`已切换打印机：${target.name} (${index + 1} / ${visiblePrinters.length})`);
+            return;
+          }
+        }
+      }
+
+      const numMatch = event.key.match(/^[1-9]$/);
+
+      // 14. 'Ctrl + 1/2/3/4...'：根据当前显示的排序列排序
+      if (isCtrlOrMeta && numMatch) {
+        if (!shouldIgnoreShortcut(event, { isSingleKey: false })) {
+          const colIndex = parseInt(numMatch[0], 10) - 1;
+          if (colIndex < visibleSortableColumns.length) {
+            event.preventDefault();
+            const targetCol = visibleSortableColumns[colIndex];
+            handleToggleSort(targetCol.field);
+            const nextDir =
+              queueState.order.mode === targetCol.field && queueState.order.direction === 'asc'
+                ? '倒序'
+                : '正序';
+            message.info(`按${targetCol.label}${nextDir}排序`);
+            return;
+          }
+        }
+      }
+
+      // 15. '1' ~ '9'：应用当前打印机保存配置 1-9 (单键)
+      if (!isCtrlOrMeta && !event.shiftKey && !event.altKey && numMatch) {
+        const index = parseInt(numMatch[0], 10) - 1;
+        if (!globalSettings.printerName) {
+          message.warning('请先选择打印机');
+          return;
+        }
+        if (loadingSavedProfiles) {
+          message.warning('配置正在加载中，请稍候');
+          return;
+        }
+        if (index < savedProfiles.length) {
+          const profile = savedProfiles[index];
+          if (profile.compatibility !== 'compatible') {
+            message.warning(`配置“${profile.name}”与当前打印机不兼容`);
+            return;
+          }
+          event.preventDefault();
+          void handleSelectSavedProfile(profile.id);
+          return;
         }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedRowKeys, queueState.isPrinting, queueState.items, availability.printEnabled, executePrint]);
+  }, [
+    activeId,
+    availability.colorEnabled,
+    availability.duplexEnabled,
+    availability.printEnabled,
+    commit,
+    executePrint,
+    globalSettings.colorMode,
+    globalSettings.printerName,
+    globalSettings.sidesMode,
+    handleBatchRemove,
+    handlePickFiles,
+    handlePickFolder,
+    handleRedo,
+    handleSelectPrinter,
+    handleSelectSavedProfile,
+    handleToggleSort,
+    handleUndo,
+    loadingSavedProfiles,
+    queueState.isPrinting,
+    queueState.items,
+    queueState.order,
+    queueState.phase,
+    savedProfiles,
+    selectedPrinter,
+    selectedRowKeys,
+    visiblePrinters,
+    visibleSortableColumns,
+  ]);
 
   return (
     <ConfigProvider
@@ -1088,15 +1672,33 @@ export function App() {
               </Typography.Text>
             </div>
           </div>
-          <Space className="header-actions">
-            <Button
-              type="text"
-              className="header-history-btn"
-              icon={<Clock size={15} />}
-              onClick={() => setHistoryOpen(true)}
-            >
-              打印历史
-            </Button>
+          <Space className="header-actions" size={8}>
+            <UndoRedoControls
+              canUndo={canUndo}
+              canRedo={canRedo}
+              undoLabel={undoLabel}
+              redoLabel={redoLabel}
+              onUndo={handleUndo}
+              onRedo={handleRedo}
+            />
+            <Tooltip title="打印历史（H）">
+              <Button
+                type="text"
+                className="header-history-btn"
+                icon={<Clock size={16} />}
+                onClick={() => setHistoryOpen(true)}
+                aria-label="打印历史"
+              />
+            </Tooltip>
+            <Tooltip title="快捷键（/）">
+              <Button
+                type="text"
+                className="header-help-btn"
+                icon={<CircleHelp size={16} />}
+                onClick={() => setIsShortcutHelpOpen(true)}
+                aria-label="快捷键帮助"
+              />
+            </Tooltip>
           </Space>
         </Header>
         <Layout className="app-body">
@@ -1197,23 +1799,22 @@ export function App() {
                 selectedRowKeys={selectedRowKeys}
                 sortOrder={queueState.order}
                 onSelectionChange={(keys) => setSelectedRowKeys(keys)}
-                onToggleSort={(field) => dispatch({ type: 'toggle_sort', field })}
-                onReorderItems={(movingIds, targetId, position) =>
-                  dispatch({ type: 'reorder_items', movingIds, targetId, position })
-                }
+                onToggleSort={handleToggleSort}
+                onReorderItems={handleReorderItems}
                 onCloneItems={handleCloneItems}
                 onPasteSnapshots={handlePasteSnapshots}
-                onRemove={(id) => {
-                  dispatch({ type: 'remove_item', id });
-                  setSelectedRowKeys((prev) => prev.filter((k) => k !== id));
-                }}
+                onRemove={handleRemoveItem}
                 onOpenSettings={(id) => setSettingsItemId(id)}
                 onBatchSettings={() => setIsBatchSettingsOpen(true)}
                 onBatchRemove={handleBatchRemove}
+                onClearQueue={handleClearQueue}
                 onAddFiles={() => void handlePickFiles()}
+                onAddFolder={() => void handlePickFolder()}
+                visibleColumns={visibleColumns}
+                onVisibleColumnsChange={setVisibleColumns}
               />
             </div>
-            {canRestoreBatch && (
+            {canRestoreBatch && undoLabel === '开始新批次' && (
               <div className="restore-batch-banner" role="status" aria-live="polite">
                 <span>已开始新批次</span>
                 <Button
@@ -1312,14 +1913,14 @@ export function App() {
                     disabled={queueState.isPrinting}
                     onClick={() => void handlePickFiles()}
                   >
-                    选择文件
+                    添加文件
                   </Button>
                   <Button
                     icon={<FolderPlus size={15} />}
                     disabled={queueState.isPrinting}
                     onClick={() => void handlePickFolder()}
                   >
-                    选择文件夹
+                    添加文件夹
                   </Button>
                   <PrintPlaybackControls
                     phase={queueState.phase}
@@ -1360,43 +1961,38 @@ export function App() {
               savedProfiles={savedProfiles}
               loadingProfiles={loadingSavedProfiles}
               onRefreshPrinters={() => void refreshPrinters()}
+              onOpenPrinterManager={() => setPrinterManagerOpen(true)}
               onOpenProperties={() => void handleOpenPrinterProperties()}
               onSelectProfile={(profileId) => void handleSelectSavedProfile(profileId)}
               onOpenSaveProfile={() => setSaveModalOpen(true)}
               onOpenProfileManager={() => setManagerModalOpen(true)}
-              onChange={(nextSettings) => {
+              onChange={(nextSettings, changedKey) => {
                 const nextPrinterName = nextSettings.printerName;
-                const printer = printers.find((item) => item.name === nextPrinterName);
-                let updated = { ...nextSettings };
-
                 if (nextPrinterName !== globalSettings.printerName) {
-                  // Switched printer -> query its profiles and auto-load default
-                  void (async () => {
-                    const profiles = await fetchSavedProfiles(nextPrinterName);
-                    const defaultProfile = profiles.find(
-                      (p) => p.isDefault && p.compatibility === 'compatible',
-                    );
-                    if (defaultProfile) {
-                      try {
-                        const loaded = await loadPrinterProfile(defaultProfile.id);
-                        setGlobalSettings((curr) => applyLoadedPersistentProfile(curr, loaded));
-                        return;
-                      } catch {
-                        // ignore
-                      }
-                    }
-                  })();
-
-                  updated.persistentProfileId = undefined;
-                  updated.persistentProfileName = undefined;
-                  updated.driverProfileId = undefined;
-                  updated.driverSummary = undefined;
-                  updated.profileDirty = false;
-                } else {
-                  updated.profileDirty = isProfileDirty(updated, activeProfile?.settings);
+                  void handleSelectPrinter(nextPrinterName);
+                  return;
                 }
 
-                setGlobalSettings(sanitizeSettingsForPrinter(updated, printer));
+                const printer = systemPrinters.find((item) => item.name === nextPrinterName);
+                const updated = {
+                  ...nextSettings,
+                  profileDirty: isProfileDirty(nextSettings, activeProfile?.settings),
+                };
+
+                const sanitized = sanitizeSettingsForPrinter(updated, printer);
+                const isMergeable =
+                  changedKey === 'copies' ||
+                  changedKey === 'pageRange';
+                commit(
+                  '修改全局打印设置',
+                  (curr) => ({
+                    ...curr,
+                    globalSettings: sanitized,
+                  }),
+                  isMergeable
+                    ? { mergeKey: `globalSettings_${changedKey}`, mergeWindowMs: 800 }
+                    : undefined,
+                );
               }}
             />
           </Sider>
@@ -1417,15 +2013,28 @@ export function App() {
           if (!settingsItem) {
             return;
           }
-          dispatch({ type: 'update_override', id: settingsItem.id, override });
+          const fileName = settingsItem.fileName;
+          commit(`修改“${fileName}”的设置`, (curr) => ({
+            ...curr,
+            queueState: queueReducer(curr.queueState, {
+              type: 'update_override',
+              id: settingsItem.id,
+              override,
+            }),
+          }));
           message.success('已保存单文件设置');
         }}
         onBatchSave={(override) => {
-          dispatch({
-            type: 'batch_set_override',
-            ids: selectedRowKeys as string[],
-            override,
-          });
+          const count = selectedRowKeys.length;
+          commit(`修改 ${count} 个文件的设置`, (curr) => ({
+            ...curr,
+            queueState: queueReducer(curr.queueState, {
+              type: 'batch_set_override',
+              ids: curr.selectedRowKeys,
+              override,
+            }),
+          }));
+          message.success(`已保存 ${count} 个文件的设置`);
         }}
       />
       <PrintHistoryModal
@@ -1452,8 +2061,20 @@ export function App() {
         onClose={() => setManagerModalOpen(false)}
         onRefreshProfiles={() => fetchSavedProfiles(globalSettings.printerName).then(() => {})}
         onApplyProfile={(loaded) => {
-          setGlobalSettings((curr) => applyLoadedPersistentProfile(curr, loaded));
+          commit(`应用配置“${loaded.persistentProfile.name}”`, (curr) => ({
+            ...curr,
+            globalSettings: applyLoadedPersistentProfile(curr.globalSettings, loaded),
+          }));
         }}
+      />
+      <PrinterManagerModal
+        open={printerManagerOpen}
+        systemPrinters={systemPrinters}
+        preferences={printerPreferences}
+        currentPrinterName={globalSettings.printerName}
+        isPrinting={queueState.isPrinting}
+        onSave={handleSavePrinterPreferences}
+        onClose={() => setPrinterManagerOpen(false)}
       />
       {pendingDuplicateResult && (
         <DuplicateConfirmModal
@@ -1464,6 +2085,18 @@ export function App() {
           onDecision={handleDuplicateDecision}
         />
       )}
+      <ShortcutHelpModal
+        open={isShortcutHelpOpen}
+        onClose={() => setIsShortcutHelpOpen(false)}
+        savedProfiles={savedProfiles}
+        activeProfileId={globalSettings.persistentProfileId}
+        printerName={globalSettings.printerName}
+        visiblePrinters={visiblePrinters}
+        sortableColumns={visibleSortableColumns}
+      />
+      <div role="status" aria-live="polite" className="sr-only">
+        {announcement}
+      </div>
     </ConfigProvider>
   );
 }

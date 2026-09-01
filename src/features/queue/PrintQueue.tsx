@@ -20,12 +20,14 @@ import {
   FileSpreadsheet,
   FileText,
   FolderOpen,
+  FolderPlus,
   GripVertical,
   Image,
   Loader2,
   MinusCircle,
   Presentation,
   RotateCcw,
+  Scissors,
   Settings2,
   Trash2,
 } from 'lucide-react';
@@ -57,8 +59,15 @@ import { normalizeLocalPath } from './duplicateDetection';
 import type { QueueItemSnapshot } from './queueReducer';
 import { AppContextMenu, type AppContextMenuItem } from '../../components/AppContextMenu';
 import { OverflowTooltipText } from '../../components/OverflowTooltipText';
+import { shouldIgnoreShortcut } from '../shortcuts/shortcutGuards';
 
-let queueClipboard: QueueItemSnapshot[] = [];
+export interface QueueClipboardState {
+  mode: 'copy' | 'cut';
+  snapshots: QueueItemSnapshot[];
+  sourceIds: string[];
+}
+
+let queueClipboard: QueueClipboardState | null = null;
 
 interface PrintQueueProps {
   items: QueueItem[];
@@ -87,9 +96,13 @@ interface PrintQueueProps {
   onOpenSettings: (id: string) => void;
   onBatchSettings?: () => void;
   onBatchRemove?: () => void;
+  onClearQueue?: () => void;
   onAddFiles?: () => void;
+  onAddFolder?: () => void;
   activeId?: string | null;
   onActiveIdChange?: (id: string | null) => void;
+  visibleColumns?: QueueColumnKey[];
+  onVisibleColumnsChange?: (cols: QueueColumnKey[]) => void;
 }
 
 export function formatPrintErrorMessage(errorMessage?: string): string {
@@ -247,50 +260,28 @@ function getParentDirectoryName(filePath: string): string {
   return '';
 }
 
-export type QueueColumnKey =
-  | 'path'
-  | 'createdAt'
-  | 'modifiedAt'
-  | 'fileSize'
-  | 'kind'
-  | 'settings'
-  | 'status'
-  | 'actions';
-export type QueueResizableColumnKey = QueueColumnKey | 'fileName';
+import {
+  type QueueColumnKey,
+  type QueueResizableColumnKey,
+  DEFAULT_COLUMN_WIDTHS,
+  COLUMN_WIDTHS_STORAGE_KEY,
+  COLUMN_VISIBILITY_STORAGE_KEY,
+  DEFAULT_VISIBLE_COLUMNS,
+  COLUMN_LABELS,
+  getStoredVisibleColumns,
+  getVisibleSortableColumns,
+} from './queueColumns';
 
-export const DEFAULT_COLUMN_WIDTHS: Record<QueueResizableColumnKey, number> = {
-  fileName: 240,
-  path: 240,
-  createdAt: 155,
-  modifiedAt: 155,
-  fileSize: 100,
-  kind: 80,
-  settings: 220,
-  status: 70,
-  actions: 100,
-};
-
-export const COLUMN_WIDTHS_STORAGE_KEY = 'printassist_queue_column_widths';
-const COLUMN_VISIBILITY_STORAGE_KEY = 'printassist_queue_visible_columns';
-const DEFAULT_VISIBLE_COLUMNS: QueueColumnKey[] = [
-  'path',
-  'createdAt',
-  'modifiedAt',
-  'fileSize',
-  'kind',
-  'settings',
-  'status',
-  'actions',
-];
-const COLUMN_LABELS: Record<QueueColumnKey, string> = {
-  path: '文件路径',
-  createdAt: '创建时间',
-  modifiedAt: '修改时间',
-  fileSize: '文件大小',
-  kind: '类型',
-  settings: '设置',
-  status: '状态',
-  actions: '操作',
+export {
+  type QueueColumnKey,
+  type QueueResizableColumnKey,
+  DEFAULT_COLUMN_WIDTHS,
+  COLUMN_WIDTHS_STORAGE_KEY,
+  COLUMN_VISIBILITY_STORAGE_KEY,
+  DEFAULT_VISIBLE_COLUMNS,
+  COLUMN_LABELS,
+  getStoredVisibleColumns,
+  getVisibleSortableColumns,
 };
 
 function formatDateTime(timestamp?: number): string {
@@ -502,8 +493,11 @@ export function PrintQueue({
   onBatchSettings,
   onBatchRemove,
   onAddFiles,
+  onAddFolder,
   activeId: propsActiveId,
   onActiveIdChange,
+  visibleColumns: propsVisibleColumns,
+  onVisibleColumnsChange,
 }: PrintQueueProps) {
   const isCompleted = phase === 'completed';
   const isLocked = isPrinting || isCompleted;
@@ -521,24 +515,30 @@ export function PrintQueue({
 
   const [rangeAnchorId, setRangeAnchorId] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState<string>('');
-  const [visibleColumns, setVisibleColumns] = useState<QueueColumnKey[]>(() => {
-    try {
-      const value = localStorage.getItem(COLUMN_VISIBILITY_STORAGE_KEY);
-      if (value) {
-        const saved = JSON.parse(value) as unknown;
-        if (Array.isArray(saved)) {
-          const hasExplicitActions =
-            saved.includes('actions') ||
-            localStorage.getItem('printassist_queue_actions_explicit');
-          return DEFAULT_VISIBLE_COLUMNS.filter((key) => {
-            if (key === 'actions' && !hasExplicitActions) return true;
-            return saved.includes(key);
-          });
-        }
-      }
-    } catch { /* use defaults */ }
-    return DEFAULT_VISIBLE_COLUMNS;
-  });
+  const [cutSourceIds, setCutSourceIds] = useState<string[]>([]);
+  const [internalVisibleColumns, setInternalVisibleColumns] = useState<QueueColumnKey[]>(
+    () => propsVisibleColumns ?? getStoredVisibleColumns(),
+  );
+  const visibleColumns = propsVisibleColumns ?? internalVisibleColumns;
+  const setVisibleColumnsState = (
+    next: QueueColumnKey[] | ((prev: QueueColumnKey[]) => QueueColumnKey[]),
+  ) => {
+    const resolved = typeof next === 'function' ? next(visibleColumns) : next;
+    setInternalVisibleColumns(resolved);
+    onVisibleColumnsChange?.(resolved);
+  };
+
+  const visibleSortables = useMemo(
+    () => getVisibleSortableColumns(visibleColumns),
+    [visibleColumns],
+  );
+  const sortableShortcutMap = useMemo(() => {
+    const map = new Map<QueueSortField, number>();
+    for (const item of visibleSortables) {
+      map.set(item.field, item.shortcutNumber);
+    }
+    return map;
+  }, [visibleSortables]);
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>(() => {
     try {
       const value = localStorage.getItem(COLUMN_WIDTHS_STORAGE_KEY);
@@ -611,6 +611,32 @@ export function PrintQueue({
     });
   };
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const [containerWidth, setContainerWidth] = useState<number>(0);
+
+  useEffect(() => {
+    if (items.length === 0) return;
+    const el = containerRef.current;
+    if (!el) return;
+
+    const handleResize = () => {
+      if (el) {
+        setContainerWidth(el.clientWidth);
+      }
+    };
+
+    handleResize();
+
+    if (typeof ResizeObserver !== 'undefined') {
+      const observer = new ResizeObserver(() => {
+        handleResize();
+      });
+      observer.observe(el);
+      return () => observer.disconnect();
+    } else {
+      window.addEventListener('resize', handleResize);
+      return () => window.removeEventListener('resize', handleResize);
+    }
+  }, [items.length]);
   const [contextMenu, setContextMenu] = useState<
     | { type: 'row'; position: { x: number; y: number }; item: QueueItem }
     | { type: 'blank'; position: { x: number; y: number } }
@@ -720,23 +746,69 @@ export function PrintQueue({
   );
 
   const copySelection = useCallback(() => {
-    if (selectedRowKeys.length === 0) {
+    const targetIds =
+      selectedRowKeys.length > 0
+        ? selectedRowKeys.map(String)
+        : activeId
+          ? [activeId]
+          : [];
+    if (targetIds.length === 0) {
       message.info('请先选择文件');
       return;
     }
-    const selectedSet = new Set(selectedRowKeys.map(String));
-    const toCopy = items.filter((i) => selectedSet.has(i.id));
+    const targetSet = new Set(targetIds);
+    const toCopy = items.filter((i) => targetSet.has(i.id));
     if (toCopy.length === 0) return;
 
-    queueClipboard = toCopy.map((i) => ({
-      path: i.path,
-      fileName: i.fileName,
-      kind: i.kind,
-      pageCount: i.pageCount,
-      override: { ...i.override },
-    }));
-    message.success(`已复制 ${queueClipboard.length} 个文件`);
-  }, [items, selectedRowKeys]);
+    queueClipboard = {
+      mode: 'copy',
+      snapshots: toCopy.map((i) => ({
+        path: i.path,
+        fileName: i.fileName,
+        kind: i.kind,
+        pageCount: i.pageCount,
+        override: { ...i.override },
+      })),
+      sourceIds: [],
+    };
+    setCutSourceIds([]);
+    message.success(`已复制 ${queueClipboard.snapshots.length} 个文件`);
+  }, [items, selectedRowKeys, activeId]);
+
+  const cutSelection = useCallback(() => {
+    if (isLocked) {
+      message.warning(isPrinting ? '打印进行中，暂不可修改队列' : '当前批次已完成，请先开始新批次');
+      return;
+    }
+    const targetIds =
+      selectedRowKeys.length > 0
+        ? selectedRowKeys.map(String)
+        : activeId
+          ? [activeId]
+          : [];
+    if (targetIds.length === 0) {
+      message.info('请先选择文件');
+      return;
+    }
+    const targetSet = new Set(targetIds);
+    const toCut = items.filter((i) => targetSet.has(i.id));
+    if (toCut.length === 0) return;
+
+    const ids = toCut.map((i) => i.id);
+    queueClipboard = {
+      mode: 'cut',
+      snapshots: toCut.map((i) => ({
+        path: i.path,
+        fileName: i.fileName,
+        kind: i.kind,
+        pageCount: i.pageCount,
+        override: { ...i.override },
+      })),
+      sourceIds: ids,
+    };
+    setCutSourceIds(ids);
+    message.info(`已剪切 ${ids.length} 个文件，按 V 粘贴移动`);
+  }, [isLocked, isPrinting, items, selectedRowKeys, activeId]);
 
   const pasteAfterTarget = useCallback(
     (targetId: string | null) => {
@@ -744,19 +816,82 @@ export function PrintQueue({
         message.warning(isPrinting ? '打印进行中，暂不可修改队列' : '当前批次已完成，请先开始新批次');
         return;
       }
-      if (queueClipboard.length === 0) {
+      if (!queueClipboard || queueClipboard.snapshots.length === 0) {
         return;
       }
-      const effectiveTargetId = targetId || activeId || (items.length > 0 ? items[items.length - 1].id : null);
-      const newIds = onPasteSnapshots?.(queueClipboard, effectiveTargetId);
-      if (newIds && newIds.length > 0) {
-        onSelectionChange(newIds);
-        setActiveId(newIds[newIds.length - 1]);
+      const effectiveTargetId =
+        targetId ||
+        activeId ||
+        (items.length > 0 ? items[items.length - 1].id : null);
+
+      if (queueClipboard.mode === 'cut') {
+        const sourceIds = queueClipboard.sourceIds;
+        if (effectiveTargetId && onReorderItems) {
+          onReorderItems(sourceIds, effectiveTargetId, 'after');
+          onSelectionChange(sourceIds);
+          setActiveId(sourceIds[sourceIds.length - 1]);
+          message.success(`已移动 ${sourceIds.length} 个文件`);
+        } else if (onPasteSnapshots) {
+          const newIds = onPasteSnapshots(queueClipboard.snapshots, effectiveTargetId);
+          if (newIds && newIds.length > 0) {
+            sourceIds.forEach((id) => onRemove(id));
+            onSelectionChange(newIds);
+            setActiveId(newIds[newIds.length - 1]);
+            message.success(`已移动 ${newIds.length} 个文件`);
+          }
+        }
+        queueClipboard = null;
+        setCutSourceIds([]);
+      } else {
+        const newIds = onPasteSnapshots?.(queueClipboard.snapshots, effectiveTargetId);
+        if (newIds && newIds.length > 0) {
+          onSelectionChange(newIds);
+          setActiveId(newIds[newIds.length - 1]);
+        }
+        message.success(`已粘贴 ${queueClipboard.snapshots.length} 个文件`);
       }
-      message.success(`已粘贴 ${queueClipboard.length} 个文件`);
     },
-    [activeId, isLocked, isPrinting, items, onPasteSnapshots, onSelectionChange, setActiveId],
+    [activeId, isLocked, isPrinting, items, onPasteSnapshots, onReorderItems, onRemove, onSelectionChange, setActiveId],
   );
+
+  // 清除失效的剪切状态或锁定状态下的剪切
+  useEffect(() => {
+    if (cutSourceIds.length > 0) {
+      if (isLocked) {
+        queueClipboard = null;
+        setCutSourceIds([]);
+        return;
+      }
+      const valid = cutSourceIds.filter((id) => items.some((item) => item.id === id));
+      if (valid.length !== cutSourceIds.length) {
+        if (valid.length === 0) {
+          queueClipboard = null;
+          setCutSourceIds([]);
+        } else {
+          setCutSourceIds(valid);
+          if (queueClipboard?.mode === 'cut') {
+            queueClipboard.sourceIds = valid;
+          }
+        }
+      }
+    }
+  }, [items, isLocked, cutSourceIds]);
+
+  const handleShowInFolder = useCallback(async (filePath: string) => {
+    try {
+      await showInFolder(filePath);
+    } catch (error) {
+      console.error('Failed to show file in folder', error);
+    }
+  }, []);
+
+  const handleOpenFile = useCallback(async (filePath: string) => {
+    try {
+      await openFile(filePath);
+    } catch (error) {
+      console.error('Failed to open file', error);
+    }
+  }, []);
 
   const selectDuplicates = useCallback(
     (targetPath: string) => {
@@ -788,44 +923,98 @@ export function PrintQueue({
     }
   }, [isLocked, isPrinting, onBatchRemove, onRemove, onSelectionChange, selectedRowKeys]);
 
-  // Global Ctrl+C / Ctrl+V / Ctrl+Shift+A keyboard shortcuts
+  // Global queue keyboard shortcuts: C, X, V, Enter, L, Ctrl+Shift+A, Escape
   useEffect(() => {
-    const handleGlobalCopyPaste = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement | null;
-      if (
-        target &&
-        (target.tagName === 'INPUT' ||
-          target.tagName === 'TEXTAREA' ||
-          target.isContentEditable ||
-          target.closest('.ant-modal') ||
-          target.closest('.ant-drawer'))
-      ) {
+    const handleGlobalQueueKeys = (e: KeyboardEvent) => {
+      // 1. Ctrl+Shift+A (select duplicates)
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'a') {
+        if (!shouldIgnoreShortcut(e, { isSingleKey: false })) {
+          e.preventDefault();
+          handleSelectAllDuplicates();
+        }
         return;
       }
 
-      const isModKey = e.ctrlKey || e.metaKey;
-      if (!isModKey) return;
-
-      if (e.key.toLowerCase() === 'a' && e.shiftKey) {
-        e.preventDefault();
-        handleSelectAllDuplicates();
+      // 2. Escape: clear cut state and selection
+      if (e.key === 'Escape') {
+        if (!shouldIgnoreShortcut(e, { isSingleKey: true })) {
+          if (cutSourceIds.length > 0) {
+            if (queueClipboard?.mode === 'cut') queueClipboard = null;
+            setCutSourceIds([]);
+          }
+          onSelectionChange([]);
+        }
         return;
       }
 
-      if (e.key.toLowerCase() === 'c') {
-        copySelection();
-        e.preventDefault();
-      } else if (e.key.toLowerCase() === 'v') {
-        pasteAfterTarget(activeId || null);
-        e.preventDefault();
+      // 3. Copy: Ctrl+C
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'C')) {
+        if (!shouldIgnoreShortcut(e, { isSingleKey: false })) {
+          e.preventDefault();
+          copySelection();
+          return;
+        }
+      }
+
+      // 4. Cut: Ctrl+X
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'x' || e.key === 'X')) {
+        if (!shouldIgnoreShortcut(e, { isSingleKey: false })) {
+          e.preventDefault();
+          cutSelection();
+          return;
+        }
+      }
+
+      // 5. Paste: Ctrl+V
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'v' || e.key === 'V')) {
+        if (!shouldIgnoreShortcut(e, { isSingleKey: false })) {
+          e.preventDefault();
+          pasteAfterTarget(activeId || null);
+          return;
+        }
+      }
+
+      // 6. Open File: Enter
+      if (e.key === 'Enter') {
+        if (!shouldIgnoreShortcut(e, { isSingleKey: true })) {
+          const activeItem = items.find((i) => i.id === activeId);
+          if (activeItem) {
+            e.preventDefault();
+            void handleOpenFile(activeItem.path);
+            return;
+          }
+        }
+      }
+
+      // 7. Locate File: L
+      if (e.key.toLowerCase() === 'l') {
+        if (!shouldIgnoreShortcut(e, { isSingleKey: true })) {
+          const activeItem = items.find((i) => i.id === activeId);
+          if (activeItem) {
+            e.preventDefault();
+            void handleShowInFolder(activeItem.path);
+            return;
+          }
+        }
       }
     };
 
-    window.addEventListener('keydown', handleGlobalCopyPaste);
+    window.addEventListener('keydown', handleGlobalQueueKeys);
     return () => {
-      window.removeEventListener('keydown', handleGlobalCopyPaste);
+      window.removeEventListener('keydown', handleGlobalQueueKeys);
     };
-  }, [handleSelectAllDuplicates, copySelection, pasteAfterTarget, activeId]);
+  }, [
+    activeId,
+    copySelection,
+    cutSelection,
+    cutSourceIds,
+    handleOpenFile,
+    handleSelectAllDuplicates,
+    handleShowInFolder,
+    items,
+    onSelectionChange,
+    pasteAfterTarget,
+  ]);
 
   // Synchronize activeId and rangeAnchorId if files were removed
   useEffect(() => {
@@ -836,22 +1025,6 @@ export function PrintQueue({
     }
   }, [items, activeId, setActiveId]);
 
-  const handleShowInFolder = async (filePath: string) => {
-    try {
-      await showInFolder(filePath);
-    } catch (error) {
-      console.error('Failed to show file in folder', error);
-    }
-  };
-
-  const handleOpenFile = async (filePath: string) => {
-    try {
-      await openFile(filePath);
-    } catch (error) {
-      console.error('Failed to open file', error);
-    }
-  };
-
   const toggleColumn = (key: QueueColumnKey) => {
     if (key === 'actions') {
       try {
@@ -860,8 +1033,20 @@ export function PrintQueue({
         /* ignore */
       }
     }
-    setVisibleColumns((previous) => {
-      const next = previous.includes(key) ? previous.filter((item) => item !== key) : [...previous, key];
+    if (key === 'fileName') {
+      try {
+        localStorage.setItem('printassist_queue_filename_explicit', 'true');
+      } catch {
+        /* ignore */
+      }
+    }
+    setVisibleColumnsState((previous) => {
+      if (previous.includes(key) && previous.length <= 1) {
+        return previous;
+      }
+      const next = previous.includes(key)
+        ? previous.filter((item) => item !== key)
+        : [...previous, key];
       try {
         localStorage.setItem(COLUMN_VISIBILITY_STORAGE_KEY, JSON.stringify(next));
       } catch {
@@ -885,30 +1070,41 @@ export function PrintQueue({
     field: QueueSortField,
     colKey: string,
     defaultWidth: number,
-  ) => (
-    <div className="queue-th-sort-wrapper" onContextMenu={handleHeaderContextMenu}>
-      <span>{label}</span>
-      {sortOrder?.mode === field ? (
-        sortOrder.direction === 'asc' ? (
-          <ArrowUp size={13} className="queue-sort-icon is-active" />
+  ) => {
+    const shortcutNum = sortableShortcutMap.get(field);
+    const shortcutText = shortcutNum !== undefined ? `Ctrl+${shortcutNum}` : undefined;
+    return (
+      <div
+        className="queue-th-sort-wrapper"
+        onContextMenu={handleHeaderContextMenu}
+        title={shortcutText ? `点击或按 ${shortcutText} 排序：正序/逆序切换` : '点击排序'}
+      >
+        <span>{label}</span>
+        {shortcutText && (
+          <kbd className="queue-col-shortcut-kbd">{shortcutText}</kbd>
+        )}
+        {sortOrder?.mode === field ? (
+          sortOrder.direction === 'asc' ? (
+            <ArrowUp size={13} className="queue-sort-icon is-active" />
+          ) : (
+            <ArrowDown size={13} className="queue-sort-icon is-active" />
+          )
         ) : (
-          <ArrowDown size={13} className="queue-sort-icon is-active" />
-        )
-      ) : (
-        <ArrowUpDown size={13} className="queue-sort-icon is-inactive" />
-      )}
-      <span
-        className="queue-col-resizer"
-        role="separator"
-        aria-orientation="vertical"
-        aria-label={`调整 ${label} 列宽`}
-        title="左右拖动调整列宽，双击恢复默认"
-        onMouseDown={(e) => handleColumnResizeStart(colKey, defaultWidth, e)}
-        onDoubleClick={(e) => handleColumnReset(colKey, defaultWidth, e)}
-        onClick={(e) => e.stopPropagation()}
-      />
-    </div>
-  );
+          <ArrowUpDown size={13} className="queue-sort-icon is-inactive" />
+        )}
+        <span
+          className="queue-col-resizer"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label={`调整 ${label} 列宽`}
+          title="左右拖动调整列宽，双击恢复默认"
+          onMouseDown={(e) => handleColumnResizeStart(colKey, defaultWidth, e)}
+          onDoubleClick={(e) => handleColumnReset(colKey, defaultWidth, e)}
+          onClick={(e) => e.stopPropagation()}
+        />
+      </div>
+    );
+  };
 
   const renderColumnMenuTitle = (
     label: string,
@@ -963,15 +1159,27 @@ export function PrintQueue({
       const itemsList: AppContextMenuItem[] = [
         {
           key: 'add-files',
-          label: '选择文件',
+          label: '添加文件',
           icon: <FilePlus2 size={14} />,
+          shortcut: 'A',
+          disabled: isLocked,
+          disabledReason: lockReason,
           onClick: () => onAddFiles?.(),
         },
+        {
+          key: 'add-folder',
+          label: '添加文件夹',
+          icon: <FolderPlus size={14} />,
+          shortcut: 'F',
+          disabled: isLocked,
+          disabledReason: lockReason,
+          onClick: () => onAddFolder?.(),
+        },
       ];
-      if (queueClipboard.length > 0) {
+      if (queueClipboard && queueClipboard.snapshots.length > 0) {
         itemsList.push({
           key: 'paste',
-          label: `粘贴文件项（${queueClipboard.length} 项）`,
+          label: `粘贴文件项（${queueClipboard.snapshots.length} 项）`,
           icon: <Copy size={14} />,
           shortcut: 'Ctrl+V',
           disabled: isLocked,
@@ -996,10 +1204,11 @@ export function PrintQueue({
           label: '恢复默认列',
           icon: <RotateCcw size={14} />,
           onClick: () => {
-            setVisibleColumns(DEFAULT_VISIBLE_COLUMNS);
+            setVisibleColumnsState(DEFAULT_VISIBLE_COLUMNS);
             setColumnWidths(DEFAULT_COLUMN_WIDTHS);
             try {
               localStorage.removeItem('printassist_queue_actions_explicit');
+              localStorage.removeItem('printassist_queue_filename_explicit');
               localStorage.setItem(
                 COLUMN_VISIBILITY_STORAGE_KEY,
                 JSON.stringify(DEFAULT_VISIBLE_COLUMNS),
@@ -1032,6 +1241,7 @@ export function PrintQueue({
           key: 'batch-settings',
           label: `批量设置（${selectedRowKeys.length} 项）`,
           icon: <Settings2 size={14} />,
+          shortcut: 'E',
           disabled: isBatchSettingsDisabled,
           disabledReason: batchSettingsDisabledReason,
           onClick: () => onBatchSettings?.(),
@@ -1043,12 +1253,21 @@ export function PrintQueue({
           shortcut: 'Ctrl+C',
           onClick: copySelection,
         },
+        {
+          key: 'cut',
+          label: `剪切文件项（${selectedRowKeys.length} 项）`,
+          icon: <Scissors size={14} />,
+          shortcut: 'Ctrl+X',
+          disabled: isLocked,
+          disabledReason: lockReason,
+          onClick: cutSelection,
+        },
       ];
 
-      if (queueClipboard.length > 0) {
+      if (queueClipboard && queueClipboard.snapshots.length > 0) {
         itemsList.push({
           key: 'paste-after',
-          label: `粘贴到此项之后（${queueClipboard.length} 项）`,
+          label: `粘贴到此项之后（${queueClipboard.snapshots.length} 项）`,
           icon: <Copy size={14} />,
           shortcut: 'Ctrl+V',
           disabled: isLocked,
@@ -1080,18 +1299,21 @@ export function PrintQueue({
         key: 'open-file',
         label: '打开文件',
         icon: <FileText size={14} />,
+        shortcut: 'Enter',
         onClick: () => void handleOpenFile(contextMenu.item.path),
       },
       {
         key: 'show-in-folder',
         label: '在文件夹中显示',
         icon: <FolderOpen size={14} />,
+        shortcut: 'L',
         onClick: () => void handleShowInFolder(contextMenu.item.path),
       },
       {
         key: 'settings',
         label: '文件打印设置',
         icon: <Settings2 size={14} />,
+        shortcut: 'E',
         disabled: isLocked,
         disabledReason: lockReason,
         onClick: () => onOpenSettings(contextMenu.item.id),
@@ -1101,6 +1323,7 @@ export function PrintQueue({
         key: 'select-duplicates',
         label: '选择此文件的全部副本',
         icon: <CircleDot size={14} />,
+        shortcut: 'Ctrl+Shift+A',
         onClick: () => selectDuplicates(contextMenu.item.path),
       },
       {
@@ -1110,12 +1333,21 @@ export function PrintQueue({
         shortcut: 'Ctrl+C',
         onClick: copySelection,
       },
+      {
+        key: 'cut',
+        label: '剪切文件项',
+        icon: <Scissors size={14} />,
+        shortcut: 'Ctrl+X',
+        disabled: isLocked,
+        disabledReason: lockReason,
+        onClick: cutSelection,
+      },
     ];
 
-    if (queueClipboard.length > 0) {
+    if (queueClipboard && queueClipboard.snapshots.length > 0) {
       itemsList.push({
         key: 'paste-after',
-        label: `粘贴到此项之后（${queueClipboard.length} 项）`,
+        label: `粘贴到此项之后（${queueClipboard.snapshots.length} 项）`,
         icon: <Copy size={14} />,
         shortcut: 'Ctrl+V',
         disabled: isLocked,
@@ -1155,26 +1387,17 @@ export function PrintQueue({
         const start = Math.min(anchorIndex, index);
         const end = Math.max(anchorIndex, index);
         const rangeIds = items.slice(start, end + 1).map((i) => i.id);
-
-        if (isMultiKey) {
-          const merged = Array.from(new Set([...selectedRowKeys.map(String), ...rangeIds]));
-          onSelectionChange(merged);
-        } else {
-          onSelectionChange(rangeIds);
-        }
+        onSelectionChange(rangeIds);
         setActiveId(id);
         return;
       }
     }
 
     if (isMultiKey) {
-      const stringKeys = selectedRowKeys.map(String);
-      const isSelected = stringKeys.includes(id);
-      const nextKeys = isSelected
-        ? stringKeys.filter((k) => k !== id)
-        : [...stringKeys, id];
-
-      onSelectionChange(nextKeys);
+      const newSelection = selectedRowKeys.includes(id)
+        ? selectedRowKeys.filter((k) => k !== id)
+        : [...selectedRowKeys, id];
+      onSelectionChange(newSelection);
       setActiveId(id);
       setRangeAnchorId(id);
       return;
@@ -1209,9 +1432,10 @@ export function PrintQueue({
     }
 
     if (event.key === 'Enter') {
-      if (activeId && !isLocked) {
+      const activeItem = items.find((i) => i.id === activeId);
+      if (activeItem) {
         event.preventDefault();
-        onOpenSettings(activeId);
+        void handleOpenFile(activeItem.path);
       }
       return;
     }
@@ -1246,6 +1470,29 @@ export function PrintQueue({
           onSelectionChange([nextItem.id]);
         }
       }
+      return;
+    }
+
+    if (event.key === 'Home' || event.key === 'End') {
+      if (event.altKey) return;
+      event.preventDefault();
+      const targetIndex = event.key === 'Home' ? 0 : items.length - 1;
+      const targetItem = items[targetIndex];
+      if (!targetItem) return;
+
+      setActiveId(targetItem.id);
+      if (event.shiftKey && rangeAnchorId) {
+        const anchorIndex = items.findIndex((i) => i.id === rangeAnchorId);
+        if (anchorIndex !== -1) {
+          const start = Math.min(anchorIndex, targetIndex);
+          const end = Math.max(anchorIndex, targetIndex);
+          onSelectionChange(items.slice(start, end + 1).map((i) => i.id));
+        }
+      } else {
+        setRangeAnchorId(targetItem.id);
+        onSelectionChange([targetItem.id]);
+      }
+      return;
     }
 
     if ((event.shiftKey && event.key === 'F10') || event.key === 'ContextMenu') {
@@ -1495,13 +1742,28 @@ export function PrintQueue({
     };
   }, [selectedRowKeys, onSelectionChange]);
 
+  // Calculate total width of all visible columns to determine if horizontal scroll is actually needed
+  const totalColumnsWidth = useMemo(() => {
+    const baseWidth = 60 + (columnWidths.fileName ?? DEFAULT_COLUMN_WIDTHS.fileName);
+    const otherVisibleWidth = visibleColumns.reduce((sum, key) => {
+      const w = columnWidths[key] ?? DEFAULT_COLUMN_WIDTHS[key] ?? 100;
+      return sum + w;
+    }, 0);
+    return baseWidth + otherVisibleWidth;
+  }, [visibleColumns, columnWidths]);
+
+  const isOverflowingX = useMemo(() => {
+    if (containerWidth <= 0) return false;
+    return totalColumnsWidth > containerWidth + 2;
+  }, [containerWidth, totalColumnsWidth]);
+
   // Columns definition
   const columns: ColumnsType<QueueItem> = [
     {
       title: renderSortableTitle('文件', 'fileName', 'fileName', DEFAULT_COLUMN_WIDTHS.fileName),
       dataIndex: 'fileName',
       key: 'fileName',
-      width: columnWidths.fileName ?? DEFAULT_COLUMN_WIDTHS.fileName,
+      width: isOverflowingX ? (columnWidths.fileName ?? DEFAULT_COLUMN_WIDTHS.fileName) : undefined,
       className: 'queue-col-file',
       onHeaderCell: () => ({
         onClick: (e: React.MouseEvent) => {
@@ -1738,13 +2000,6 @@ export function PrintQueue({
       visibleColumns.includes(column.key as QueueColumnKey),
   );
 
-  const totalScrollWidth = useMemo(() => {
-    return displayedColumns.reduce((sum, col) => {
-      const w = typeof col.width === 'number' ? col.width : 200;
-      return sum + w;
-    }, 60);
-  }, [displayedColumns]);
-
   if (items.length === 0) {
     return (
       <div
@@ -1840,7 +2095,7 @@ export function PrintQueue({
             size="small"
             pagination={false}
             columns={displayedColumns}
-            scroll={{ x: Math.max(1000, totalScrollWidth) }}
+            scroll={isOverflowingX ? { x: totalColumnsWidth } : undefined}
             dataSource={items}
             className="queue-compact-table"
             rowSelection={{
@@ -1862,7 +2117,9 @@ export function PrintQueue({
               'data-row-id': record.id,
               className: `queue-table-row${
                 selectedRowKeys.includes(record.id) ? ' is-selected' : ''
-              }${activeId === record.id ? ' is-active' : ''}`,
+              }${activeId === record.id ? ' is-active' : ''}${
+                cutSourceIds.includes(record.id) ? ' is-cut' : ''
+              }`,
               onClick: (event: React.MouseEvent) => {
                 const target = event.target as HTMLElement;
                 if (

@@ -347,6 +347,23 @@ pub struct ExportPrinterProfilePayload {
     pub devmode_sha256: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportPrinterProfilesBundlePayload {
+    pub schema_version: u32,
+    pub printer_name: String,
+    pub exported_at: u64,
+    pub profiles: Vec<ExportPrinterProfilePayload>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ImportProfileFileContent {
+    Bundle(ExportPrinterProfilesBundlePayload),
+    List(Vec<ExportPrinterProfilePayload>),
+    Single(ExportPrinterProfilePayload),
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

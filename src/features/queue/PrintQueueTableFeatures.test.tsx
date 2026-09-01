@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createDefaultGlobalSettings } from '../../domain/printSettings';
@@ -207,6 +207,51 @@ describe('PrintQueue Table Features (Width Adjustment & Directory Path Display)'
 
       // Actions column button should be restored
       expect(screen.getByRole('button', { name: '设置此文件参数' })).toBeDefined();
+    });
+
+    it('automatically hides horizontal scroll when container is wide enough and shows it when narrow', () => {
+      let resizeCallback: () => void = () => {};
+      global.ResizeObserver = class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+        constructor(cb: any) {
+          resizeCallback = cb;
+        }
+      } as any;
+
+      const { container } = render(
+        <PrintQueue
+          items={mockItems}
+          globalSettings={createDefaultGlobalSettings()}
+          isPrinting={false}
+          selectedRowKeys={[]}
+          onSelectionChange={vi.fn()}
+          onRemove={vi.fn()}
+          onOpenSettings={vi.fn()}
+        />,
+      );
+
+      const tableWrap = container.querySelector('.queue-table-wrap');
+      expect(tableWrap).not.toBeNull();
+
+      // Case 1: Wide container (1800px) -> columns fit comfortably
+      act(() => {
+        Object.defineProperty(tableWrap, 'clientWidth', { configurable: true, value: 1800 });
+        resizeCallback();
+      });
+
+      // Should not have horizontal scroll container
+      expect(container.querySelector('.ant-table-scroll-horizontal')).toBeNull();
+
+      // Case 2: Narrow container (600px) -> columns overflow
+      act(() => {
+        Object.defineProperty(tableWrap, 'clientWidth', { configurable: true, value: 600 });
+        resizeCallback();
+      });
+
+      // Should enable horizontal scroll
+      expect(container.querySelector('.ant-table-scroll-horizontal')).not.toBeNull();
     });
   });
 });

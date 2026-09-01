@@ -175,6 +175,7 @@ describe('PrintQueue Context Menus', () => {
 
   it('shows blank context menu with add files on empty queue right click', () => {
     const handleAddFiles = vi.fn();
+    const handleAddFolder = vi.fn();
 
     render(
       <PrintQueue
@@ -186,6 +187,7 @@ describe('PrintQueue Context Menus', () => {
         onRemove={vi.fn()}
         onOpenSettings={vi.fn()}
         onAddFiles={handleAddFiles}
+        onAddFolder={handleAddFolder}
       />,
     );
 
@@ -194,11 +196,16 @@ describe('PrintQueue Context Menus', () => {
 
     fireEvent.contextMenu(emptyContainer!);
 
-    const addFilesItem = screen.getByRole('menuitem', { name: /选择文件/ });
+    const addFilesItem = screen.getByRole('menuitem', { name: /^添加文件[^夹]*$/ });
     expect(addFilesItem).toBeDefined();
-
     fireEvent.click(addFilesItem);
     expect(handleAddFiles).toHaveBeenCalledTimes(1);
+
+    fireEvent.contextMenu(emptyContainer!);
+    const addFolderItem = screen.getByRole('menuitem', { name: /添加文件夹/ });
+    expect(addFolderItem).toBeDefined();
+    fireEvent.click(addFolderItem);
+    expect(handleAddFolder).toHaveBeenCalledTimes(1);
   });
 
   it('opens table header column context menu with reset default columns', () => {

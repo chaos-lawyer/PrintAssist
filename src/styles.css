@@ -185,30 +185,65 @@ button,
 }
 
 .app-header .header-history-btn,
-.app-header .ant-btn.header-history-btn {
+.app-header .ant-btn.header-history-btn,
+.app-header .header-help-btn,
+.app-header .ant-btn.header-help-btn {
   color: #ffffff !important;
-  font-weight: 500;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 32px !important;
+  height: 32px !important;
+  padding: 0 !important;
   background: rgba(255, 255, 255, 0.12) !important;
   border: 1px solid rgba(255, 255, 255, 0.28) !important;
+  border-radius: var(--radius-md) !important;
 }
 
 .app-header .header-history-btn:hover,
-.app-header .ant-btn.header-history-btn:hover {
+.app-header .ant-btn.header-history-btn:hover,
+.app-header .header-help-btn:hover,
+.app-header .ant-btn.header-help-btn:hover {
   color: #ffffff !important;
   background: rgba(255, 255, 255, 0.22) !important;
   border-color: rgba(255, 255, 255, 0.48) !important;
 }
 
-.app-header .header-history-btn svg {
+.app-header .header-history-btn svg,
+.app-header .header-help-btn svg {
   color: #ffffff !important;
+}
+
+.app-header .ant-btn.header-undo-btn:disabled,
+.app-header .ant-btn.header-redo-btn:disabled {
+  opacity: 0.35 !important;
+  cursor: not-allowed !important;
+  background: rgba(255, 255, 255, 0.05) !important;
+  border-color: rgba(255, 255, 255, 0.12) !important;
+  color: rgba(255, 255, 255, 0.4) !important;
+}
+
+.app-header .ant-btn.header-undo-btn:disabled svg,
+.app-header .ant-btn.header-redo-btn:disabled svg {
+  color: rgba(255, 255, 255, 0.4) !important;
 }
 
 .header-actions .ant-btn:not(:disabled):hover {
   border-color: rgba(255, 255, 255, 0.55);
   background: rgba(255, 255, 255, 0.08);
+}
+
+.undo-toast-content {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.undo-toast-btn {
+  padding: 0 4px !important;
+  height: auto !important;
+  font-weight: 600 !important;
+  color: var(--color-primary, #1557d0) !important;
 }
 
 .brand-mark {
@@ -243,7 +278,7 @@ button,
   overflow-x: hidden;
   overflow-y: auto;
   border: 1px solid var(--color-border-soft);
-  margin: 14px 18px 14px 4px;
+  margin: 14px 18px 14px 0;
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-soft);
   background: rgba(255, 255, 255, 0.92);
@@ -251,7 +286,7 @@ button,
 }
 
 .layout-splitter {
-  width: 10px;
+  width: 16px;
   margin: 14px 0;
   cursor: col-resize;
   position: relative;
@@ -699,6 +734,8 @@ button,
 
 .setting-submenu {
   box-sizing: border-box;
+  width: calc(100% - 60px);
+  margin-left: 60px;
   padding: 8px 10px;
   background: var(--color-surface);
   border: none;
@@ -716,7 +753,8 @@ button,
 }
 
 .setting-submenu-wide {
-  width: 100%;
+  width: calc(100% - 60px);
+  margin-left: 60px;
 }
 
 .setting-row-nested {
@@ -962,7 +1000,7 @@ button,
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  margin: 14px 12px 14px 18px;
+  margin: 14px 0 14px 18px;
   padding: 18px 20px 0;
   overflow: hidden;
   background: var(--color-surface);
@@ -996,7 +1034,7 @@ button,
 .queue-body {
   flex: 1;
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;
 }
 
 .queue-footer {
@@ -1270,7 +1308,8 @@ button,
 .queue-table-wrap {
   position: relative;
   height: 100%;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   outline: none;
   user-select: none;
 }
@@ -2156,7 +2195,7 @@ button,
 .nup-settings-wrapper {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   width: 100%;
 }
 
@@ -2164,7 +2203,7 @@ button,
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 10px 12px;
+  padding: 8px 10px;
 }
 
 .nup-section {
@@ -2264,5 +2303,389 @@ button,
   min-width: 76px !important;
   justify-content: center !important;
 }
+
+/* ==========================================================================
+   Keyboard Shortcuts & Cut Row (KEYBOARD_SHORTCUTS_IMPROVEMENT_PLAN.md)
+   ========================================================================== */
+
+.shortcut-kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text, #262626);
+  background: var(--color-bg-container, #ffffff);
+  border: 1px solid var(--color-border-soft, #d9d9d9);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  line-height: 1;
+}
+
+.profile-shortcut-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--color-text-secondary, #8c8c8c);
+  background: rgba(0, 0, 0, 0.04);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 3px;
+  line-height: 1;
+}
+
+.queue-table-row.is-cut {
+  opacity: 0.45;
+  filter: grayscale(0.25);
+}
+
+.shortcut-modal-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.shortcut-modal-title-icon {
+  color: var(--color-primary, #1677ff);
+}
+
+.shortcut-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.shortcut-toggle-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  background: #f6f9fc;
+  border: 1px solid #e5edfa;
+  border-radius: 8px;
+}
+
+.shortcut-toggle-title {
+  font-weight: 600;
+  font-size: 13px;
+  color: #1f2937;
+}
+
+.shortcut-toggle-desc {
+  font-size: 12px;
+  color: #6b7280;
+  margin-top: 2px;
+}
+
+.shortcut-group-section {
+  margin-bottom: 16px;
+}
+
+.shortcut-group-heading {
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  margin: 0 0 8px 0 !important;
+  color: #374151 !important;
+  border-bottom: 1px solid #f0f2f5;
+  padding-bottom: 4px;
+}
+
+.shortcut-group-table {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.shortcut-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: background 0.15s;
+}
+
+.shortcut-row:hover {
+  background: #f9fafb;
+}
+
+.shortcut-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: #1f2937;
+  margin-right: 12px;
+}
+
+.shortcut-desc {
+  font-size: 12px;
+  color: #8c8c8c;
+}
+
+.shortcut-key-plus {
+  font-size: 11px;
+  color: #9ca3af;
+}
+
+.shortcut-profiles-preview {
+  margin-top: 8px;
+  padding: 8px 12px;
+  background: #fbfcfe;
+  border: 1px dashed #d1d5db;
+  border-radius: 6px;
+}
+
+.shortcut-profiles-preview-title {
+  font-size: 11px;
+  color: #6b7280;
+  margin-bottom: 6px;
+}
+
+.shortcut-profiles-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.shortcut-profile-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.shortcut-profile-tag.is-active {
+  border-color: #93c5fd;
+  background: #eff6ff;
+}
+
+.shortcut-profile-tag.is-incompatible {
+  opacity: 0.6;
+}
+
+.shortcut-profiles-empty {
+  font-size: 12px;
+  color: #9ca3af;
+}
+
+.header-help-btn {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0 !important;
+  border-radius: 6px;
+  color: var(--color-text-secondary);
+}
+
+.header-help-btn:hover {
+  color: var(--color-primary);
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.queue-col-shortcut-kbd {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 4px;
+  padding: 0 3px;
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 550;
+  line-height: 14px;
+  color: var(--color-text-tertiary, #8c8c8c);
+  background: var(--color-bg-container, #ffffff);
+  border: 1px solid var(--color-border-secondary, #e5e7eb);
+  border-radius: 3px;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.04);
+  pointer-events: none;
+  vertical-align: middle;
+}
+
+/* Printer Manager Modal styles */
+.printer-manager-modal .ant-modal-body {
+  padding: 12px 18px 18px;
+}
+
+.printer-manager-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.printer-search-input {
+  max-width: 260px;
+}
+
+.printer-manager-section {
+  background: var(--color-surface, #ffffff);
+  border: 1px solid var(--color-border-soft, #e8eef5);
+  border-radius: var(--radius-md, 10px);
+  padding: 12px 14px;
+  margin-bottom: 12px;
+}
+
+.printer-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.printer-manager-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 280px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.printer-manager-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: var(--color-surface-soft, #f8fafc);
+  border: 1px solid var(--color-border-soft, #e2e8f0);
+  border-radius: var(--radius-sm, 8px);
+  transition: all 0.15s ease;
+}
+
+.printer-manager-item:hover {
+  background: #ffffff;
+  border-color: var(--color-primary-hover, #91b8f5);
+  box-shadow: var(--shadow-soft);
+}
+
+.printer-manager-item.is-current {
+  border-color: #85a5ff;
+  background: #f0f5ff;
+}
+
+.printer-manager-item.is-dragging {
+  opacity: 0.7;
+  border-color: var(--color-primary, #1557d0);
+  box-shadow: var(--shadow-card);
+}
+
+.printer-item-drag-handle {
+  cursor: grab;
+  color: var(--color-text-muted, #647086);
+  display: flex;
+  align-items: center;
+  padding: 2px;
+}
+
+.printer-item-drag-handle:active {
+  cursor: grabbing;
+}
+
+.printer-item-index {
+  min-width: 54px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.printer-shortcut-badge {
+  display: inline-block;
+  padding: 1px 5px;
+  font-size: 11px;
+  font-family: Consolas, monospace;
+  font-weight: 600;
+  color: var(--color-primary, #1557d0);
+  background: var(--color-primary-soft, #eef4ff);
+  border: 1px solid #d0e2ff;
+  border-radius: 4px;
+}
+
+.printer-index-number {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-muted);
+}
+
+.printer-item-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.printer-item-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.printer-item-name {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 220px;
+}
+
+.printer-item-meta {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  margin-top: 2px;
+}
+
+.printer-item-actions {
+  display: flex;
+  align-items: center;
+}
+
+.printer-hidden-section {
+  background: #fafbfc;
+}
+
+.printer-hidden-header {
+  cursor: pointer;
+  user-select: none;
+  margin-bottom: 0;
+}
+
+.printer-hidden-list {
+  margin-top: 10px;
+  max-height: 180px;
+}
+
+.printer-manager-item.is-hidden-item {
+  opacity: 0.85;
+}
+
+.printer-manager-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.printer-manager-footer-tip {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
 
 

@@ -5,6 +5,7 @@ import {
   Modal,
   Space,
   Tag,
+  Tooltip,
   Typography,
   message,
 } from 'antd';
@@ -39,10 +40,11 @@ import { AppContextMenu, type AppContextMenuItem } from '../../components/AppCon
 import {
   deletePrinterProfile,
   duplicatePrinterProfile,
+  exportAllPrinterProfiles,
   exportPrinterProfile,
-  importPrinterProfile,
+  importPrinterProfiles,
   loadPrinterProfile,
-  pickImportProfileFile,
+  pickImportProfileFiles,
   rebuildPrinterProfile,
   renamePrinterProfile,
   reorderPrinterProfiles,
@@ -301,6 +303,7 @@ export function PrinterProfileManagerModal({
   onApplyProfile,
 }: PrinterProfileManagerModalProps) {
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
+  const isBusy = Boolean(loadingAction);
   const [duplicateModalVisible, setDuplicateModalVisible] = useState(false);
   const [targetProfile, setTargetProfile] = useState<SavedPrinterProfileSummary | null>(null);
   const [newName, setNewName] = useState('');
@@ -437,15 +440,46 @@ export function PrinterProfileManagerModal({
     }
   };
 
-  const handleImport = async () => {
+  const handleExportAll = async () => {
+    if (localProfiles.length === 0) {
+      message.warning('当前暂无配置可导出');
+      return;
+    }
+    setMenuState(null);
     try {
-      const chosenPath = await pickImportProfileFile();
+      const defaultFileName = `${currentPrinterName}-全部配置.paprofile`.replace(
+        /[\\/:*?"<>|]/g,
+        '_',
+      );
+      const chosenPath = await saveExportProfilePath(defaultFileName);
       if (!chosenPath) {
         return;
       }
+      setLoadingAction('export-all');
+      const count = await exportAllPrinterProfiles(currentPrinterName, chosenPath);
+      message.success(`已成功导出 ${count} 个配置到 ${chosenPath}`);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '导出全部配置失败');
+    } finally {
+      setLoadingAction(null);
+    }
+  };
+
+  const handleImport = async () => {
+    try {
+      const chosenPaths = await pickImportProfileFiles();
+      if (!chosenPaths || chosenPaths.length === 0) {
+        return;
+      }
       setLoadingAction('import');
-      const imported = await importPrinterProfile(chosenPath, currentPrinterName);
-      message.success(`已成功导入配置“${imported.name}”`);
+      const imported = await importPrinterProfiles(chosenPaths, currentPrinterName);
+      if (imported.length === 1) {
+        message.success(`已成功导入配置“${imported[0].name}”`);
+      } else if (imported.length > 1) {
+        message.success(`已成功导入 ${imported.length} 个配置`);
+      } else {
+        message.info('未导入任何新配置');
+      }
       await onRefreshProfiles();
     } catch (error) {
       message.error(error instanceof Error ? error.message : '导入配置失败');
@@ -621,14 +655,28 @@ export function PrinterProfileManagerModal({
         title={
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingRight: 32 }}>
             <span>打印机配置管理（{currentPrinterName}）</span>
-            <Button
-              size="small"
-              icon={<Upload size={13} style={{ verticalAlign: -1.5, marginRight: 4 }} />}
-              onClick={handleImport}
-              loading={loadingAction === 'import'}
-            >
-              导入配置
-            </Button>
+            <Space size={8}>
+              <Tooltip title={localProfiles.length === 0 ? '当前暂无配置可导出' : '导出全部配置'}>
+                <Button
+                  size="small"
+                  icon={<Download size={14} />}
+                  onClick={handleExportAll}
+                  disabled={localProfiles.length === 0 || isBusy}
+                  loading={loadingAction === 'export-all'}
+                  aria-label="导出全部配置"
+                />
+              </Tooltip>
+              <Tooltip title="导入配置（支持多选）">
+                <Button
+                  size="small"
+                  icon={<Upload size={14} />}
+                  onClick={handleImport}
+                  disabled={isBusy}
+                  loading={loadingAction === 'import'}
+                  aria-label="导入配置"
+                />
+              </Tooltip>
+            </Space>
           </div>
         }
         width={640}

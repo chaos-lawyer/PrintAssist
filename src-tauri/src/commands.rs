@@ -6,9 +6,9 @@ use tauri_plugin_dialog::DialogExt;
 #[cfg(windows)]
 use crate::contracts::PrinterPropertiesStatus;
 use crate::contracts::{
-    ExportPrinterProfilePayload, FileMetadata, LoadedPrinterProfileResult, PaperSourceCapability,
-    PrintBatchRequest, PrintBatchResult, PrinterPropertiesResult, SavePrinterProfileRequest,
-    SavedPrinterProfileSummary, SystemPrinter,
+    ExportPrinterProfilesBundlePayload, FileMetadata, ImportProfileFileContent,
+    LoadedPrinterProfileResult, PaperSourceCapability, PrintBatchRequest, PrintBatchResult,
+    PrinterPropertiesResult, SavePrinterProfileRequest, SavedPrinterProfileSummary, SystemPrinter,
 };
 use crate::ingress::{collect_path_argument, is_supported_file};
 use crate::printers::{
@@ -386,33 +386,123 @@ pub async fn export_printer_profile(
 }
 
 #[tauri::command]
+pub async fn export_all_printer_profiles(
+    printer_name: String,
+    target_path: String,
+    persistent_store: tauri::State<'_, PersistentPrinterProfileStore>,
+) -> Result<usize, String> {
+    let profiles = persistent_store.list_profiles(Some(&printer_name));
+    if profiles.is_empty() {
+        return Err("当前打印机暂无配置可导出".to_string());
+    }
+
+    let mut payloads = Vec::new();
+    for p in &profiles {
+        let payload = persistent_store.export_profile(&p.id)?;
+        payloads.push(payload);
+    }
+
+    let exported_at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+
+    let bundle = ExportPrinterProfilesBundlePayload {
+        schema_version: crate::printers::persistent_profile_store::SCHEMA_VERSION,
+        printer_name,
+        exported_at,
+        profiles: payloads,
+    };
+
+    let json_str = serde_json::to_string_pretty(&bundle)
+        .map_err(|err| format!("序列化导出数据失败：{err}"))?;
+
+    let path = std::path::Path::new(&target_path);
+    std::fs::write(path, json_str).map_err(|err| format!("写入导出文件失败：{err}"))?;
+
+    Ok(bundle.profiles.len())
+}
+
+#[tauri::command]
+pub async fn import_printer_profiles(
+    source_paths: Vec<String>,
+    target_printer_name: Option<String>,
+    persistent_store: tauri::State<'_, PersistentPrinterProfileStore>,
+) -> Result<Vec<SavedPrinterProfileSummary>, String> {
+    if source_paths.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut imported_summaries = Vec::new();
+    let mut errors = Vec::new();
+
+    for source_path in source_paths {
+        let path = std::path::Path::new(&source_path);
+        if !path.is_file() {
+            errors.push(format!("导入文件不存在：{}", path.display()));
+            continue;
+        }
+
+        let json_str = match std::fs::read_to_string(path) {
+            Ok(content) => content,
+            Err(err) => {
+                errors.push(format!("读取文件失败（{}）：{err}", path.display()));
+                continue;
+            }
+        };
+
+        let content: ImportProfileFileContent = match serde_json::from_str(&json_str) {
+            Ok(parsed) => parsed,
+            Err(err) => {
+                errors.push(format!("解析文件失败（{}）：{err}", path.display()));
+                continue;
+            }
+        };
+
+        let payloads = match content {
+            ImportProfileFileContent::Bundle(b) => b.profiles,
+            ImportProfileFileContent::List(l) => l,
+            ImportProfileFileContent::Single(s) => vec![s],
+        };
+
+        for payload in payloads {
+            match persistent_store.import_profile(payload, target_printer_name.as_deref()) {
+                Ok(saved) => {
+                    let is_default = persistent_store
+                        .get_default_profile_id(&saved.printer.printer_name)
+                        .as_deref()
+                        == Some(&saved.id);
+                    imported_summaries.push(saved.to_summary(
+                        is_default,
+                        crate::contracts::PrinterProfileCompatibility::Compatible,
+                    ));
+                }
+                Err(err) => {
+                    errors.push(format!("导入配置失败：{err}"));
+                }
+            }
+        }
+    }
+
+    if imported_summaries.is_empty() && !errors.is_empty() {
+        return Err(errors.join("\n"));
+    }
+
+    Ok(imported_summaries)
+}
+
+#[tauri::command]
 pub async fn import_printer_profile(
     source_path: String,
     target_printer_name: Option<String>,
     persistent_store: tauri::State<'_, PersistentPrinterProfileStore>,
 ) -> Result<SavedPrinterProfileSummary, String> {
-    let path = std::path::Path::new(&source_path);
-    if !path.is_file() {
-        return Err(format!("导入文件不存在：{}", path.display()));
-    }
-
-    let json_str =
-        std::fs::read_to_string(path).map_err(|err| format!("读取导入文件失败：{err}"))?;
-
-    let payload: ExportPrinterProfilePayload =
-        serde_json::from_str(&json_str).map_err(|err| format!("解析导入文件格式失败：{err}"))?;
-
-    let saved = persistent_store.import_profile(payload, target_printer_name.as_deref())?;
-
-    let is_default = persistent_store
-        .get_default_profile_id(&saved.printer.printer_name)
-        .as_deref()
-        == Some(&saved.id);
-
-    Ok(saved.to_summary(
-        is_default,
-        crate::contracts::PrinterProfileCompatibility::Compatible,
-    ))
+    let mut summaries = import_printer_profiles(
+        vec![source_path],
+        target_printer_name,
+        persistent_store,
+    ).await?;
+    summaries.pop().ok_or_else(|| "未导入任何有效配置".to_string())
 }
 
 #[tauri::command]
@@ -471,6 +561,22 @@ pub async fn pick_import_profile_file(app: AppHandle) -> Result<Option<String>, 
     Ok(file
         .and_then(|file_path| file_path.into_path().ok())
         .map(|path| path.to_string_lossy().to_string()))
+}
+
+#[tauri::command]
+pub async fn pick_import_profile_files(app: AppHandle) -> Result<Vec<String>, String> {
+    let files = app
+        .dialog()
+        .file()
+        .add_filter("PrintAssist 配置", &["paprofile", "json"])
+        .blocking_pick_files();
+
+    Ok(files
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|file_path| file_path.into_path().ok())
+        .map(|path| path.to_string_lossy().to_string())
+        .collect())
 }
 
 /// Expand dropped file/folder paths into supported printable file paths.

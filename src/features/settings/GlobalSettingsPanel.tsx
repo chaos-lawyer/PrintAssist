@@ -39,7 +39,8 @@ interface GlobalSettingsPanelProps {
   onSelectProfile?: (profileId: string | null) => void;
   onOpenSaveProfile?: () => void;
   onOpenProfileManager?: () => void;
-  onChange: (nextSettings: PrintSettings) => void;
+  onOpenPrinterManager?: () => void;
+  onChange: (nextSettings: PrintSettings, changedKey?: keyof PrintSettings) => void;
 }
 
 function describePrinterState(printer: SystemPrinter): string {
@@ -67,6 +68,7 @@ export function GlobalSettingsPanel({
   onSelectProfile,
   onOpenSaveProfile,
   onOpenProfileManager,
+  onOpenPrinterManager,
   onChange,
 }: GlobalSettingsPanelProps) {
   const selectedPrinter = printers.find((printer) => printer.name === settings.printerName);
@@ -491,6 +493,11 @@ export function GlobalSettingsPanel({
                   onMouseEnter={() => setProfileActiveIndex(optionIndex)}
                 >
                   <span className="printer-picker-option-name">{profile.name}</span>
+                  {index < 9 && (
+                    <kbd className="profile-shortcut-badge" title={`按数字键 ${index + 1} 快速应用`}>
+                      {index + 1}
+                    </kbd>
+                  )}
                 </button>
               );
             })}
@@ -505,22 +512,34 @@ export function GlobalSettingsPanel({
         <Typography.Title level={5} className="settings-panel-title">
           打印设置
         </Typography.Title>
-        <Tooltip title="刷新打印机列表">
-          <Button
-            type="text"
-            icon={<RefreshCw size={15} className={loadingPrinters ? 'spin-icon' : ''} />}
-            loading={loadingPrinters}
-            onClick={onRefreshPrinters}
-            aria-label="刷新打印机列表"
-            className="refresh-printers-btn"
-          />
-        </Tooltip>
       </div>
 
       <div className="setting-field">
-        <span className="field-label" id="printer-select-label">
-          打印机
-        </span>
+        <div className="field-label-row">
+          <span className="field-label" id="printer-select-label">
+            打印机
+          </span>
+          <Space size={4}>
+            <Button
+              type="text"
+              className="profile-action-btn"
+              onClick={onOpenPrinterManager}
+              disabled={loadingPrinters && printers.length === 0}
+            >
+              管理
+            </Button>
+            <Tooltip title="刷新打印机列表">
+              <Button
+                type="text"
+                className="profile-action-btn refresh-printers-btn"
+                icon={<RefreshCw size={13} className={loadingPrinters ? 'spin-icon' : ''} />}
+                loading={loadingPrinters}
+                onClick={onRefreshPrinters}
+                aria-label="刷新打印机列表"
+              />
+            </Tooltip>
+          </Space>
+        </div>
         {/*
           Custom floating menu (fixed + manual rect), not antd Select portal.
           Keeps page flow intact while avoiding the invisible-dropdown bug in WebView2.
@@ -638,9 +657,11 @@ export function GlobalSettingsPanel({
 
       <div className="settings-controls">
         <div className="setting-row">
-          <span className="setting-row-label" id="color-mode-label">
-            颜色
-          </span>
+          <Tooltip title="快捷键：S 切换黑白/彩色" mouseEnterDelay={0.5}>
+            <span className="setting-row-label" id="color-mode-label" style={{ cursor: 'help' }}>
+              颜色
+            </span>
+          </Tooltip>
           <Segmented
             className="setting-segmented"
             size="small"
@@ -668,9 +689,11 @@ export function GlobalSettingsPanel({
 
         <div className="setting-group">
           <div className="setting-row">
-            <span className="setting-row-label" id="sides-mode-label">
-              单双面
-            </span>
+            <Tooltip title="快捷键：D 切换单双面" mouseEnterDelay={0.5}>
+              <span className="setting-row-label" id="sides-mode-label" style={{ cursor: 'help' }}>
+                单双面
+              </span>
+            </Tooltip>
             <Segmented
               className="setting-segmented"
               size="small"
@@ -791,10 +814,13 @@ export function GlobalSettingsPanel({
                 max={99}
                 value={settings.copies}
                 onChange={(value) =>
-                  onChange({
-                    ...settings,
-                    copies: typeof value === 'number' && value > 0 ? value : 1,
-                  })
+                  onChange(
+                    {
+                      ...settings,
+                      copies: typeof value === 'number' && value > 0 ? value : 1,
+                    },
+                    'copies',
+                  )
                 }
               />
               <Typography.Text type="secondary">份</Typography.Text>
@@ -908,13 +934,16 @@ export function GlobalSettingsPanel({
                 placeholder="例如 1,3,5-8"
                 value={settings.pageRange?.expression}
                 onChange={(e) =>
-                  onChange({
-                    ...settings,
-                    pageRange: {
-                      mode: 'custom',
-                      expression: e.target.value,
+                  onChange(
+                    {
+                      ...settings,
+                      pageRange: {
+                        mode: 'custom',
+                        expression: e.target.value,
+                      },
                     },
-                  })
+                    'pageRange',
+                  )
                 }
               />
             </div>
