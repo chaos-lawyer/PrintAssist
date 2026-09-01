@@ -4,13 +4,11 @@ import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SavedPrinterProfileSummary } from '../../shared/contracts/printer';
 import { ShortcutHelpModal } from './ShortcutHelpModal';
-import { getSingleKeyShortcutsEnabled, setSingleKeyShortcutsEnabled } from './shortcutRegistry';
 
 describe('ShortcutHelpModal', () => {
   beforeEach(() => {
     cleanup();
     localStorage.clear();
-    setSingleKeyShortcutsEnabled(true);
   });
 
   afterEach(() => {
@@ -43,7 +41,7 @@ describe('ShortcutHelpModal', () => {
     },
   ];
 
-  it('renders shortcut categories and items when open', () => {
+  it('renders three-column compact layout without single key switch', () => {
     render(
       <ShortcutHelpModal
         open={true}
@@ -54,16 +52,20 @@ describe('ShortcutHelpModal', () => {
     );
 
     expect(screen.getByText('快捷键')).toBeDefined();
-    expect(screen.getByText('启用单键快捷键')).toBeDefined();
+    // Verify single key switch banner was completely removed
+    expect(screen.queryByText('启用单键快捷键')).toBeNull();
+
+    // Verify 3 columns
     expect(screen.getByText('文件与队列')).toBeDefined();
+    expect(screen.getByText('设置与配置')).toBeDefined();
+    expect(screen.getByText('打印控制与导航')).toBeDefined();
+
+    // Items
     expect(screen.getByText('添加文件')).toBeDefined();
     expect(screen.getByText('添加文件夹')).toBeDefined();
-    expect(screen.getByText('打印控制')).toBeDefined();
-
-    // Keycaps
-    expect(screen.getAllByText('A').length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText('F')).toBeDefined();
-    expect(screen.getByText('Enter')).toBeDefined();
+    expect(screen.getByText('开始打印')).toBeDefined();
+    expect(screen.getByText('上一配置')).toBeDefined();
+    expect(screen.getByText('下一配置')).toBeDefined();
   });
 
   it('renders available printer profiles mapped to 1 and 2', () => {
@@ -79,10 +81,9 @@ describe('ShortcutHelpModal', () => {
 
     expect(screen.getByText('双面黑白经济模式')).toBeDefined();
     expect(screen.getByText('单面全彩高清模式')).toBeDefined();
-    expect(screen.getByText('当前')).toBeDefined();
   });
 
-  it('toggles single key shortcuts setting and persists to localStorage', () => {
+  it('toggles custom shortcuts editing mode', () => {
     render(
       <ShortcutHelpModal
         open={true}
@@ -92,19 +93,19 @@ describe('ShortcutHelpModal', () => {
       />,
     );
 
-    const switchBtn = screen.getByRole('switch');
-    expect(switchBtn.getAttribute('aria-checked')).toBe('true');
+    const customizeBtn = screen.getByRole('button', { name: /自定义快捷键/ });
+    fireEvent.click(customizeBtn);
 
-    fireEvent.click(switchBtn);
-    expect(getSingleKeyShortcutsEnabled()).toBe(false);
+    expect(screen.getByText('自定义模式')).toBeDefined();
+    expect(screen.getByText(/点击任意快捷键项进入按键录制状态/)).toBeDefined();
 
-    // Reset button restores to true
-    const resetBtn = screen.getByRole('button', { name: /恢复默认设置/ });
-    fireEvent.click(resetBtn);
-    expect(getSingleKeyShortcutsEnabled()).toBe(true);
+    // Click again to exit customization
+    const doneBtn = screen.getByRole('button', { name: /完成自定义/ });
+    fireEvent.click(doneBtn);
+    expect(screen.queryByText('自定义模式')).toBeNull();
   });
 
-  it('renders only Ctrl+1/2 when exactly two sortable columns are displayed', () => {
+  it('renders sortable columns when provided', () => {
     render(
       <ShortcutHelpModal
         open={true}
@@ -119,26 +120,5 @@ describe('ShortcutHelpModal', () => {
 
     expect(screen.getByText('按文件名排序')).toBeDefined();
     expect(screen.getByText('按文件路径排序')).toBeDefined();
-    expect(screen.queryByText('按创建时间排序')).toBeNull();
-  });
-
-  it('adapts when first column is path: displays Ctrl+1 for path and Ctrl+2 for createdAt', () => {
-    render(
-      <ShortcutHelpModal
-        open={true}
-        onClose={vi.fn()}
-        savedProfiles={[]}
-        sortableColumns={[
-          { field: 'path', key: 'path', label: '文件路径', shortcutNumber: 1 },
-          { field: 'createdAt', key: 'createdAt', label: '创建时间', shortcutNumber: 2 },
-        ]}
-      />,
-    );
-
-    expect(screen.getByText('按文件路径排序')).toBeDefined();
-    expect(screen.getByText('按当前第 1 列（文件路径）排序，按一下正序，再按一下逆序')).toBeDefined();
-    expect(screen.getByText('按创建时间排序')).toBeDefined();
-    expect(screen.getByText('按当前第 2 列（创建时间）排序，按一下正序，再按一下逆序')).toBeDefined();
-    expect(screen.queryByText('按文件名排序')).toBeNull();
   });
 });

@@ -88,9 +88,47 @@ describe('PrintQueue Context Menus', () => {
     expect(screen.getByRole('menuitem', { name: /打开文件/ })).toBeDefined();
     expect(screen.getByRole('menuitem', { name: /在文件夹中显示/ })).toBeDefined();
     expect(screen.getByRole('menuitem', { name: /文件打印设置/ })).toBeDefined();
-    expect(screen.getByRole('menuitem', { name: /选择此文件的全部副本/ })).toBeDefined();
+    // No other duplicate exists for doc-1, so select-duplicates should NOT be displayed
+    expect(screen.queryByRole('menuitem', { name: /选择此文件的全部副本/ })).toBeNull();
     expect(screen.getByRole('menuitem', { name: /复制文件项/ })).toBeDefined();
     expect(screen.getByRole('menuitem', { name: /移除/ })).toBeDefined();
+  });
+
+  it('shows "选择此文件的全部副本" when the file has other duplicate copies in the queue', () => {
+    const itemsWithDuplicate: QueueItem[] = [
+      ...mockItems,
+      {
+        id: 'doc-3',
+        path: '/path/to/report.pdf',
+        fileName: 'report (1).pdf',
+        kind: 'pdf',
+        fileSize: 10240,
+        createdAt: 1600000000000,
+        modifiedAt: 1600000000000,
+        addedAt: 1600000000000,
+        pageCount: 5,
+        status: 'pending',
+        override: {},
+      },
+    ];
+
+    render(
+      <PrintQueue
+        items={itemsWithDuplicate}
+        globalSettings={defaultSettings}
+        isPrinting={false}
+        selectedRowKeys={['doc-1']}
+        activeId="doc-1"
+        onSelectionChange={vi.fn()}
+        onRemove={vi.fn()}
+        onOpenSettings={vi.fn()}
+      />,
+    );
+
+    const row = document.querySelector('[data-row-id="doc-1"]');
+    fireEvent.contextMenu(row!);
+
+    expect(screen.getByRole('menuitem', { name: /选择此文件的全部副本/ })).toBeDefined();
   });
 
   it('selects unselected row on right click and opens menu', () => {
@@ -140,12 +178,15 @@ describe('PrintQueue Context Menus', () => {
     const row1 = document.querySelector('[data-row-id="doc-1"]');
     fireEvent.contextMenu(row1!);
 
-    expect(screen.getByRole('menuitem', { name: /批量设置（2 项）/ })).toBeDefined();
-    expect(screen.getByRole('menuitem', { name: /复制文件项（2 项）/ })).toBeDefined();
+    // In multi-selection, only remove retains item count
+    expect(screen.getByRole('menuitem', { name: /批量设置/ })).toBeDefined();
+    expect(screen.getByRole('menuitem', { name: /复制文件项/ })).toBeDefined();
     expect(screen.getByRole('menuitem', { name: /移除（2 项）/ })).toBeDefined();
+    expect(screen.queryByText(/批量设置（/)).toBeNull();
+    expect(screen.queryByText(/复制文件项（/)).toBeNull();
 
     // Click batch settings
-    fireEvent.click(screen.getByRole('menuitem', { name: /批量设置（2 项）/ }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /批量设置/ }));
     expect(handleBatchSettings).toHaveBeenCalledTimes(1);
   });
 

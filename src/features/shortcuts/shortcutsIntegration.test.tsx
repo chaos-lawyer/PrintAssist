@@ -7,7 +7,6 @@ import type { QueueItem } from '../../domain/queueTypes';
 import { createDefaultGlobalSettings, type PrintSettings } from '../../domain/printSettings';
 import {
   SHORTCUT_DEFINITIONS,
-  setSingleKeyShortcutsEnabled,
 } from './shortcutRegistry';
 import { shouldIgnoreShortcut } from './shortcutGuards';
 import { GlobalSettingsPanel } from '../settings/GlobalSettingsPanel';
@@ -17,7 +16,6 @@ describe('Shortcuts Integration in PrintQueue', () => {
   beforeEach(() => {
     cleanup();
     localStorage.clear();
-    setSingleKeyShortcutsEnabled(true);
 
     global.ResizeObserver = class {
       observe() {}
@@ -207,28 +205,6 @@ describe('Shortcuts Integration in PrintQueue', () => {
     expect(screen.getByRole('menuitem', { name: /剪切文件项.*Ctrl\+X/ })).toBeDefined();
   });
 
-  it('does not trigger single key shortcuts when singleKeyShortcutsEnabled is false', () => {
-    setSingleKeyShortcutsEnabled(false);
-
-    render(
-      <PrintQueue
-        items={mockItems}
-        globalSettings={mockSettings}
-        isPrinting={false}
-        selectedRowKeys={['item-1']}
-        activeId="item-1"
-        onSelectionChange={vi.fn()}
-        onRemove={vi.fn()}
-        onOpenSettings={vi.fn()}
-      />,
-    );
-
-    // Enter single key is blocked when single key shortcuts are disabled
-    const event = new KeyboardEvent('keydown', { key: 'Enter' });
-    const shouldIgnore = shouldIgnoreShortcut(event, { isSingleKey: true });
-    expect(shouldIgnore).toBe(true);
-  });
-
   it('supports Home and End keys for jumping selection', () => {
     const handleSelectionChange = vi.fn();
     const tableWrap = document.createElement('div');
@@ -337,7 +313,7 @@ describe('Shortcuts Integration in PrintQueue', () => {
     expect(twoCols.map((c) => c.shortcutNumber)).toEqual([1, 2]);
   });
 
-  it('renders Ctrl+1 and Ctrl+2 shortcut badges on sortable column headers', () => {
+  it('does not render shortcut badges on sortable column headers to keep header clean', () => {
     render(
       <PrintQueue
         items={mockItems}
@@ -351,26 +327,32 @@ describe('Shortcuts Integration in PrintQueue', () => {
       />,
     );
 
-    expect(screen.getByText('Ctrl+1')).toBeDefined();
-    expect(screen.getByText('Ctrl+2')).toBeDefined();
+    expect(screen.queryByText('Ctrl+1')).toBeNull();
+    expect(screen.queryByText('Ctrl+2')).toBeNull();
     expect(screen.queryByText('Ctrl+3')).toBeNull();
   });
 
-  it('includes printer switching shortcuts in registry', () => {
+  it('includes printer and profile switching shortcuts in registry', () => {
     const shiftSelect = SHORTCUT_DEFINITIONS.find((d) => d.id === 'select_printer_1_9');
     const nextPrinter = SHORTCUT_DEFINITIONS.find((d) => d.id === 'next_printer');
     const prevPrinter = SHORTCUT_DEFINITIONS.find((d) => d.id === 'prev_printer');
+    const prevProfile = SHORTCUT_DEFINITIONS.find((d) => d.id === 'prev_profile');
+    const nextProfile = SHORTCUT_DEFINITIONS.find((d) => d.id === 'next_profile');
 
     expect(shiftSelect).toBeDefined();
     expect(shiftSelect?.keys).toEqual(['Shift', '1 ~ 9']);
 
     expect(nextPrinter).toBeDefined();
     expect(nextPrinter?.keys).toEqual([']']);
-    expect(nextPrinter?.isSingleKey).toBe(true);
 
     expect(prevPrinter).toBeDefined();
     expect(prevPrinter?.keys).toEqual(['[']);
-    expect(prevPrinter?.isSingleKey).toBe(true);
+
+    expect(prevProfile).toBeDefined();
+    expect(prevProfile?.keys).toEqual(['-']);
+
+    expect(nextProfile).toBeDefined();
+    expect(nextProfile?.keys).toEqual(['=']);
   });
 
   it('triggers onOpenPrinterManager when clicking manage button in GlobalSettingsPanel', () => {

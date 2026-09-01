@@ -2,30 +2,44 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { shouldIgnoreShortcut } from './shortcutGuards';
 import {
-  getSingleKeyShortcutsEnabled,
-  setSingleKeyShortcutsEnabled,
-  SHORTCUT_SETTINGS_STORAGE_KEY,
+  loadCustomShortcuts,
+  saveCustomShortcuts,
+  resetCustomShortcuts,
+  matchShortcutKeys,
+  CUSTOM_SHORTCUTS_STORAGE_KEY,
 } from './shortcutRegistry';
 
-describe('shortcutRegistry', () => {
+describe('shortcutRegistry custom shortcuts', () => {
   beforeEach(() => {
     localStorage.clear();
   });
 
-  it('defaults singleKeyShortcutsEnabled to true', () => {
-    expect(getSingleKeyShortcutsEnabled()).toBe(true);
+  it('loads empty custom shortcuts by default', () => {
+    expect(loadCustomShortcuts()).toEqual({});
   });
 
-  it('persists singleKeyShortcutsEnabled to localStorage', () => {
-    setSingleKeyShortcutsEnabled(false);
-    expect(getSingleKeyShortcutsEnabled()).toBe(false);
+  it('persists custom shortcuts to localStorage', () => {
+    saveCustomShortcuts({ add_file: ['Ctrl', 'N'] });
+    expect(loadCustomShortcuts()).toEqual({ add_file: ['Ctrl', 'N'] });
 
-    const stored = localStorage.getItem(SHORTCUT_SETTINGS_STORAGE_KEY);
+    const stored = localStorage.getItem(CUSTOM_SHORTCUTS_STORAGE_KEY);
     expect(stored).not.toBeNull();
-    expect(JSON.parse(stored!)).toEqual({ singleKeyEnabled: false });
+    expect(JSON.parse(stored!)).toEqual({ add_file: ['Ctrl', 'N'] });
 
-    setSingleKeyShortcutsEnabled(true);
-    expect(getSingleKeyShortcutsEnabled()).toBe(true);
+    resetCustomShortcuts();
+    expect(loadCustomShortcuts()).toEqual({});
+  });
+
+  it('matches keyboard event correctly with matchShortcutKeys', () => {
+    const ctrlZ = new KeyboardEvent('keydown', { key: 'z', ctrlKey: true });
+    expect(matchShortcutKeys(ctrlZ, ['Ctrl', 'Z'])).toBe(true);
+    expect(matchShortcutKeys(ctrlZ, ['Ctrl', 'Y'])).toBe(false);
+
+    const minus = new KeyboardEvent('keydown', { key: '-' });
+    expect(matchShortcutKeys(minus, ['-'])).toBe(true);
+
+    const equal = new KeyboardEvent('keydown', { key: '=' });
+    expect(matchShortcutKeys(equal, ['='])).toBe(true);
   });
 });
 
@@ -100,16 +114,5 @@ describe('shouldIgnoreShortcut', () => {
 
     const plainA = new KeyboardEvent('keydown', { key: 'A' });
     expect(shouldIgnoreShortcut(plainA, { isSingleKey: true })).toBe(false);
-  });
-
-  it('ignores single key shortcuts when singleKeyShortcutsEnabled is false', () => {
-    setSingleKeyShortcutsEnabled(false);
-
-    const plainA = new KeyboardEvent('keydown', { key: 'A' });
-    expect(shouldIgnoreShortcut(plainA, { isSingleKey: true })).toBe(true);
-
-    // However, non-single-key shortcuts are NOT blocked by this setting
-    const ctrlP = new KeyboardEvent('keydown', { key: 'P', ctrlKey: true });
-    expect(shouldIgnoreShortcut(ctrlP, { isSingleKey: false })).toBe(false);
   });
 });

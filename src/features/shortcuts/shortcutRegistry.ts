@@ -12,6 +12,7 @@ export interface ShortcutDefinition {
   keys: string[];
   description?: string;
   isSingleKey: boolean;
+  customizable?: boolean;
 }
 
 export const SHORTCUT_CATEGORIES: Record<
@@ -154,16 +155,16 @@ export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
     category: 'settings_config',
     name: '应用打印机配置',
     keys: ['1 ~ 9'],
-    description: '快速应用当前打印机保存配置列表中对应的第 1–9 项',
     isSingleKey: true,
+    customizable: false,
   },
   {
     id: 'select_printer_1_9',
     category: 'settings_config',
     name: '选择对应打印机',
     keys: ['Shift', '1 ~ 9'],
-    description: '快速切换到对应显示顺序的第 1–9 台打印机（顺序可在管理中调整）',
     isSingleKey: false,
+    customizable: false,
   },
   {
     id: 'prev_printer',
@@ -178,7 +179,20 @@ export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
     category: 'settings_config',
     name: '下一个打印机',
     keys: [']'],
-    description: '循环切换到下一台可见打印机',
+    isSingleKey: true,
+  },
+  {
+    id: 'prev_profile',
+    category: 'settings_config',
+    name: '上一配置',
+    keys: ['-'],
+    isSingleKey: true,
+  },
+  {
+    id: 'next_profile',
+    category: 'settings_config',
+    name: '下一配置',
+    keys: ['='],
     isSingleKey: true,
   },
 
@@ -198,31 +212,30 @@ export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
     category: 'nav_selection',
     name: '移动活动行',
     keys: ['↑', '↓'],
-    description: '在文件列表中上下移动活动行',
     isSingleKey: true,
+    customizable: false,
   },
   {
     id: 'extend_selection',
     category: 'nav_selection',
     name: '连续多选',
     keys: ['Shift', '↑ / ↓'],
-    description: '扩展当前选中文件范围',
     isSingleKey: false,
+    customizable: false,
   },
   {
     id: 'sort_by_column',
     category: 'nav_selection',
     name: '根据显示列排序',
     keys: ['Ctrl', '1 ~ 4'],
-    description: '按当前显示的排序列从左至右排序（按一下正序，再按一下逆序）',
     isSingleKey: false,
+    customizable: false,
   },
   {
     id: 'jump_bounds',
     category: 'nav_selection',
     name: '跳到首项 / 末项',
     keys: ['Home', 'End'],
-    description: '快速跳转到列表首行或末行，可配合 Shift 范围选择',
     isSingleKey: true,
   },
   {
@@ -230,8 +243,8 @@ export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
     category: 'nav_selection',
     name: '调整顺序',
     keys: ['Alt', '↑ / ↓'],
-    description: '将选中的文件项在队列中整体上下调整顺序',
     isSingleKey: false,
+    customizable: false,
   },
   {
     id: 'open_context_menu',
@@ -269,30 +282,108 @@ export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
   },
 ];
 
-export const SHORTCUT_SETTINGS_STORAGE_KEY = 'printassist_shortcuts_v1';
+export const CUSTOM_SHORTCUTS_STORAGE_KEY = 'printassist_custom_shortcuts_v1';
 
-export function getSingleKeyShortcutsEnabled(): boolean {
+export function loadCustomShortcuts(): Record<string, string[]> {
   try {
-    const stored = localStorage.getItem(SHORTCUT_SETTINGS_STORAGE_KEY);
-    if (stored !== null) {
-      const parsed = JSON.parse(stored);
-      if (typeof parsed?.singleKeyEnabled === 'boolean') {
-        return parsed.singleKeyEnabled;
+    const raw = localStorage.getItem(CUSTOM_SHORTCUTS_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed as Record<string, string[]>;
       }
     }
   } catch {
-    // default to true
+    // ignore
   }
-  return true;
+  return {};
 }
 
-export function setSingleKeyShortcutsEnabled(enabled: boolean): void {
+export function saveCustomShortcuts(custom: Record<string, string[]>): void {
   try {
-    localStorage.setItem(
-      SHORTCUT_SETTINGS_STORAGE_KEY,
-      JSON.stringify({ singleKeyEnabled: enabled }),
-    );
+    localStorage.setItem(CUSTOM_SHORTCUTS_STORAGE_KEY, JSON.stringify(custom));
   } catch {
     // ignore
   }
+}
+
+export function resetCustomShortcuts(): void {
+  try {
+    localStorage.removeItem(CUSTOM_SHORTCUTS_STORAGE_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+export function getEffectiveShortcuts(
+  customMap?: Record<string, string[]>,
+): ShortcutDefinition[] {
+  const custom = customMap ?? loadCustomShortcuts();
+  return SHORTCUT_DEFINITIONS.map((def) => {
+    const customKeys = custom[def.id];
+    if (customKeys && Array.isArray(customKeys) && customKeys.length > 0) {
+      const isSingleKey =
+        customKeys.length === 1 &&
+        !['Ctrl', 'Cmd', 'Meta', 'Shift', 'Alt'].includes(customKeys[0]);
+      return {
+        ...def,
+        keys: customKeys,
+        isSingleKey,
+      };
+    }
+    return def;
+  });
+}
+
+export function matchShortcutKeys(event: KeyboardEvent, keys: string[]): boolean {
+  if (!keys || keys.length === 0) return false;
+
+  // Dynamic patterns like '1 ~ 9', 'Ctrl + 1 ~ 4' are handled separately
+  if (keys.some((k) => k.includes('~'))) return false;
+
+  const requiresCtrlOrMeta =
+    keys.includes('Ctrl') || keys.includes('Cmd') || keys.includes('Meta');
+  const requiresShift = keys.includes('Shift');
+  const requiresAlt = keys.includes('Alt');
+
+  const isCtrlOrMeta = Boolean(event.ctrlKey || event.metaKey);
+  if (isCtrlOrMeta !== requiresCtrlOrMeta) return false;
+  if (Boolean(event.shiftKey) !== requiresShift) return false;
+  if (Boolean(event.altKey) !== requiresAlt) return false;
+
+  const mainKeys = keys.filter(
+    (k) => !['Ctrl', 'Cmd', 'Meta', 'Shift', 'Alt'].includes(k),
+  );
+  if (mainKeys.length !== 1) return false;
+
+  const targetKey = mainKeys[0];
+
+  if (targetKey === 'Enter') return event.key === 'Enter';
+  if (targetKey === 'Delete' || targetKey === 'Del') return event.key === 'Delete';
+  if (targetKey === 'Esc' || targetKey === 'Escape') return event.key === 'Escape';
+  if (targetKey === 'Home') return event.key === 'Home';
+  if (targetKey === 'End') return event.key === 'End';
+  if (targetKey === '↑') return event.key === 'ArrowUp';
+  if (targetKey === '↓') return event.key === 'ArrowDown';
+  if (targetKey === '/') return event.key === '/' || event.key === '?';
+  if (targetKey === '[') return event.key === '[';
+  if (targetKey === ']') return event.key === ']';
+  if (targetKey === '-') {
+    return (
+      event.key === '-' ||
+      event.key === '_' ||
+      event.code === 'Minus' ||
+      event.code === 'NumpadSubtract'
+    );
+  }
+  if (targetKey === '=') {
+    return (
+      event.key === '=' ||
+      event.key === '+' ||
+      event.code === 'Equal' ||
+      event.code === 'NumpadAdd'
+    );
+  }
+
+  return event.key.toUpperCase() === targetKey.toUpperCase();
 }

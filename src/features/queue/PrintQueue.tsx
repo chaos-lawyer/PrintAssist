@@ -1077,12 +1077,9 @@ export function PrintQueue({
       <div
         className="queue-th-sort-wrapper"
         onContextMenu={handleHeaderContextMenu}
-        title={shortcutText ? `点击或按 ${shortcutText} 排序：正序/逆序切换` : '点击排序'}
+        title={shortcutText ? `点击或按 ${shortcutText} 排序：正序/逆序切换` : '点击排序：正序/逆序切换'}
       >
         <span>{label}</span>
-        {shortcutText && (
-          <kbd className="queue-col-shortcut-kbd">{shortcutText}</kbd>
-        )}
         {sortOrder?.mode === field ? (
           sortOrder.direction === 'asc' ? (
             <ArrowUp size={13} className="queue-sort-icon is-active" />
@@ -1239,7 +1236,7 @@ export function PrintQueue({
       const itemsList: AppContextMenuItem[] = [
         {
           key: 'batch-settings',
-          label: `批量设置（${selectedRowKeys.length} 项）`,
+          label: '批量设置',
           icon: <Settings2 size={14} />,
           shortcut: 'E',
           disabled: isBatchSettingsDisabled,
@@ -1248,14 +1245,14 @@ export function PrintQueue({
         },
         {
           key: 'copy',
-          label: `复制文件项（${selectedRowKeys.length} 项）`,
+          label: '复制文件项',
           icon: <Copy size={14} />,
           shortcut: 'Ctrl+C',
           onClick: copySelection,
         },
         {
           key: 'cut',
-          label: `剪切文件项（${selectedRowKeys.length} 项）`,
+          label: '剪切文件项',
           icon: <Scissors size={14} />,
           shortcut: 'Ctrl+X',
           disabled: isLocked,
@@ -1294,6 +1291,10 @@ export function PrintQueue({
     }
 
     // Single item
+    const targetNormPath = normalizeLocalPath(contextMenu.item.path);
+    const hasOtherDuplicates =
+      items.filter((i) => normalizeLocalPath(i.path) === targetNormPath).length > 1;
+
     const itemsList: AppContextMenuItem[] = [
       {
         key: 'open-file',
@@ -1319,13 +1320,19 @@ export function PrintQueue({
         onClick: () => onOpenSettings(contextMenu.item.id),
       },
       { type: 'divider' },
-      {
+    ];
+
+    if (hasOtherDuplicates) {
+      itemsList.push({
         key: 'select-duplicates',
         label: '选择此文件的全部副本',
         icon: <CircleDot size={14} />,
         shortcut: 'Ctrl+Shift+A',
         onClick: () => selectDuplicates(contextMenu.item.path),
-      },
+      });
+    }
+
+    itemsList.push(
       {
         key: 'copy',
         label: '复制文件项',
@@ -1342,7 +1349,7 @@ export function PrintQueue({
         disabledReason: lockReason,
         onClick: cutSelection,
       },
-    ];
+    );
 
     if (queueClipboard && queueClipboard.snapshots.length > 0) {
       itemsList.push({
@@ -1744,12 +1751,12 @@ export function PrintQueue({
 
   // Calculate total width of all visible columns to determine if horizontal scroll is actually needed
   const totalColumnsWidth = useMemo(() => {
-    const baseWidth = 60 + (columnWidths.fileName ?? DEFAULT_COLUMN_WIDTHS.fileName);
-    const otherVisibleWidth = visibleColumns.reduce((sum, key) => {
+    const baseWidth = 60; // selection checkbox column
+    const visibleWidth = visibleColumns.reduce((sum, key) => {
       const w = columnWidths[key] ?? DEFAULT_COLUMN_WIDTHS[key] ?? 100;
       return sum + w;
     }, 0);
-    return baseWidth + otherVisibleWidth;
+    return baseWidth + visibleWidth;
   }, [visibleColumns, columnWidths]);
 
   const isOverflowingX = useMemo(() => {
@@ -1760,10 +1767,10 @@ export function PrintQueue({
   // Columns definition
   const columns: ColumnsType<QueueItem> = [
     {
-      title: renderSortableTitle('文件', 'fileName', 'fileName', DEFAULT_COLUMN_WIDTHS.fileName),
+      title: renderSortableTitle('文件名', 'fileName', 'fileName', DEFAULT_COLUMN_WIDTHS.fileName),
       dataIndex: 'fileName',
       key: 'fileName',
-      width: isOverflowingX ? (columnWidths.fileName ?? DEFAULT_COLUMN_WIDTHS.fileName) : undefined,
+      width: columnWidths.fileName ?? DEFAULT_COLUMN_WIDTHS.fileName,
       className: 'queue-col-file',
       onHeaderCell: () => ({
         onClick: (e: React.MouseEvent) => {

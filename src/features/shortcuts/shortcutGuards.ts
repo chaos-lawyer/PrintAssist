@@ -1,5 +1,3 @@
-import { getSingleKeyShortcutsEnabled } from './shortcutRegistry';
-
 export interface ShortcutGuardOptions {
   /** 是否允许按下 '/' 呼出快捷键帮助（即便是无特殊焦点） */
   allowHelpSlash?: boolean;
@@ -74,11 +72,6 @@ export function shouldIgnoreShortcut(
   if (options?.isSingleKey) {
     // 按下了修饰键（Ctrl, Alt, Meta, 或包含 Shift 但非指定）
     if (event.ctrlKey || event.altKey || event.metaKey) {
-      return true;
-    }
-
-    // 用户在设置中是否关闭了单键快捷键
-    if (!getSingleKeyShortcutsEnabled()) {
       return true;
     }
   }

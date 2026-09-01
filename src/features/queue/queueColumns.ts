@@ -41,7 +41,7 @@ export const DEFAULT_VISIBLE_COLUMNS: QueueColumnKey[] = [
 ];
 
 export const COLUMN_LABELS: Record<QueueColumnKey, string> = {
-  fileName: '文件',
+  fileName: '文件名',
   path: '文件路径',
   createdAt: '创建时间',
   modifiedAt: '修改时间',

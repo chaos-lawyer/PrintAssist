@@ -98,6 +98,10 @@ import {
   savePrinterPreferences,
   type PrinterPreferencesV1,
 } from './features/printers/printerPreferences';
+import {
+  loadCustomShortcuts,
+  matchShortcutKeys,
+} from './features/shortcuts/shortcutRegistry';
 import { shouldIgnoreShortcut } from './features/shortcuts/shortcutGuards';
 import { ShortcutHelpModal } from './features/shortcuts/ShortcutHelpModal';
 import { useUndoHistory } from './features/undo/useUndoHistory';
@@ -118,6 +122,10 @@ export function App() {
   const [printerPreferences, setPrinterPreferences] = useState<PrinterPreferencesV1>(loadPrinterPreferences);
   const printerPreferencesRef = useRef(printerPreferences);
   printerPreferencesRef.current = printerPreferences;
+
+  const [customShortcuts, setCustomShortcuts] = useState<Record<string, string[]>>(loadCustomShortcuts);
+  const customShortcutsRef = useRef(customShortcuts);
+  customShortcutsRef.current = customShortcuts;
 
   const [loadingPrinters, setLoadingPrinters] = useState(true);
   const [printerManagerOpen, setPrinterManagerOpen] = useState(false);
@@ -1247,17 +1255,43 @@ export function App() {
   // 单键快捷键（受统一安全守卫保护）：A 添加文件，F 添加文件夹，H 打印历史，S 文件/批量设置，1~9 驱动配置
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      // 1. '/' 或 '?'：呼出快捷键帮助
-      if (event.key === '/' || event.key === '?') {
-        if (!shouldIgnoreShortcut(event, { isSingleKey: true })) {
+      const isShortcut = (id: string, fallbackKeys: string[]) => {
+        const keys = customShortcutsRef.current[id] ?? fallbackKeys;
+        return matchShortcutKeys(event, keys);
+      };
+
+      // 1. 快捷键说明帮助
+      if (isShortcut('open_help', ['/'])) {
+        if (!shouldIgnoreShortcut(event, { allowHelpSlash: true, isSingleKey: !event.ctrlKey && !event.altKey })) {
           event.preventDefault();
           setIsShortcutHelpOpen(true);
           return;
         }
       }
 
-      // 2. Delete / Backspace：批量删除选中
-      if (event.key === 'Delete' || event.key === 'Backspace') {
+      // 2. 撤销 (Ctrl+Z)
+      if (isShortcut('undo', ['Ctrl', 'Z'])) {
+        if (!shouldIgnoreShortcut(event, { isSingleKey: false })) {
+          event.preventDefault();
+          handleUndo();
+          return;
+        }
+      }
+
+      // 3. 重做 (Ctrl+Y / Ctrl+Shift+Z)
+      if (
+        isShortcut('redo', ['Ctrl', 'Y']) ||
+        ((event.ctrlKey || event.metaKey) && event.shiftKey && (event.key === 'z' || event.key === 'Z'))
+      ) {
+        if (!shouldIgnoreShortcut(event, { isSingleKey: false })) {
+          event.preventDefault();
+          handleRedo();
+          return;
+        }
+      }
+
+      // 4. 批量删除选中 (Delete / Backspace)
+      if (isShortcut('remove_item', ['Delete']) || event.key === 'Backspace') {
         if (!shouldIgnoreShortcut(event, { isSingleKey: true })) {
           if (selectedRowKeys.length > 0 && !queueState.isPrinting) {
             event.preventDefault();
@@ -1267,11 +1301,8 @@ export function App() {
         }
       }
 
-      // 3. Ctrl+A / Cmd+A：全选待打印文件
-      if (
-        (event.ctrlKey || event.metaKey) &&
-        (event.key === 'a' || event.key === 'A')
-      ) {
+      // 5. 全选待打印文件 (Ctrl+A)
+      if (isShortcut('select_all', ['Ctrl', 'A'])) {
         if (!shouldIgnoreShortcut(event, { isSingleKey: false })) {
           if (queueState.items.length > 0 && !queueState.isPrinting) {
             event.preventDefault();
@@ -1281,11 +1312,8 @@ export function App() {
         }
       }
 
-      // 4. Ctrl+P / Cmd+P：开始打印
-      if (
-        (event.ctrlKey || event.metaKey) &&
-        (event.key === 'p' || event.key === 'P')
-      ) {
+      // 6. 开始打印 (Ctrl+P)
+      if (isShortcut('start_print', ['Ctrl', 'P'])) {
         if (!shouldIgnoreShortcut(event, { isSingleKey: false })) {
           event.preventDefault();
           if (
@@ -1299,156 +1327,136 @@ export function App() {
         }
       }
 
-      // 单键快捷键（须符合严格统一守卫）
-      if (shouldIgnoreShortcut(event, { isSingleKey: true })) {
-        return;
-      }
-
-      // 5. 'A' / 'a'：添加文件
-      if (event.key === 'a' || event.key === 'A') {
-        if (queueState.isPrinting) {
-          message.warning('打印进行中，暂不可添加文件');
-          return;
-        }
-        event.preventDefault();
-        void handlePickFiles();
-        return;
-      }
-
-      // 6. 'F' / 'f'：添加文件夹
-      if (event.key === 'f' || event.key === 'F') {
-        if (queueState.isPrinting) {
-          message.warning('打印进行中，暂不可添加文件');
-          return;
-        }
-        event.preventDefault();
-        void handlePickFolder();
-        return;
-      }
-
-      // 7. 'H' / 'h'：打开打印历史
-      if (event.key === 'h' || event.key === 'H') {
-        event.preventDefault();
-        setHistoryOpen(true);
-        return;
-      }
-
-      // 8. 'E' / 'e'：文件设置（单项/批量）
-      if (event.key === 'e' || event.key === 'E') {
-        if (queueState.isPrinting) {
-          message.warning('打印进行中，暂不可修改配置');
-          return;
-        }
-        if (queueState.phase === 'completed') {
-          message.warning('当前批次已完成，请先开始新批次');
-          return;
-        }
-        if (selectedRowKeys.length > 1) {
+      // 7. 添加文件 (A)
+      if (isShortcut('add_file', ['A'])) {
+        if (!shouldIgnoreShortcut(event, { isSingleKey: true })) {
+          if (queueState.isPrinting) {
+            message.warning('打印进行中，暂不可添加文件');
+            return;
+          }
           event.preventDefault();
-          setIsBatchSettingsOpen(true);
+          void handlePickFiles();
           return;
         }
-        if (selectedRowKeys.length === 1) {
+      }
+
+      // 8. 添加文件夹 (F)
+      if (isShortcut('add_folder', ['F'])) {
+        if (!shouldIgnoreShortcut(event, { isSingleKey: true })) {
+          if (queueState.isPrinting) {
+            message.warning('打印进行中，暂不可添加文件');
+            return;
+          }
           event.preventDefault();
-          setSettingsItemId(String(selectedRowKeys[0]));
+          void handlePickFolder();
           return;
         }
-        if (activeId) {
+      }
+
+      // 9. 打开打印历史 (H)
+      if (isShortcut('open_history', ['H'])) {
+        if (!shouldIgnoreShortcut(event, { isSingleKey: true })) {
           event.preventDefault();
-          setSettingsItemId(activeId);
+          setHistoryOpen(true);
           return;
         }
-        message.info('请先选择待配置的文件');
-        return;
       }
 
-      // 0. 'Ctrl+Z'：撤销
-      if (
-        (event.ctrlKey || event.metaKey) &&
-        !event.shiftKey &&
-        (event.key === 'z' || event.key === 'Z')
-      ) {
-        if (!shouldIgnoreShortcut(event, { isSingleKey: false })) {
+      // 10. 文件设置 (E)
+      if (isShortcut('open_settings', ['E'])) {
+        if (!shouldIgnoreShortcut(event, { isSingleKey: true })) {
+          if (queueState.isPrinting) {
+            message.warning('打印进行中，暂不可修改配置');
+            return;
+          }
+          if (queueState.phase === 'completed') {
+            message.warning('当前批次已完成，请先开始新批次');
+            return;
+          }
+          if (selectedRowKeys.length > 1) {
+            event.preventDefault();
+            setIsBatchSettingsOpen(true);
+            return;
+          }
+          if (selectedRowKeys.length === 1) {
+            event.preventDefault();
+            setSettingsItemId(String(selectedRowKeys[0]));
+            return;
+          }
+          if (activeId) {
+            event.preventDefault();
+            setSettingsItemId(activeId);
+            return;
+          }
+          message.info('请先选择待配置的文件');
+          return;
+        }
+      }
+
+      // 11. 调整单双面 (D)
+      if (isShortcut('toggle_sides', ['D'])) {
+        if (!shouldIgnoreShortcut(event, { isSingleKey: true })) {
+          if (queueState.isPrinting) {
+            message.warning('打印进行中，暂不可修改全局设置');
+            return;
+          }
+          if (queueState.phase === 'completed') {
+            message.warning('当前批次已完成，请先开始新批次');
+            return;
+          }
           event.preventDefault();
-          handleUndo();
+          const nextSides = globalSettings.sidesMode === 'duplex' ? 'simplex' : 'duplex';
+          if (nextSides === 'duplex' && !availability.duplexEnabled) {
+            message.warning('当前打印机不支持双面打印');
+            return;
+          }
+          commit('调整单双面设置', (curr) => ({
+            ...curr,
+            globalSettings: {
+              ...curr.globalSettings,
+              sidesMode: nextSides,
+              profileDirty: true,
+            },
+          }));
+          message.success(`全局设置：已切换为${nextSides === 'duplex' ? '双面' : '单面'}打印`);
           return;
         }
       }
 
-      // 0.1 'Ctrl+Y' / 'Ctrl+Shift+Z'：重做
-      const isRedoKey =
-        (event.ctrlKey || event.metaKey) &&
-        ((event.shiftKey && (event.key === 'z' || event.key === 'Z')) ||
-          (!event.shiftKey && (event.key === 'y' || event.key === 'Y')));
-      if (isRedoKey) {
-        if (!shouldIgnoreShortcut(event, { isSingleKey: false })) {
+      // 12. 调整黑白/彩色 (S)
+      if (isShortcut('toggle_color', ['S'])) {
+        if (!shouldIgnoreShortcut(event, { isSingleKey: true })) {
+          if (queueState.isPrinting) {
+            message.warning('打印进行中，暂不可修改全局设置');
+            return;
+          }
+          if (queueState.phase === 'completed') {
+            message.warning('当前批次已完成，请先开始新批次');
+            return;
+          }
           event.preventDefault();
-          handleRedo();
+          const nextColor = globalSettings.colorMode === 'color' ? 'monochrome' : 'color';
+          if (nextColor === 'color' && !availability.colorEnabled) {
+            message.warning(
+              `当前打印机不支持彩色打印${selectedPrinter?.color.detail ? `（${selectedPrinter.color.detail}）` : ''}`,
+            );
+            return;
+          }
+          commit('调整黑白/彩色设置', (curr) => ({
+            ...curr,
+            globalSettings: {
+              ...curr.globalSettings,
+              colorMode: nextColor,
+              profileDirty: true,
+            },
+          }));
+          message.success(`全局设置：已切换为${nextColor === 'color' ? '彩色' : '黑白'}打印`);
           return;
         }
       }
 
-      // 9. 'D' / 'd'：全局设置调整单双面
-      if (event.key === 'd' || event.key === 'D') {
-        if (queueState.isPrinting) {
-          message.warning('打印进行中，暂不可修改全局设置');
-          return;
-        }
-        if (queueState.phase === 'completed') {
-          message.warning('当前批次已完成，请先开始新批次');
-          return;
-        }
-        event.preventDefault();
-        const nextSides = globalSettings.sidesMode === 'duplex' ? 'simplex' : 'duplex';
-        if (nextSides === 'duplex' && !availability.duplexEnabled) {
-          message.warning('当前打印机不支持双面打印');
-          return;
-        }
-        commit('调整单双面设置', (curr) => ({
-          ...curr,
-          globalSettings: {
-            ...curr.globalSettings,
-            sidesMode: nextSides,
-            profileDirty: true,
-          },
-        }));
-        message.success(`全局设置：已切换为${nextSides === 'duplex' ? '双面' : '单面'}打印`);
-        return;
-      }
-
-      // 10. 'S' / 's'：全局设置调整黑白/彩色
-      if (event.key === 's' || event.key === 'S') {
-        if (queueState.isPrinting) {
-          message.warning('打印进行中，暂不可修改全局设置');
-          return;
-        }
-        if (queueState.phase === 'completed') {
-          message.warning('当前批次已完成，请先开始新批次');
-          return;
-        }
-        event.preventDefault();
-        const nextColor = globalSettings.colorMode === 'color' ? 'monochrome' : 'color';
-        if (nextColor === 'color' && !availability.colorEnabled) {
-          message.warning(
-            `当前打印机不支持彩色打印${selectedPrinter?.color.detail ? `（${selectedPrinter.color.detail}）` : ''}`,
-          );
-          return;
-        }
-        commit('调整黑白/彩色设置', (curr) => ({
-          ...curr,
-          globalSettings: {
-            ...curr.globalSettings,
-            colorMode: nextColor,
-            profileDirty: true,
-          },
-        }));
-        message.success(`全局设置：已切换为${nextColor === 'color' ? '彩色' : '黑白'}打印`);
-        return;
-      }
-
-      const isCtrlOrMeta = event.ctrlKey || event.metaKey;
-      // 11. ']'：下一个打印机 (单键)
-      if (event.key === ']' && !isCtrlOrMeta && !event.altKey && !event.shiftKey) {
+      // 13. 下一个打印机 (])
+      if (isShortcut('next_printer', [']'])) {
         if (!shouldIgnoreShortcut(event, { isSingleKey: true })) {
           if (queueState.isPrinting) {
             message.warning('打印进行中，暂不可切换打印机');
@@ -1467,8 +1475,8 @@ export function App() {
         }
       }
 
-      // 12. '['：上一个打印机 (单键)
-      if (event.key === '[' && !isCtrlOrMeta && !event.altKey && !event.shiftKey) {
+      // 14. 上一个打印机 ([)
+      if (isShortcut('prev_printer', ['['])) {
         if (!shouldIgnoreShortcut(event, { isSingleKey: true })) {
           if (queueState.isPrinting) {
             message.warning('打印进行中，暂不可切换打印机');
@@ -1487,7 +1495,63 @@ export function App() {
         }
       }
 
-      // 13. 'Shift + 1~9'：选择对应顺序的打印机
+      // 15. 上一配置 (-)
+      if (isShortcut('prev_profile', ['-'])) {
+        if (!shouldIgnoreShortcut(event, { isSingleKey: true })) {
+          if (queueState.isPrinting) {
+            message.warning('打印进行中，暂不可切换配置');
+            return;
+          }
+          if (savedProfiles.length === 0) {
+            message.info('当前打印机暂无已保存配置');
+            return;
+          }
+          event.preventDefault();
+          const currIdx = savedProfiles.findIndex(
+            (p) => p.id === globalSettings.persistentProfileId,
+          );
+          const prevIdx = (currIdx - 1 + savedProfiles.length) % savedProfiles.length;
+          const target = savedProfiles[prevIdx];
+          if (target.compatibility !== 'compatible') {
+            message.warning(`配置“${target.name}”与当前打印机不兼容`);
+            return;
+          }
+          void handleSelectSavedProfile(target.id);
+          message.info(`已切换配置：${target.name} (${prevIdx + 1} / ${savedProfiles.length})`);
+          return;
+        }
+      }
+
+      // 16. 下一配置 (=)
+      if (isShortcut('next_profile', ['='])) {
+        if (!shouldIgnoreShortcut(event, { isSingleKey: true })) {
+          if (queueState.isPrinting) {
+            message.warning('打印进行中，暂不可切换配置');
+            return;
+          }
+          if (savedProfiles.length === 0) {
+            message.info('当前打印机暂无已保存配置');
+            return;
+          }
+          event.preventDefault();
+          const currIdx = savedProfiles.findIndex(
+            (p) => p.id === globalSettings.persistentProfileId,
+          );
+          const nextIdx = (currIdx + 1) % savedProfiles.length;
+          const target = savedProfiles[nextIdx];
+          if (target.compatibility !== 'compatible') {
+            message.warning(`配置“${target.name}”与当前打印机不兼容`);
+            return;
+          }
+          void handleSelectSavedProfile(target.id);
+          message.info(`已切换配置：${target.name} (${nextIdx + 1} / ${savedProfiles.length})`);
+          return;
+        }
+      }
+
+      const isCtrlOrMeta = event.ctrlKey || event.metaKey;
+
+      // 17. 'Shift + 1~9'：选择对应顺序的打印机
       const digitCodeMatch = event.code.match(/^Digit([1-9])$/);
       if (event.shiftKey && digitCodeMatch && !isCtrlOrMeta && !event.altKey) {
         if (!shouldIgnoreShortcut(event, { isSingleKey: false })) {
@@ -1756,7 +1820,7 @@ export function App() {
                     disabled={queueState.isPrinting}
                     onClick={() => setIsBatchSettingsOpen(true)}
                   >
-                    批量设置（{selectedRowKeys.length}）
+                    批量设置
                   </Button>
                 )}
                 {selectedRowKeys.length > 0 && queueState.phase !== 'completed' && (
@@ -1767,7 +1831,7 @@ export function App() {
                     disabled={queueState.isPrinting}
                     onClick={handleBatchRemove}
                   >
-                    移除选中（{selectedRowKeys.length}）
+                    移除
                   </Button>
                 )}
                 {queueState.phase === 'editing' && (
@@ -2093,6 +2157,8 @@ export function App() {
         printerName={globalSettings.printerName}
         visiblePrinters={visiblePrinters}
         sortableColumns={visibleSortableColumns}
+        customShortcuts={customShortcuts}
+        onCustomShortcutsChange={(nextCustom) => setCustomShortcuts(nextCustom)}
       />
       <div role="status" aria-live="polite" className="sr-only">
         {announcement}
