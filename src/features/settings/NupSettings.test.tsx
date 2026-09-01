@@ -123,8 +123,7 @@ describe('NupSettings component', () => {
 
     render(<NupSettings settings={settingsCustom} onChange={() => {}} />);
 
-    // Summary shows custom
-    expect(screen.getByText('自定义 4 × 3')).toBeDefined();
+    // Summary shows slots and orientation hint
     expect(screen.getByText('4 × 3，每个打印面容纳 12 页')).toBeDefined();
     expect(screen.getByText('预计横向纸张')).toBeDefined();
 

@@ -151,14 +151,6 @@ export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
     isSingleKey: true,
   },
   {
-    id: 'apply_profiles_1_9',
-    category: 'settings_config',
-    name: '应用打印机配置',
-    keys: ['1 ~ 9'],
-    isSingleKey: true,
-    customizable: false,
-  },
-  {
     id: 'select_printer_1_9',
     category: 'settings_config',
     name: '选择对应打印机',
@@ -180,6 +172,14 @@ export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
     name: '下一个打印机',
     keys: [']'],
     isSingleKey: true,
+  },
+  {
+    id: 'apply_profiles_1_9',
+    category: 'settings_config',
+    name: '选择打印机配置',
+    keys: ['1 ~ 9'],
+    isSingleKey: true,
+    customizable: false,
   },
   {
     id: 'prev_profile',

@@ -171,7 +171,6 @@ export function NupSettings({ settings, onChange }: NupSettingsProps) {
 
           {/* 布局摘要 */}
           <div className="nup-summary-banner">
-            <div className="nup-summary-title">{summary.customLabel}</div>
             <div className="nup-summary-details">
               <span>{summary.slotsText}</span>
               <span className="nup-summary-divider">·</span>

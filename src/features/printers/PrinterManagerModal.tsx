@@ -158,9 +158,7 @@ function SortablePrinterItem({
             onClick={() => onHide(printer.name)}
             aria-label={`隐藏打印机 ${printer.name}`}
             className="printer-action-hide-btn"
-          >
-            隐藏
-          </Button>
+          />
         </Tooltip>
       </div>
     </div>
@@ -359,7 +357,7 @@ export function PrinterManagerModal({
         </div>
       }
     >
-      <div className="printer-manager-body">
+      <div className="printer-manager-body" onContextMenu={(event) => event.preventDefault()}>
         {/* Search & batch actions */}
         <div className="printer-manager-toolbar">
           <Input

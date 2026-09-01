@@ -15,6 +15,7 @@ import {
 interface ShortcutHelpModalProps {
   open: boolean;
   onClose: () => void;
+  /** 保留以兼容历史调用；映射预览已不再展示。 */
   savedProfiles?: SavedPrinterProfileSummary[];
   activeProfileId?: string;
   printerName?: string;
@@ -56,10 +57,6 @@ function formatKeyFromEvent(event: KeyboardEvent): string | null {
 export function ShortcutHelpModal({
   open,
   onClose,
-  savedProfiles = [],
-  activeProfileId,
-  printerName,
-  visiblePrinters = [],
   sortableColumns,
   customShortcuts: externalCustomShortcuts,
   onCustomShortcutsChange,
@@ -322,56 +319,6 @@ export function ShortcutHelpModal({
             <div className="shortcut-compact-list">
               {col2Items.map(renderShortcutRow)}
             </div>
-
-            {/* 1-9 数字配置映射预览 */}
-            <div className="shortcut-profiles-preview" style={{ marginTop: 8 }}>
-              <div className="shortcut-profiles-preview-title">
-                当前打印机（{printerName || '未指定'}）配置映射 (1~9)：
-              </div>
-              {savedProfiles.length === 0 ? (
-                <div className="shortcut-profiles-empty">暂无已保存配置</div>
-              ) : (
-                <div className="shortcut-profiles-grid">
-                  {savedProfiles.slice(0, 9).map((p, idx) => {
-                    const isCurrent = p.id === activeProfileId;
-                    return (
-                      <div
-                        key={p.id}
-                        className={`shortcut-profile-tag${isCurrent ? ' is-active' : ''}`}
-                        title={isCurrent ? '当前已应用' : `按数字键 ${idx + 1} 快速应用`}
-                      >
-                        <kbd className="profile-shortcut-badge">{idx + 1}</kbd>
-                        <span className="shortcut-profile-name">{p.name}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            {/* Shift+1~9 打印机映射预览 */}
-            {visiblePrinters.length > 0 && (
-              <div className="shortcut-profiles-preview" style={{ marginTop: 6 }}>
-                <div className="shortcut-profiles-preview-title">
-                  可见打印机映射 (Shift+1~9)：
-                </div>
-                <div className="shortcut-profiles-grid">
-                  {visiblePrinters.slice(0, 9).map((p, idx) => {
-                    const isCurrent = p.name === printerName;
-                    return (
-                      <div
-                        key={p.name}
-                        className={`shortcut-profile-tag${isCurrent ? ' is-active' : ''}`}
-                        title={`按 Shift+${idx + 1} 快速切换至“${p.name}”`}
-                      >
-                        <kbd className="profile-shortcut-badge">Shift+{idx + 1}</kbd>
-                        <span className="shortcut-profile-name">{p.name}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
           </div>
         </div>
 

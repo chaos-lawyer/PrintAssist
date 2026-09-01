@@ -56,6 +56,7 @@ import type {
   PrinterProfileCompatibility,
   SavedPrinterProfileSummary,
 } from '../../shared/contracts/printer';
+import { ShortcutBindingButton } from '../shortcuts/ShortcutBindingButton';
 
 export function reorderProfileList(
   profiles: SavedPrinterProfileSummary[],
@@ -91,6 +92,8 @@ interface PrinterProfileManagerModalProps {
   onClose: () => void;
   onRefreshProfiles: () => Promise<unknown>;
   onApplyProfile: (loaded: LoadedPrinterProfileResult) => void;
+  shortcutMap?: Record<string, string[]>;
+  onSetShortcut?: (profileId: string, keys?: string[]) => void;
 }
 
 interface SortableProfileCardProps {
@@ -109,6 +112,8 @@ interface SortableProfileCardProps {
   onSaveInlineRename: (profileId: string) => void;
   onCancelInlineRename: () => void;
   renderCompatibilityTag: (compatibility: PrinterProfileCompatibility) => React.ReactNode;
+  shortcutKeys?: string[];
+  onSetShortcut?: (profileId: string, keys?: string[]) => void;
 }
 
 function SortableProfileCard({
@@ -127,6 +132,8 @@ function SortableProfileCard({
   onSaveInlineRename,
   onCancelInlineRename,
   renderCompatibilityTag,
+  shortcutKeys,
+  onSetShortcut,
 }: SortableProfileCardProps) {
   const {
     attributes,
@@ -241,7 +248,14 @@ function SortableProfileCard({
             </>
           )}
         </div>
-        <div className="profile-card-actions">
+      <div className="profile-card-actions">
+        {onSetShortcut && (
+          <ShortcutBindingButton
+            label={profile.name}
+            keys={shortcutKeys}
+            onChange={(keys) => onSetShortcut(profile.id, keys)}
+          />
+        )}
           <Button
             size="small"
             type={isActive ? 'default' : 'primary'}
@@ -301,6 +315,8 @@ export function PrinterProfileManagerModal({
   onClose,
   onRefreshProfiles,
   onApplyProfile,
+  shortcutMap = {},
+  onSetShortcut,
 }: PrinterProfileManagerModalProps) {
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
   const isBusy = Boolean(loadingAction);
@@ -724,6 +740,8 @@ export function PrinterProfileManagerModal({
                       onSaveInlineRename={handleSaveInlineRename}
                       onCancelInlineRename={() => setEditingProfileId(null)}
                       renderCompatibilityTag={renderCompatibilityTag}
+                      shortcutKeys={shortcutMap[`profile:${profile.id}`]}
+                      onSetShortcut={onSetShortcut}
                     />
                   ))}
                 </SortableContext>

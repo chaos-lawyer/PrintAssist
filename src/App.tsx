@@ -101,6 +101,7 @@ import {
 import {
   loadCustomShortcuts,
   matchShortcutKeys,
+  saveCustomShortcuts,
 } from './features/shortcuts/shortcutRegistry';
 import { shouldIgnoreShortcut } from './features/shortcuts/shortcutGuards';
 import { ShortcutHelpModal } from './features/shortcuts/ShortcutHelpModal';
@@ -126,6 +127,15 @@ export function App() {
   const [customShortcuts, setCustomShortcuts] = useState<Record<string, string[]>>(loadCustomShortcuts);
   const customShortcutsRef = useRef(customShortcuts);
   customShortcutsRef.current = customShortcuts;
+  const setTargetShortcut = useCallback((id: string, keys?: string[]) => {
+    setCustomShortcuts((current) => {
+      const next = { ...current };
+      if (keys?.length) next[id] = keys;
+      else delete next[id];
+      saveCustomShortcuts(next);
+      return next;
+    });
+  }, []);
 
   const [loadingPrinters, setLoadingPrinters] = useState(true);
   const [printerManagerOpen, setPrinterManagerOpen] = useState(false);
@@ -465,7 +475,6 @@ export function App() {
         ...curr,
         globalSettings: applyLoadedPersistentProfile(curr.globalSettings, loaded),
       }));
-      message.success(`已应用配置“${loaded.persistentProfile.name}”`);
     } catch (err) {
       message.error(err instanceof Error ? err.message : '加载配置失败');
     }
@@ -1260,6 +1269,29 @@ export function App() {
         return matchShortcutKeys(event, keys);
       };
 
+      const assigned = Object.entries(customShortcutsRef.current).find(([id, keys]) =>
+        (id.startsWith('printer:') || id.startsWith('profile:')) && matchShortcutKeys(event, keys),
+      );
+      if (assigned && !shouldIgnoreShortcut(event, { isSingleKey: assigned[1].length === 1 })) {
+        const [id] = assigned;
+        if (id.startsWith('printer:')) {
+          const printerName = id.slice('printer:'.length);
+          if (!queueState.isPrinting && visiblePrinters.some((printer) => printer.name === printerName)) {
+            event.preventDefault();
+            void handleSelectPrinter(printerName);
+            return;
+          }
+        }
+        if (id.startsWith('profile:')) {
+          const profile = savedProfiles.find((item) => item.id === id.slice('profile:'.length));
+          if (!queueState.isPrinting && profile?.compatibility === 'compatible') {
+            event.preventDefault();
+            void handleSelectSavedProfile(profile.id);
+            return;
+          }
+        }
+      }
+
       // 1. 快捷键说明帮助
       if (isShortcut('open_help', ['/'])) {
         if (!shouldIgnoreShortcut(event, { allowHelpSlash: true, isSingleKey: !event.ctrlKey && !event.altKey })) {
@@ -1517,7 +1549,6 @@ export function App() {
             return;
           }
           void handleSelectSavedProfile(target.id);
-          message.info(`已切换配置：${target.name} (${prevIdx + 1} / ${savedProfiles.length})`);
           return;
         }
       }
@@ -1544,7 +1575,6 @@ export function App() {
             return;
           }
           void handleSelectSavedProfile(target.id);
-          message.info(`已切换配置：${target.name} (${nextIdx + 1} / ${savedProfiles.length})`);
           return;
         }
       }
@@ -2030,6 +2060,8 @@ export function App() {
               onSelectProfile={(profileId) => void handleSelectSavedProfile(profileId)}
               onOpenSaveProfile={() => setSaveModalOpen(true)}
               onOpenProfileManager={() => setManagerModalOpen(true)}
+              printerShortcutMap={customShortcuts}
+              onSetPrinterShortcut={(printerName, keys) => setTargetShortcut(`printer:${printerName}`, keys)}
               onChange={(nextSettings, changedKey) => {
                 const nextPrinterName = nextSettings.printerName;
                 if (nextPrinterName !== globalSettings.printerName) {
@@ -2130,6 +2162,8 @@ export function App() {
             globalSettings: applyLoadedPersistentProfile(curr.globalSettings, loaded),
           }));
         }}
+        shortcutMap={customShortcuts}
+        onSetShortcut={(profileId, keys) => setTargetShortcut(`profile:${profileId}`, keys)}
       />
       <PrinterManagerModal
         open={printerManagerOpen}
@@ -2152,10 +2186,6 @@ export function App() {
       <ShortcutHelpModal
         open={isShortcutHelpOpen}
         onClose={() => setIsShortcutHelpOpen(false)}
-        savedProfiles={savedProfiles}
-        activeProfileId={globalSettings.persistentProfileId}
-        printerName={globalSettings.printerName}
-        visiblePrinters={visiblePrinters}
         sortableColumns={visibleSortableColumns}
         customShortcuts={customShortcuts}
         onCustomShortcutsChange={(nextCustom) => setCustomShortcuts(nextCustom)}

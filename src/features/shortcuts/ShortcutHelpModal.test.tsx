@@ -68,7 +68,7 @@ describe('ShortcutHelpModal', () => {
     expect(screen.getByText('下一配置')).toBeDefined();
   });
 
-  it('renders available printer profiles mapped to 1 and 2', () => {
+  it('does not render printer/profile mapping previews', () => {
     render(
       <ShortcutHelpModal
         open={true}
@@ -79,8 +79,10 @@ describe('ShortcutHelpModal', () => {
       />,
     );
 
-    expect(screen.getByText('双面黑白经济模式')).toBeDefined();
-    expect(screen.getByText('单面全彩高清模式')).toBeDefined();
+    expect(screen.queryByText('双面黑白经济模式')).toBeNull();
+    expect(screen.queryByText('单面全彩高清模式')).toBeNull();
+    expect(screen.queryByText(/配置映射/)).toBeNull();
+    expect(screen.queryByText(/可见打印机映射/)).toBeNull();
   });
 
   it('toggles custom shortcuts editing mode', () => {

@@ -8,6 +8,7 @@ import type { CollateMode, ColorMode, FlipMode, NupLayout, NupScope, PageScaleMo
 import { evaluateSettingAvailability, isNupActive } from '../../domain/printSettings';
 import { SettingSelect } from '../../components/SettingSelect';
 import { NupSettings } from './NupSettings';
+import { ShortcutBindingButton } from '../shortcuts/ShortcutBindingButton';
 
 interface PrinterMenuPosition {
   top: number;
@@ -40,6 +41,8 @@ interface GlobalSettingsPanelProps {
   onOpenSaveProfile?: () => void;
   onOpenProfileManager?: () => void;
   onOpenPrinterManager?: () => void;
+  printerShortcutMap?: Record<string, string[]>;
+  onSetPrinterShortcut?: (printerName: string, keys?: string[]) => void;
   onChange: (nextSettings: PrintSettings, changedKey?: keyof PrintSettings) => void;
 }
 
@@ -69,6 +72,8 @@ export function GlobalSettingsPanel({
   onOpenSaveProfile,
   onOpenProfileManager,
   onOpenPrinterManager,
+  printerShortcutMap = {},
+  onSetPrinterShortcut,
   onChange,
 }: GlobalSettingsPanelProps) {
   const selectedPrinter = printers.find((printer) => printer.name === settings.printerName);
@@ -412,10 +417,9 @@ export function GlobalSettingsPanel({
                 const isSelected = printer.name === settings.printerName;
                 const isFocused = index === printerActiveIndex;
                 return (
-                  <button
+                  <div
                     key={printer.name}
                     id={`${printerListboxId}-option-${index}`}
-                    type="button"
                     role="option"
                     aria-selected={isSelected}
                     className={`printer-picker-option${isSelected ? ' is-selected' : ''}${isFocused ? ' is-focused' : ''}`}
@@ -430,7 +434,16 @@ export function GlobalSettingsPanel({
                       {describePrinterState(printer)}
                       {printer.portName ? ` · ${printer.portName}` : ''}
                     </span>
-                  </button>
+                    {onSetPrinterShortcut && (
+                      <span className="printer-picker-shortcut-action" onClick={(event) => event.stopPropagation()}>
+                        <ShortcutBindingButton
+                          label={printer.name}
+                          keys={printerShortcutMap[`printer:${printer.name}`]}
+                          onChange={(keys) => onSetPrinterShortcut(printer.name, keys)}
+                        />
+                      </span>
+                    )}
+                  </div>
                 );
               })
             )}
@@ -658,7 +671,7 @@ export function GlobalSettingsPanel({
       <div className="settings-controls">
         <div className="setting-row">
           <Tooltip title="快捷键：S 切换黑白/彩色" mouseEnterDelay={0.5}>
-            <span className="setting-row-label" id="color-mode-label" style={{ cursor: 'help' }}>
+            <span className="setting-row-label" id="color-mode-label">
               颜色
             </span>
           </Tooltip>
@@ -690,7 +703,7 @@ export function GlobalSettingsPanel({
         <div className="setting-group">
           <div className="setting-row">
             <Tooltip title="快捷键：D 切换单双面" mouseEnterDelay={0.5}>
-              <span className="setting-row-label" id="sides-mode-label" style={{ cursor: 'help' }}>
+              <span className="setting-row-label" id="sides-mode-label">
                 单双面
               </span>
             </Tooltip>
