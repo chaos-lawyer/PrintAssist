@@ -101,25 +101,16 @@ export function getBatchResultStatus(record: Pick<PrintHistoryRecord, 'succeeded
 
 export function filterHistoryRecords(
   records: PrintHistoryRecord[],
-  searchQuery: string,
-  filterType: 'all' | 'favorite'
+  searchQuery: string
 ): PrintHistoryRecord[] {
   const trimmed = searchQuery.trim().toLowerCase();
+  if (!trimmed) {
+    return records;
+  }
 
   return records.filter((record) => {
-    if (filterType === 'favorite' && !record.isFavorite) {
-      return false;
-    }
-
-    if (trimmed) {
-      const hasMatchingFile = record.files.some((f) =>
-        (f.fileName || '').toLowerCase().includes(trimmed)
-      );
-      if (!hasMatchingFile) {
-        return false;
-      }
-    }
-
-    return true;
+    return record.files.some((f) =>
+      (f.fileName || '').toLowerCase().includes(trimmed)
+    );
   });
 }

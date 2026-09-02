@@ -14,7 +14,6 @@ export interface PrintHistoryRecord {
     status: 'succeeded' | 'failed' | 'skipped';
     message?: string;
   }>;
-  isFavorite?: boolean;
   printConfigSnapshot?: FavoritePrintConfig;
 }
 
@@ -109,31 +108,11 @@ export function loadPrintHistory(): PrintHistoryRecord[] {
           succeededCount: typeof record.succeededCount === 'number' ? record.succeededCount : 0,
           failedCount: typeof record.failedCount === 'number' ? record.failedCount : 0,
           skippedCount: typeof record.skippedCount === 'number' ? record.skippedCount : 0,
-          isFavorite: Boolean(record.isFavorite),
           files,
         };
       });
   } catch {
     return [];
-  }
-}
-
-export function setPrintHistoryFavorite(id: string, isFavorite: boolean): boolean {
-  try {
-    const history = loadPrintHistory();
-    const targetIndex = history.findIndex((record) => record.id === id);
-    if (targetIndex === -1) {
-      return false;
-    }
-    history[targetIndex] = {
-      ...history[targetIndex],
-      isFavorite,
-    };
-    getStorage().setItem(STORAGE_KEY, JSON.stringify(history));
-    return true;
-  } catch (err) {
-    console.warn('Failed to update favorite status', err);
-    return false;
   }
 }
 
@@ -154,28 +133,12 @@ export function savePrintHistoryRecord(record: Omit<PrintHistoryRecord, 'id' | '
       files: sanitizedFiles,
       id: `hist_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
       timestamp: Date.now(),
-      isFavorite: Boolean(record.isFavorite),
     };
 
     let updated = [newRecord, ...history];
 
-    // Trimming policy: if exceeding MAX_HISTORY_ITEMS, prioritize removing oldest un-favorited records from existing history
     if (updated.length > MAX_HISTORY_ITEMS) {
-      while (updated.length > MAX_HISTORY_ITEMS) {
-        let removeIndex = -1;
-        // Search among existing historical records (index >= 1) from oldest (end) to newest
-        for (let i = updated.length - 1; i >= 1; i--) {
-          if (!updated[i].isFavorite) {
-            removeIndex = i;
-            break;
-          }
-        }
-        // If all existing records are favorited, remove the oldest historical record at the end
-        if (removeIndex === -1) {
-          removeIndex = updated.length - 1;
-        }
-        updated.splice(removeIndex, 1);
-      }
+      updated = updated.slice(0, MAX_HISTORY_ITEMS);
     }
 
     const storage = getStorage();
@@ -245,9 +208,4 @@ export function historyRecordToFavoriteTemplate(record: PrintHistoryRecord): Fav
     printConfig: record.printConfigSnapshot || null,
     source: 'history-migration',
   };
-}
-
-export function migrateOldHistoryFavorites(history: PrintHistoryRecord[]): FavoriteTemplateV1[] {
-  const favoriteRecords = history.filter((h) => h.isFavorite);
-  return favoriteRecords.map(historyRecordToFavoriteTemplate);
 }

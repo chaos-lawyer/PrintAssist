@@ -207,4 +207,29 @@ describe('PrinterManagerModal', () => {
     const saveBtn = screen.getByRole('button', { name: /保\s*存/ });
     expect(saveBtn.hasAttribute('disabled')).toBe(true);
   });
+
+  it('renders shortcut buttons and triggers onSetShortcut callback', () => {
+    const handleSetShortcut = vi.fn();
+    const shortcutMap = {
+      'printer:Printer A': ['Ctrl', 'Shift', 'P'],
+    };
+
+    render(
+      <PrinterManagerModal
+        open={true}
+        systemPrinters={mockSystemPrinters}
+        preferences={defaultPreferences}
+        currentPrinterName="Printer A"
+        isPrinting={false}
+        shortcutMap={shortcutMap}
+        onSetShortcut={handleSetShortcut}
+        onSave={() => {}}
+        onClose={() => {}}
+      />,
+    );
+
+    expect(screen.getByLabelText('Printer A：Ctrl + Shift + P')).toBeDefined();
+    expect(screen.getByLabelText('Printer B (Default)：设置快捷键')).toBeDefined();
+    expect(screen.getByLabelText('Printer C (Offline)：设置快捷键')).toBeDefined();
+  });
 });

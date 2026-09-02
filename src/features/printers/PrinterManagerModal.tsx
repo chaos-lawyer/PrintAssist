@@ -35,6 +35,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import type { SystemPrinter } from '../../shared/contracts/printer';
+import { ShortcutBindingButton } from '../shortcuts/ShortcutBindingButton';
 import {
   applyPrinterPreferences,
   type PrinterPreferencesV1,
@@ -46,6 +47,8 @@ export interface PrinterManagerModalProps {
   preferences: PrinterPreferencesV1;
   currentPrinterName: string | null;
   isPrinting: boolean;
+  shortcutMap?: Record<string, string[]>;
+  onSetShortcut?: (printerName: string, keys?: string[]) => void;
   onSave: (nextPreferences: PrinterPreferencesV1) => void;
   onClose: () => void;
 }
@@ -55,6 +58,9 @@ interface SortablePrinterItemProps {
   index: number;
   isCurrent: boolean;
   canHide: boolean;
+  shortcutKeys?: string[];
+  shortcutMap?: Record<string, string[]>;
+  onSetShortcut?: (keys?: string[]) => void;
   onHide: (name: string) => void;
   onKeyboardMove: (name: string, direction: 'up' | 'down') => void;
 }
@@ -64,6 +70,9 @@ function SortablePrinterItem({
   index,
   isCurrent,
   canHide,
+  shortcutKeys,
+  shortcutMap,
+  onSetShortcut,
   onHide,
   onKeyboardMove,
 }: SortablePrinterItemProps) {
@@ -145,6 +154,15 @@ function SortablePrinterItem({
       </div>
 
       <div className="printer-item-actions">
+        {onSetShortcut && (
+          <ShortcutBindingButton
+            id={`printer:${printer.name}`}
+            label={printer.name}
+            keys={shortcutKeys}
+            customShortcuts={shortcutMap}
+            onChange={onSetShortcut}
+          />
+        )}
         <Tooltip title={canHide ? '从本软件选择列表中隐藏' : '至少保留一台可见打印机'}>
           <Button
             type="text"
@@ -167,6 +185,8 @@ export function PrinterManagerModal({
   preferences,
   currentPrinterName,
   isPrinting,
+  shortcutMap,
+  onSetShortcut,
   onSave,
   onClose,
 }: PrinterManagerModalProps) {
@@ -421,6 +441,13 @@ export function PrinterManagerModal({
                       index={idx}
                       isCurrent={printer.name === currentPrinterName}
                       canHide={visiblePrinters.length > 1}
+                      shortcutKeys={shortcutMap?.[`printer:${printer.name}`]}
+                      shortcutMap={shortcutMap}
+                      onSetShortcut={
+                        onSetShortcut
+                          ? (keys) => onSetShortcut(printer.name, keys)
+                          : undefined
+                      }
                       onHide={handleHide}
                       onKeyboardMove={handleKeyboardMove}
                     />
@@ -497,6 +524,15 @@ export function PrinterManagerModal({
                       </div>
 
                       <div className="printer-item-actions">
+                        {onSetShortcut && (
+                          <ShortcutBindingButton
+                            id={`printer:${printer.name}`}
+                            label={printer.name}
+                            keys={shortcutMap?.[`printer:${printer.name}`]}
+                            customShortcuts={shortcutMap}
+                            onChange={(keys) => onSetShortcut(printer.name, keys)}
+                          />
+                        )}
                         <Button
                           type="text"
                           size="small"

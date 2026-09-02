@@ -116,7 +116,6 @@ describe('historyHelpers', () => {
         succeededCount: 2,
         failedCount: 0,
         skippedCount: 0,
-        isFavorite: true,
         files: [
           { fileName: 'Quarterly_Report_2026.pdf', path: 'path1', status: 'succeeded' },
           { fileName: 'Invoice_Aug.xlsx', path: 'path2', status: 'succeeded' },
@@ -130,44 +129,29 @@ describe('historyHelpers', () => {
         succeededCount: 1,
         failedCount: 0,
         skippedCount: 0,
-        isFavorite: false,
         files: [{ fileName: 'Presentation.pptx', path: 'path3', status: 'succeeded' }],
       },
     ];
 
-    it('returns all records when filter is all and query is empty', () => {
-      expect(filterHistoryRecords(sampleRecords, '', 'all')).toHaveLength(2);
-    });
-
-    it('filters by favorite', () => {
-      const favs = filterHistoryRecords(sampleRecords, '', 'favorite');
-      expect(favs).toHaveLength(1);
-      expect(favs[0].id).toBe('1');
+    it('returns all records when query is empty', () => {
+      expect(filterHistoryRecords(sampleRecords, '')).toHaveLength(2);
     });
 
     it('filters by filename case-insensitively across all files in batch', () => {
-      const matchesReport = filterHistoryRecords(sampleRecords, 'report', 'all');
+      const matchesReport = filterHistoryRecords(sampleRecords, 'report');
       expect(matchesReport).toHaveLength(1);
       expect(matchesReport[0].id).toBe('1');
 
-      const matchesInvoice = filterHistoryRecords(sampleRecords, 'INVOICE', 'all');
+      const matchesInvoice = filterHistoryRecords(sampleRecords, 'INVOICE');
       expect(matchesInvoice).toHaveLength(1);
       expect(matchesInvoice[0].id).toBe('1');
 
-      const matchesPpt = filterHistoryRecords(sampleRecords, 'presentation', 'all');
+      const matchesPpt = filterHistoryRecords(sampleRecords, 'presentation');
       expect(matchesPpt).toHaveLength(1);
       expect(matchesPpt[0].id).toBe('2');
 
-      const matchesNone = filterHistoryRecords(sampleRecords, 'nonexistent', 'all');
+      const matchesNone = filterHistoryRecords(sampleRecords, 'nonexistent');
       expect(matchesNone).toHaveLength(0);
-    });
-
-    it('combines favorite filter with search query', () => {
-      const matches = filterHistoryRecords(sampleRecords, 'presentation', 'favorite');
-      expect(matches).toHaveLength(0);
-
-      const favMatch = filterHistoryRecords(sampleRecords, 'report', 'favorite');
-      expect(favMatch).toHaveLength(1);
     });
   });
 });

@@ -2125,22 +2125,6 @@ button,
   box-shadow: var(--shadow-focus) !important;
 }
 
-.history-star-btn {
-  color: var(--color-text-faint) !important;
-}
-
-.history-star-btn:hover {
-  color: #faad14 !important;
-  background: #fffbe6 !important;
-}
-
-.history-star-btn.is-favorite {
-  color: #faad14 !important;
-}
-
-.history-star-btn.is-favorite:hover {
-  color: #d48806 !important;
-}
 
 .history-delete-btn:hover {
   color: var(--color-danger, #ff4d4f) !important;
@@ -2695,6 +2679,7 @@ button,
 .printer-item-actions {
   display: flex;
   align-items: center;
+  gap: 6px;
 }
 
 .printer-hidden-section {

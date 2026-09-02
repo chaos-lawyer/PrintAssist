@@ -3,7 +3,6 @@ import {
   Empty,
   Input,
   Modal,
-  Segmented,
   Space,
   Table,
   Tag,
@@ -22,7 +21,6 @@ import {
   MinusCircle,
   RotateCcw,
   Search,
-  Star,
   Trash2,
   XCircle,
 } from 'lucide-react';
@@ -39,7 +37,6 @@ import {
   clearPrintHistory,
   deletePrintHistoryRecord,
   loadPrintHistory,
-  setPrintHistoryFavorite,
   type PrintHistoryRecord,
 } from './historyStorage';
 
@@ -58,7 +55,6 @@ export function PrintHistoryModal({
 }: PrintHistoryModalProps) {
   const [history, setHistory] = useState<PrintHistoryRecord[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterType, setFilterType] = useState<'all' | 'favorite'>('all');
   const [expandedRowKeys, setExpandedRowKeys] = useState<React.Key[]>([]);
   const [contextMenu, setContextMenu] = useState<
     | { type: 'batch'; position: { x: number; y: number }; record: PrintHistoryRecord }
@@ -74,7 +70,6 @@ export function PrintHistoryModal({
     if (open) {
       reloadHistory();
       setSearchQuery('');
-      setFilterType('all');
       setExpandedRowKeys([]);
       setContextMenu(null);
     }
@@ -83,7 +78,7 @@ export function PrintHistoryModal({
   const handleClear = () => {
     Modal.confirm({
       title: '清空历史记录',
-      content: '确定要清空全部打印历史记录吗？包含收藏的记录也将被清除。',
+      content: '确定要清空全部打印历史记录吗？',
       okText: '清空',
       cancelText: '取消',
       okButtonProps: { danger: true },
@@ -97,27 +92,10 @@ export function PrintHistoryModal({
     });
   };
 
-  const handleToggleFavorite = (record: PrintHistoryRecord) => {
-    const nextFavorite = !record.isFavorite;
-    const success = setPrintHistoryFavorite(record.id, nextFavorite);
-    if (success) {
-      setHistory((prev) =>
-        prev.map((item) =>
-          item.id === record.id ? { ...item, isFavorite: nextFavorite } : item
-        )
-      );
-      message.success(nextFavorite ? '已设为保留记录（不会被自动清理）' : '已取消保留');
-    } else {
-      message.error('保留状态保存失败');
-    }
-  };
-
   const handleDeleteRecord = (record: PrintHistoryRecord) => {
     Modal.confirm({
       title: '删除历史记录',
-      content: record.isFavorite
-        ? '确定要删除此条打印记录吗？该记录已设为保留，删除后无法恢复。'
-        : '确定要删除此条打印记录吗？',
+      content: '确定要删除此条打印记录吗？',
       okText: '删除',
       cancelText: '取消',
       okButtonProps: { danger: true },
@@ -179,12 +157,6 @@ export function PrintHistoryModal({
             onSaveAsFavorite?.(contextMenu.record);
           },
         },
-        {
-          key: 'favorite',
-          label: contextMenu.record.isFavorite ? '取消保留' : '设为保留记录',
-          icon: <Star size={14} fill={contextMenu.record.isFavorite ? 'currentColor' : 'none'} />,
-          onClick: () => handleToggleFavorite(contextMenu.record),
-        },
         { type: 'divider' },
         {
           key: 'delete',
@@ -231,12 +203,11 @@ export function PrintHistoryModal({
 
   const handleResetFilter = () => {
     setSearchQuery('');
-    setFilterType('all');
   };
 
   const filteredRecords = useMemo(() => {
-    return filterHistoryRecords(history, searchQuery, filterType);
-  }, [history, searchQuery, filterType]);
+    return filterHistoryRecords(history, searchQuery);
+  }, [history, searchQuery]);
 
   const columns: ColumnsType<PrintHistoryRecord> = [
     {
@@ -313,32 +284,6 @@ export function PrintHistoryModal({
         return (
           <Tooltip title={status.tooltip}>
             <Tag color={status.tagColor}>{status.text}</Tag>
-          </Tooltip>
-        );
-      },
-    },
-    {
-      title: '保留',
-      key: 'favorite',
-      width: 64,
-      align: 'center',
-      render: (_, record) => {
-        const isFav = Boolean(record.isFavorite);
-        const tooltipTitle = isFav ? '取消保留' : '保留此记录（防止自动清理）';
-        return (
-          <Tooltip title={tooltipTitle}>
-            <button
-              type="button"
-              className={`history-action-btn history-star-btn ${isFav ? 'is-favorite' : ''}`}
-              aria-label={tooltipTitle}
-              aria-pressed={isFav}
-              onClick={(e) => {
-                e.stopPropagation();
-                handleToggleFavorite(record);
-              }}
-            >
-              <Star size={16} fill={isFav ? 'currentColor' : 'none'} />
-            </button>
           </Tooltip>
         );
       },
@@ -525,14 +470,6 @@ export function PrintHistoryModal({
                   allowClear
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                />
-                <Segmented
-                  value={filterType}
-                  onChange={(val) => setFilterType(val as 'all' | 'favorite')}
-                  options={[
-                    { label: '全部', value: 'all' },
-                    { label: '保留记录', value: 'favorite' },
-                  ]}
                 />
               </div>
               <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>

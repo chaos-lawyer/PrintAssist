@@ -8,7 +8,6 @@ import type { CollateMode, ColorMode, FlipMode, NupLayout, NupScope, PageScaleMo
 import { evaluateSettingAvailability, isNupActive } from '../../domain/printSettings';
 import { SettingSelect } from '../../components/SettingSelect';
 import { NupSettings } from './NupSettings';
-import { ShortcutBindingButton } from '../shortcuts/ShortcutBindingButton';
 
 interface PrinterMenuPosition {
   top: number;
@@ -41,8 +40,6 @@ interface GlobalSettingsPanelProps {
   onOpenSaveProfile?: () => void;
   onOpenProfileManager?: () => void;
   onOpenPrinterManager?: () => void;
-  printerShortcutMap?: Record<string, string[]>;
-  onSetPrinterShortcut?: (printerName: string, keys?: string[]) => void;
   onChange: (nextSettings: PrintSettings, changedKey?: keyof PrintSettings) => void;
 }
 
@@ -72,8 +69,6 @@ export function GlobalSettingsPanel({
   onOpenSaveProfile,
   onOpenProfileManager,
   onOpenPrinterManager,
-  printerShortcutMap = {},
-  onSetPrinterShortcut,
   onChange,
 }: GlobalSettingsPanelProps) {
   const selectedPrinter = printers.find((printer) => printer.name === settings.printerName);
@@ -439,15 +434,6 @@ export function GlobalSettingsPanel({
                         <kbd className="profile-shortcut-badge" title={`按快捷键 Shift+${index + 1} 快速选择`}>
                           Shift+{index + 1}
                         </kbd>
-                      )}
-                      {onSetPrinterShortcut && (
-                        <span className="printer-picker-shortcut-action" onClick={(event) => event.stopPropagation()}>
-                          <ShortcutBindingButton
-                            label={printer.name}
-                            keys={printerShortcutMap[`printer:${printer.name}`]}
-                            onChange={(keys) => onSetPrinterShortcut(printer.name, keys)}
-                          />
-                        </span>
                       )}
                     </div>
                   </div>

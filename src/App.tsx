@@ -2558,8 +2558,6 @@ export function App() {
               onSelectProfile={(profileId) => void handleSelectSavedProfile(profileId)}
               onOpenSaveProfile={() => setSaveModalOpen(true)}
               onOpenProfileManager={() => setManagerModalOpen(true)}
-              printerShortcutMap={customShortcuts}
-              onSetPrinterShortcut={(printerName, keys) => setTargetShortcut(`printer:${printerName}`, keys)}
               onChange={(nextSettings, changedKey) => {
                 const nextPrinterName = nextSettings.printerName;
                 if (nextPrinterName !== globalSettings.printerName) {
@@ -2703,6 +2701,8 @@ export function App() {
         preferences={printerPreferences}
         currentPrinterName={globalSettings.printerName}
         isPrinting={queueState.isPrinting}
+        shortcutMap={customShortcuts}
+        onSetShortcut={(printerName, keys) => setTargetShortcut(`printer:${printerName}`, keys)}
         onSave={handleSavePrinterPreferences}
         onClose={() => setPrinterManagerOpen(false)}
       />

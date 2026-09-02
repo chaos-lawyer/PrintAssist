@@ -117,34 +117,7 @@ describe('PrintHistoryModal', () => {
     expect(handleClose).toHaveBeenCalledTimes(1);
   });
 
-  it('toggles favorite with aria-pressed attribute and updates persistence', async () => {
-    setupSampleData();
-    render(<PrintHistoryModal open={true} onClose={() => {}} onReloadFiles={() => {}} />);
-
-    const favoriteButtons = screen.getAllByRole('button', { name: '保留此记录（防止自动清理）' });
-    expect(favoriteButtons.length).toBe(2);
-    expect(favoriteButtons[0].getAttribute('aria-pressed')).toBe('false');
-
-    // Click to favorite
-    fireEvent.click(favoriteButtons[0]);
-
-    await waitFor(() => {
-      expect(favoriteButtons[0].getAttribute('aria-pressed')).toBe('true');
-    });
-
-    // Check persistence
-    const saved = loadPrintHistory();
-    expect(saved[0].isFavorite).toBe(true);
-
-    // Click to unfavorite
-    fireEvent.click(favoriteButtons[0]);
-    await waitFor(() => {
-      expect(favoriteButtons[0].getAttribute('aria-pressed')).toBe('false');
-    });
-    expect(loadPrintHistory()[0].isFavorite).toBe(false);
-  });
-
-  it('filters by search keyword and favorite status, and displays empty filter state', () => {
+  it('filters by search keyword and displays empty filter state', () => {
     setupSampleData();
     render(<PrintHistoryModal open={true} onClose={() => {}} onReloadFiles={() => {}} />);
 
@@ -181,17 +154,6 @@ describe('PrintHistoryModal', () => {
 
     // Now error message "纸张卡住" from expanded row should be visible
     expect(screen.getByText('纸张卡住')).toBeDefined();
-  });
-
-  it('clicking favorite button does not expand row', () => {
-    setupSampleData();
-    render(<PrintHistoryModal open={true} onClose={() => {}} onReloadFiles={() => {}} />);
-
-    const favoriteButtons = screen.getAllByRole('button', { name: '保留此记录（防止自动清理）' });
-    fireEvent.click(favoriteButtons[0]);
-
-    // Row should NOT have expanded, so "纸张卡住" should not be visible
-    expect(screen.queryByText('纸张卡住')).toBeNull();
   });
 
   it('handles reload with no valid file paths safely without calling onReloadFiles', () => {
@@ -233,7 +195,7 @@ describe('PrintHistoryModal', () => {
     expect(confirmSpy).toHaveBeenCalled();
     const config = confirmSpy.mock.calls[0][0];
     expect(config.title).toBe('清空历史记录');
-    expect(config.content).toContain('包含收藏的记录也将被清除');
+    expect(config.content).toBe('确定要清空全部打印历史记录吗？');
 
     // Trigger onOk callback
     config.onOk?.();
@@ -273,30 +235,6 @@ describe('PrintHistoryModal', () => {
     confirmSpy.mockRestore();
   });
 
-  it('warns about favorite status when deleting a favorited record', () => {
-    savePrintHistoryRecord({
-      printerName: 'Special-Laser',
-      totalFiles: 1,
-      succeededCount: 1,
-      failedCount: 0,
-      skippedCount: 0,
-      isFavorite: true,
-      files: [{ fileName: 'important.pdf', path: 'C:\\important.pdf', status: 'succeeded' }],
-    });
-    const confirmSpy = vi.spyOn(Modal, 'confirm');
-
-    render(<PrintHistoryModal open={true} onClose={() => {}} onReloadFiles={() => {}} />);
-
-    const deleteBtn = screen.getByRole('button', { name: '删除此记录' });
-    fireEvent.click(deleteBtn);
-
-    expect(confirmSpy).toHaveBeenCalled();
-    const config = confirmSpy.mock.calls[0][0];
-    expect(config.content).toContain('该记录已设为保留');
-
-    confirmSpy.mockRestore();
-  });
-
   it('opens context menu on history row right click and triggers reload', () => {
     setupSampleData();
     const handleReload = vi.fn();
@@ -308,7 +246,6 @@ describe('PrintHistoryModal', () => {
     expect(screen.getByRole('menuitem', { name: /展开详情/ })).toBeDefined();
     expect(screen.getByRole('menuitem', { name: /重新加载此批文件/ })).toBeDefined();
     expect(screen.getByRole('menuitem', { name: /保存为收藏模板/ })).toBeDefined();
-    expect(screen.getByRole('menuitem', { name: /设为保留记录/ })).toBeDefined();
     expect(screen.getByRole('menuitem', { name: /删除记录/ })).toBeDefined();
 
     fireEvent.click(screen.getByRole('menuitem', { name: /重新加载此批文件/ }));
