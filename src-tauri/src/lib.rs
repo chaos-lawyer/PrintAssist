@@ -4,8 +4,8 @@ pub mod documents;
 pub mod ingress;
 pub mod printers;
 pub mod printing;
+pub mod shell_integration;
 
-use crate::ingress::collect_launch_paths;
 use tauri::{Emitter, Manager};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -15,12 +15,18 @@ pub fn run() {
     #[cfg(desktop)]
     {
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
-            let paths = collect_launch_paths(&args);
-            if let Some(window) = app.get_webview_window("main") {
+            if let Ok(Some(req)) = ingress::parse_external_request(&args) {
+                if req.activate_window.unwrap_or(true) {
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.set_focus();
+                    }
+                }
+                let _ = app.emit("external-request", &req);
+                if !req.paths.is_empty() {
+                    let _ = app.emit("files-added", &req.paths);
+                }
+            } else if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_focus();
-            }
-            if !paths.is_empty() {
-                let _ = app.emit("files-added", paths);
             }
         }));
     }
@@ -36,6 +42,7 @@ pub fn run() {
                     tauri::image::Image::from_bytes(include_bytes!("../icons/icon.ico"))
                         .expect("Failed to load icon"),
                 )?;
+                let _ = window.set_focus();
             }
 
             let app_data_dir = app
@@ -47,12 +54,15 @@ pub fn run() {
             let persistent_store = printers::PersistentPrinterProfileStore::new(&storage_dir);
             app.manage(persistent_store);
 
-            let launch_paths = collect_launch_paths(&std::env::args().collect::<Vec<_>>());
-            if !launch_paths.is_empty() {
+            let launch_args: Vec<String> = std::env::args().collect();
+            if let Ok(Some(req)) = ingress::parse_external_request(&launch_args) {
                 let handle = app.handle().clone();
                 std::thread::spawn(move || {
                     std::thread::sleep(std::time::Duration::from_millis(400));
-                    let _ = handle.emit("files-added", launch_paths);
+                    let _ = handle.emit("external-request", &req);
+                    if !req.paths.is_empty() {
+                        let _ = handle.emit("files-added", &req.paths);
+                    }
                 });
             }
             Ok(())
@@ -87,9 +97,16 @@ pub fn run() {
             commands::terminate_print_batch,
             commands::cancel_print_batch,
             commands::validate_supported_path,
+            commands::validate_supported_paths,
             commands::show_in_folder,
             commands::get_file_metadata,
-            commands::open_file
+            commands::open_file,
+            commands::get_shell_integration_status,
+            commands::register_shell_integration,
+            commands::unregister_shell_integration,
+            commands::repair_shell_integration,
+            commands::get_app_executable_path,
+            commands::write_external_request_result
         ])
         .run(tauri::generate_context!())
         .expect("error while running PrintAssist");

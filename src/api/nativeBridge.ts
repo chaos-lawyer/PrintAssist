@@ -474,4 +474,144 @@ export function subscribePrintItemEvents(handlers: {
   };
 }
 
+export interface ValidatePathsResult {
+  valid: string[];
+  missing: string[];
+}
+
+export async function validateSupportedPaths(paths: string[]): Promise<ValidatePathsResult> {
+  if (!isTauriRuntime()) {
+    return { valid: paths, missing: [] };
+  }
+  return invokeCommand<ValidatePathsResult>('validate_supported_paths', { paths });
+}
+
+export interface ExternalRequestV1 {
+  version: 1;
+  requestId: string;
+  action: 'add' | 'print';
+  paths: string[];
+  favoriteId?: string;
+  printerName?: string;
+  profileId?: string;
+  duplicatePolicy?: 'ask' | 'skip' | 'include';
+  busyPolicy?: 'reject' | 'enqueue';
+  activateWindow?: boolean;
+  confirmBeforePrint?: boolean;
+  resultFile?: string;
+}
+
+export interface ExternalRequestResult {
+  requestId: string;
+  status: 'accepted' | 'completed' | 'rejected' | 'failed';
+  action: 'add' | 'print';
+  addedCount: number;
+  skippedCount: number;
+  message: string;
+  timestamp: number;
+}
+
+export function subscribeExternalRequests(
+  onRequest: (request: ExternalRequestV1) => void,
+): () => void {
+  if (!isTauriRuntime()) {
+    return () => undefined;
+  }
+
+  let disposed = false;
+  let unlisten: (() => void) | undefined;
+
+  void import('@tauri-apps/api/event').then(({ listen }) => {
+    if (disposed) {
+      return;
+    }
+    void listen<ExternalRequestV1>('external-request', (event) => {
+      if (event.payload) {
+        onRequest(event.payload);
+      }
+    }).then((stop) => {
+      if (disposed) {
+        stop();
+        return;
+      }
+      unlisten = stop;
+    });
+  });
+
+  return () => {
+    disposed = true;
+    unlisten?.();
+  };
+}
+
+export async function writeExternalRequestResult(
+  resultFile: string,
+  result: ExternalRequestResult,
+): Promise<void> {
+  if (!isTauriRuntime()) {
+    return;
+  }
+  return invokeCommand<void>('write_external_request_result', { resultFile, result });
+}
+
+export interface ShellIntegrationStatus {
+  supported: boolean;
+  fileRegistered: boolean;
+  directoryRegistered: boolean;
+  currentExePath: string;
+  registeredFileExePath?: string;
+  registeredDirectoryExePath?: string;
+  isPathMatched: boolean;
+  isPortable: boolean;
+}
+
+export interface ShellIntegrationOptions {
+  enableFiles: boolean;
+  enableDirectories: boolean;
+}
+
+export async function getShellIntegrationStatus(): Promise<ShellIntegrationStatus> {
+  if (!isTauriRuntime()) {
+    return {
+      supported: false,
+      fileRegistered: false,
+      directoryRegistered: false,
+      currentExePath: 'PrintAssist.exe',
+      isPathMatched: true,
+      isPortable: false,
+    };
+  }
+  return invokeCommand<ShellIntegrationStatus>('get_shell_integration_status');
+}
+
+export async function registerShellIntegration(
+  options: ShellIntegrationOptions,
+): Promise<ShellIntegrationStatus> {
+  if (!isTauriRuntime()) {
+    return getShellIntegrationStatus();
+  }
+  return invokeCommand<ShellIntegrationStatus>('register_shell_integration', { options });
+}
+
+export async function unregisterShellIntegration(): Promise<ShellIntegrationStatus> {
+  if (!isTauriRuntime()) {
+    return getShellIntegrationStatus();
+  }
+  return invokeCommand<ShellIntegrationStatus>('unregister_shell_integration');
+}
+
+export async function repairShellIntegration(): Promise<ShellIntegrationStatus> {
+  if (!isTauriRuntime()) {
+    return getShellIntegrationStatus();
+  }
+  return invokeCommand<ShellIntegrationStatus>('repair_shell_integration');
+}
+
+export async function getAppExecutablePath(): Promise<string> {
+  if (!isTauriRuntime()) {
+    return 'C:\\Program Files\\PrintAssist\\PrintAssist.exe';
+  }
+  return invokeCommand<string>('get_app_executable_path');
+}
+
 export { isTauriRuntime };

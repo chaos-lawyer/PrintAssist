@@ -11,6 +11,7 @@ import {
   message,
 } from 'antd';
 import {
+  Bookmark,
   CheckCircle2,
   CircleHelp,
   Clock,
@@ -19,6 +20,7 @@ import {
   Printer,
   Settings2,
   SlidersHorizontal,
+  Terminal,
   Trash2,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
@@ -38,13 +40,33 @@ import {
   resumePrintBatch,
   runPrintBatch,
   subscribeIncomingFiles,
+  subscribeExternalRequests,
   subscribeNativeDragDrop,
   subscribePrintItemEvents,
   terminatePrintBatch,
+  validateSupportedPaths,
+  type ExternalRequestV1,
 } from './api/nativeBridge';
 import { AppLogo } from './components/AppLogo';
 import { PrintHistoryModal } from './features/history/PrintHistoryModal';
-import { savePrintHistoryRecord } from './features/history/historyStorage';
+import { historyRecordToFavoriteTemplate, savePrintHistoryRecord } from './features/history/historyStorage';
+import { AddFavoriteModal, type AddFavoriteModalInitialData } from './features/favorites/AddFavoriteModal';
+import { FavoritesModal } from './features/favorites/FavoritesModal';
+import { addFavorite, loadFavorites, updateFavorite } from './features/favorites/favoriteStorage';
+import { resolveFavorite } from './features/favorites/favoriteResolver';
+import { ExternalIntegrationSettingsModal } from './features/settings/ExternalIntegrationSettingsModal';
+import {
+  isRequestAlreadyProcessed,
+  recordRequestIdProcessed,
+  emitExternalRequestResult,
+} from './features/external/externalRequestHandler';
+import type {
+  FavoriteTemplateV1,
+  FavoriteTaskSnapshot,
+  FavoritePrinterRef,
+  FavoritePrintConfig,
+  FavoriteStandardSettings,
+} from './features/favorites/favoriteTypes';
 import { PrintPlaybackControls } from './features/queue/PrintPlaybackControls';
 import {
   applyDriverSettings,
@@ -168,6 +190,11 @@ export function App() {
   const [settingsItemId, setSettingsItemId] = useState<string | null>(null);
   const [isBatchSettingsOpen, setIsBatchSettingsOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [favoritesModalOpen, setFavoritesModalOpen] = useState(false);
+  const [addFavoriteModalOpen, setAddFavoriteModalOpen] = useState(false);
+  const [addFavoritePrefill, setAddFavoritePrefill] = useState<AddFavoriteModalInitialData | null>(null);
+  const [externalIntegrationOpen, setExternalIntegrationOpen] = useState(false);
+  const pendingExternalQueueRef = useRef<ExternalRequestV1[]>([]);
   const [isShortcutHelpOpen, setIsShortcutHelpOpen] = useState(false);
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -312,6 +339,19 @@ export function App() {
     } catch {
       // ignore
     }
+  }, []);
+
+  useEffect(() => {
+    // 软件启动时确保窗口和主工作区获得焦点，使用户无需先点击鼠标即可立即触发快捷键
+    window.focus();
+    const timer = setTimeout(() => {
+      window.focus();
+      const queueWrap = document.querySelector('.queue-table-wrap') as HTMLElement | null;
+      if (queueWrap) {
+        queueWrap.focus({ preventScroll: true });
+      }
+    }, 50);
+    return () => clearTimeout(timer);
   }, []);
 
   useEffect(() => {
@@ -467,6 +507,7 @@ export function App() {
           profileDirty: false,
         },
       }));
+      message.info('已切换配置：不使用已保存配置');
       return;
     }
     try {
@@ -475,6 +516,14 @@ export function App() {
         ...curr,
         globalSettings: applyLoadedPersistentProfile(curr.globalSettings, loaded),
       }));
+      const index = savedProfiles.findIndex((p) => p.id === profileId);
+      if (index >= 0) {
+        message.info(
+          `已切换配置：${loaded.persistentProfile.name} (${index + 1} / ${savedProfiles.length})`,
+        );
+      } else {
+        message.info(`已切换配置：${loaded.persistentProfile.name}`);
+      }
     } catch (err) {
       message.error(err instanceof Error ? err.message : '加载配置失败');
     }
@@ -515,6 +564,13 @@ export function App() {
         globalSettings: baseSettings,
       }));
 
+      const index = visiblePrinters.findIndex((p) => p.name === nextPrinterName);
+      if (index >= 0) {
+        message.info(`已切换打印机：${nextPrinterName} (${index + 1} / ${visiblePrinters.length})`);
+      } else {
+        message.info(`已切换打印机：${nextPrinterName}`);
+      }
+
       const profiles = await fetchSavedProfiles(nextPrinterName);
       const defaultProfile = profiles.find(
         (p) => p.isDefault && p.compatibility === 'compatible',
@@ -531,7 +587,7 @@ export function App() {
         }
       }
     },
-    [systemPrinters, commit, fetchSavedProfiles],
+    [systemPrinters, visiblePrinters, commit, fetchSavedProfiles],
   );
 
   const handleSavePrinterPreferences = useCallback(
@@ -551,6 +607,120 @@ export function App() {
       }
     },
     [systemPrinters, handleSelectPrinter],
+  );
+
+  const handleLoadFavorite = useCallback(
+    async (favorite: FavoriteTemplateV1, resolution?: 'new_only' | 'all') => {
+      if (queueState.isPrinting) {
+        message.warning('打印进行中，暂不可加载收藏');
+        return;
+      }
+
+      let activeResolution: 'needs_decision' | 'new_only' | 'all' = resolution ?? 'needs_decision';
+
+      if (activeResolution === 'needs_decision' && favorite.task?.items && favorite.task.items.length > 0) {
+        const partition = partitionIncomingPaths(
+          queueState.items,
+          favorite.task.items.map((i) => i.path),
+        );
+        if (partition.duplicatePaths.length > 0) {
+          const decision = await new Promise<DuplicateDecision>((resolve) => {
+            pendingAppendResolverRef.current = resolve;
+            setPendingDuplicateResult(partition);
+          });
+          if (decision === 'cancel') return;
+          activeResolution = decision === 'new-only' ? 'new_only' : 'all';
+        } else {
+          activeResolution = 'all';
+        }
+      }
+
+      const result = await resolveFavorite({
+        favorite,
+        currentQueue: queueState,
+        currentSettings: globalSettingsRef.current,
+        systemPrinters,
+        printerPreferences: printerPreferencesRef.current,
+        savedProfiles,
+        loadProfileFn: loadPrinterProfile,
+        duplicateDecision: activeResolution === 'needs_decision' ? 'all' : activeResolution,
+      });
+
+      if (result.summary?.missingFilesCount && result.summary.missingFilesCount > 0) {
+        message.warning(`收藏中的 ${result.summary.missingFilesCount} 个文件在本地已不存在，已跳过`);
+      }
+      if (result.summary?.warnings && result.summary.warnings.length > 0) {
+        for (const w of result.summary.warnings) {
+          message.info(w);
+        }
+      }
+
+      if (result.nextSnapshot) {
+        commit(`加载收藏“${favorite.name}”`, () => result.nextSnapshot!);
+        message.success(`已加载收藏“${favorite.name}”`);
+      }
+    },
+    [queueState, systemPrinters, savedProfiles, commit],
+  );
+
+  const handleSaveFavorite = useCallback(
+    (templateData: Omit<FavoriteTemplateV1, 'id' | 'createdAt' | 'updatedAt' | 'order' | 'schemaVersion'>) => {
+      const added = addFavorite(templateData);
+      message.success(`已创建收藏“${added.name}”`);
+    },
+    [],
+  );
+
+  const handleUpdateFavoriteToCurrent = useCallback(
+    (favorite: FavoriteTemplateV1) => {
+      const currentGlobal = globalSettingsRef.current;
+      const stdSettings: FavoriteStandardSettings = {
+        colorMode: currentGlobal.colorMode,
+        sidesMode: currentGlobal.sidesMode,
+        flipMode: currentGlobal.flipMode,
+        copies: currentGlobal.copies,
+        collateMode: currentGlobal.collateMode,
+        collate: currentGlobal.collate,
+        sourceCode: currentGlobal.sourceCode,
+        sourceName: currentGlobal.sourceName,
+        scaleMode: currentGlobal.scaleMode,
+        nupLayout: currentGlobal.nupLayout,
+        nupScope: currentGlobal.nupScope,
+        pageRange: currentGlobal.pageRange,
+      };
+
+      const nextTask: FavoriteTaskSnapshot | null =
+        queueState.items.length > 0
+          ? {
+              items: queueState.items.map((it) => ({
+                path: it.path,
+                fileName: it.fileName,
+                kind: it.kind,
+                pageCount: it.pageCount,
+                override: it.override ? { ...it.override } : {},
+              })),
+            }
+          : null;
+
+      const nextPrinter: FavoritePrinterRef | null = currentGlobal.printerName
+        ? { name: currentGlobal.printerName }
+        : null;
+
+      const nextConfig: FavoritePrintConfig | null = {
+        persistentProfileId: currentGlobal.persistentProfileId,
+        persistentProfileName: currentGlobal.persistentProfileName,
+        standardSettings: stdSettings,
+      };
+
+      updateFavorite(favorite.id, {
+        task: favorite.task ? nextTask : null,
+        printer: favorite.printer ? nextPrinter : null,
+        printConfig: favorite.printConfig ? nextConfig : null,
+      });
+
+      message.success(`已将收藏“${favorite.name}”更新为当前状态`);
+    },
+    [queueState.items],
   );
 
   const refreshPrinters = useCallback(async () => {
@@ -1232,6 +1402,266 @@ export function App() {
     [commit],
   );
 
+  const handleExecuteExternalRequest = useCallback(
+    async (request: ExternalRequestV1) => {
+      if (isRequestAlreadyProcessed(request.requestId)) {
+        return;
+      }
+      recordRequestIdProcessed(request.requestId);
+
+      if (request.action === 'add') {
+        if (queueState.isPrinting) {
+          if (request.busyPolicy === 'enqueue') {
+            pendingExternalQueueRef.current.push(request);
+            await emitExternalRequestResult(request, {
+              status: 'accepted',
+              addedCount: request.paths.length,
+              skippedCount: 0,
+              message: '打印机正忙，添加请求已加入排队队列',
+            });
+            message.info('外部添加请求已加入排队队列');
+            return;
+          }
+          await emitExternalRequestResult(request, {
+            status: 'rejected',
+            addedCount: 0,
+            skippedCount: request.paths.length,
+            message: '打印进行中，已拒绝外部添加请求',
+          });
+          message.warning('打印进行中，暂不可添加文件');
+          return;
+        }
+
+        if (queueState.phase === 'completed') {
+          handleStartNewBatch();
+        }
+
+        if (request.paths.length === 0) {
+          await emitExternalRequestResult(request, {
+            status: 'rejected',
+            addedCount: 0,
+            skippedCount: 0,
+            message: '请求中未包含有效支持的文件路径',
+          });
+          return;
+        }
+
+        let pathsToAdd = request.paths;
+        let skippedCount = 0;
+        const duplicatePolicy = request.duplicatePolicy || 'ask';
+
+        if (duplicatePolicy === 'skip') {
+          const partition = partitionIncomingPaths(queueState.items, request.paths);
+          pathsToAdd = partition.newPaths;
+          skippedCount = partition.duplicatePaths.length;
+        } else if (duplicatePolicy === 'ask') {
+          const partition = partitionIncomingPaths(queueState.items, request.paths);
+          if (partition.duplicatePaths.length > 0) {
+            const decision = await new Promise<DuplicateDecision>((resolve) => {
+              pendingAppendResolverRef.current = resolve;
+              setPendingDuplicateResult(partition);
+            });
+            if (decision === 'cancel') {
+              await emitExternalRequestResult(request, {
+                status: 'rejected',
+                addedCount: 0,
+                skippedCount: request.paths.length,
+                message: '用户取消了文件追加',
+              });
+              return;
+            }
+            pathsToAdd = decision === 'new-only' ? partition.newPaths : request.paths;
+            skippedCount = decision === 'new-only' ? partition.duplicatePaths.length : 0;
+          }
+        }
+
+        if (pathsToAdd.length > 0) {
+          commit(`外部添加 ${pathsToAdd.length} 个文件`, (curr) => ({
+            ...curr,
+            queueState: queueReducer(curr.queueState, {
+              type: 'append_files',
+              paths: pathsToAdd,
+            }),
+          }));
+        }
+
+        await emitExternalRequestResult(request, {
+          status: 'accepted',
+          addedCount: pathsToAdd.length,
+          skippedCount,
+          message: `已成功添加 ${pathsToAdd.length} 个文件${skippedCount > 0 ? `（跳过 ${skippedCount} 个重复项）` : ''}`,
+        });
+        message.success(`已从外部添加 ${pathsToAdd.length} 个文件`);
+        return;
+      }
+
+      if (request.action === 'print') {
+        if (queueState.isPrinting) {
+          if (request.busyPolicy === 'enqueue') {
+            pendingExternalQueueRef.current.push(request);
+            await emitExternalRequestResult(request, {
+              status: 'accepted',
+              addedCount: request.paths.length,
+              skippedCount: 0,
+              message: '打印进行中，直接打印请求已加入排队队列',
+            });
+            message.info('外部直接打印请求已排队');
+            return;
+          }
+          await emitExternalRequestResult(request, {
+            status: 'rejected',
+            addedCount: 0,
+            skippedCount: request.paths.length,
+            message: '当前正在打印中，已拒绝直接打印请求',
+          });
+          message.warning('当前正在打印中，已拒绝外部直接打印请求');
+          return;
+        }
+
+        // Resolve favorite if provided
+        let targetFavorite: FavoriteTemplateV1 | null = null;
+        if (request.favoriteId) {
+          const allFavorites = loadFavorites();
+          targetFavorite = allFavorites.find((f) => f.id === request.favoriteId) || null;
+          if (!targetFavorite) {
+            await emitExternalRequestResult(request, {
+              status: 'failed',
+              addedCount: 0,
+              skippedCount: request.paths.length,
+              message: `未找到 ID 为“${request.favoriteId}”的收藏模板`,
+            });
+            message.error(`未找到指定的收藏模板（ID: ${request.favoriteId}）`);
+            return;
+          }
+        }
+
+        // Validate paths
+        const validated = await validateSupportedPaths(request.paths);
+        if (validated.valid.length === 0) {
+          await emitExternalRequestResult(request, {
+            status: 'failed',
+            addedCount: 0,
+            skippedCount: request.paths.length,
+            message: '请求中的文件路径均不存在或格式不受支持',
+          });
+          message.error('未找到有效的可打印文件');
+          return;
+        }
+
+        // If favorite exists, resolve favorite snapshot
+        if (targetFavorite) {
+          const resolved = await resolveFavorite({
+            favorite: targetFavorite,
+            currentQueue: queueState,
+            currentSettings: globalSettingsRef.current,
+            systemPrinters,
+            printerPreferences: printerPreferencesRef.current,
+            savedProfiles,
+            loadProfileFn: loadPrinterProfile,
+            duplicateDecision: request.duplicatePolicy === 'skip' ? 'new_only' : 'all',
+          });
+
+          if (resolved.summary?.warnings && resolved.summary.warnings.length > 0) {
+            for (const w of resolved.summary.warnings) {
+              message.warning(w);
+            }
+          }
+
+          // Check printer validity:
+          if (targetFavorite.printer?.name) {
+            const targetSys = systemPrinters.find((p) => p.name === targetFavorite!.printer!.name);
+            if (!targetSys || targetSys.statusCode !== 0) {
+              await emitExternalRequestResult(request, {
+                status: 'failed',
+                addedCount: 0,
+                skippedCount: request.paths.length,
+                message: `目标打印机“${targetFavorite.printer.name}”未连接或离线`,
+              });
+              message.error(`目标打印机“${targetFavorite.printer.name}”未连接或离线，直接打印终止`);
+              return;
+            }
+          }
+        }
+
+        if (request.confirmBeforePrint) {
+          const printerName =
+            request.printerName || targetFavorite?.printer?.name || globalSettingsRef.current.printerName;
+          const confirmed = await new Promise<boolean>((resolve) => {
+            Modal.confirm({
+              title: '确认执行外部直接打印',
+              content: `准备使用打印机【${printerName}】打印 ${validated.valid.length} 个文件，是否立即开始？`,
+              okText: '立即打印',
+              cancelText: '取消',
+              onOk: () => resolve(true),
+              onCancel: () => resolve(false),
+            });
+          });
+
+          if (!confirmed) {
+            await emitExternalRequestResult(request, {
+              status: 'rejected',
+              addedCount: 0,
+              skippedCount: validated.valid.length,
+              message: '用户取消了直接打印',
+            });
+            return;
+          }
+        }
+
+        if (queueState.phase === 'completed') {
+          handleStartNewBatch();
+        }
+
+        // Append incoming files to queue
+        commit(`外部直接打印 ${validated.valid.length} 个文件`, (curr) => ({
+          ...curr,
+          queueState: queueReducer(curr.queueState, {
+            type: 'append_files',
+            paths: validated.valid,
+          }),
+        }));
+
+        await emitExternalRequestResult(request, {
+          status: 'accepted',
+          addedCount: validated.valid.length,
+          skippedCount: validated.missing.length,
+          message: `直接打印任务已启动（${validated.valid.length} 个文件）`,
+        });
+
+        // Trigger print execution for newly appended files
+        setTimeout(() => {
+          void executePrint('remaining');
+        }, 100);
+      }
+    },
+    [
+      queueState.isPrinting,
+      queueState.phase,
+      queueState.items,
+      systemPrinters,
+      selectedRowKeys,
+      activeId,
+      commit,
+      executePrint,
+      handleStartNewBatch,
+    ],
+  );
+
+  useEffect(() => {
+    return subscribeExternalRequests((req) => {
+      void handleExecuteExternalRequest(req);
+    });
+  }, [handleExecuteExternalRequest]);
+
+  useEffect(() => {
+    if (queueState.phase === 'completed' && pendingExternalQueueRef.current.length > 0) {
+      const nextReq = pendingExternalQueueRef.current.shift();
+      if (nextReq) {
+        void handleExecuteExternalRequest(nextReq);
+      }
+    }
+  }, [queueState.phase, handleExecuteExternalRequest]);
+
   // 监听单文件打印实时进度事件
   useEffect(() => {
     const unsubscribe = subscribePrintItemEvents({
@@ -1270,7 +1700,7 @@ export function App() {
       };
 
       const assigned = Object.entries(customShortcutsRef.current).find(([id, keys]) =>
-        (id.startsWith('printer:') || id.startsWith('profile:')) && matchShortcutKeys(event, keys),
+        (id.startsWith('printer:') || id.startsWith('profile:') || id.startsWith('favorite:')) && matchShortcutKeys(event, keys),
       );
       if (assigned && !shouldIgnoreShortcut(event, { isSingleKey: assigned[1].length === 1 })) {
         const [id] = assigned;
@@ -1289,6 +1719,35 @@ export function App() {
             void handleSelectSavedProfile(profile.id);
             return;
           }
+        }
+        if (id.startsWith('favorite:')) {
+          const favId = id.slice('favorite:'.length);
+          const allFavs = loadFavorites();
+          const favorite = allFavs.find((f) => f.id === favId);
+          if (!queueState.isPrinting && favorite) {
+            event.preventDefault();
+            void handleLoadFavorite(favorite);
+            return;
+          }
+        }
+      }
+
+      // 打开收藏中心 (B)
+      if (isShortcut('open_favorites', ['B'])) {
+        if (!shouldIgnoreShortcut(event, { isSingleKey: true })) {
+          event.preventDefault();
+          setFavoritesModalOpen(true);
+          return;
+        }
+      }
+
+      // 添加收藏 (Ctrl+B)
+      if (isShortcut('add_favorite', ['Ctrl', 'B'])) {
+        if (!shouldIgnoreShortcut(event, { isSingleKey: false })) {
+          event.preventDefault();
+          setAddFavoritePrefill(null);
+          setAddFavoriteModalOpen(true);
+          return;
         }
       }
 
@@ -1330,6 +1789,26 @@ export function App() {
             handleBatchRemove();
             return;
           }
+        }
+      }
+
+      // 清空列表 (C)
+      if (isShortcut('clear_queue', ['C'])) {
+        if (!shouldIgnoreShortcut(event, { isSingleKey: true })) {
+          if (queueState.isPrinting) {
+            message.warning('打印进行中，暂不可清空列表');
+            return;
+          }
+          if (queueState.phase === 'completed') {
+            message.warning('当前批次已完成，请先开始新批次');
+            return;
+          }
+          if (queueState.items.length === 0) {
+            return;
+          }
+          event.preventDefault();
+          handleClearQueue();
+          return;
         }
       }
 
@@ -1502,7 +1981,6 @@ export function App() {
           const nextIdx = (currIdx + 1) % visiblePrinters.length;
           const target = visiblePrinters[nextIdx];
           void handleSelectPrinter(target.name);
-          message.info(`已切换打印机：${target.name} (${nextIdx + 1} / ${visiblePrinters.length})`);
           return;
         }
       }
@@ -1522,7 +2000,6 @@ export function App() {
           const prevIdx = (currIdx - 1 + visiblePrinters.length) % visiblePrinters.length;
           const target = visiblePrinters[prevIdx];
           void handleSelectPrinter(target.name);
-          message.info(`已切换打印机：${target.name} (${prevIdx + 1} / ${visiblePrinters.length})`);
           return;
         }
       }
@@ -1598,7 +2075,6 @@ export function App() {
               return;
             }
             void handleSelectPrinter(target.name);
-            message.info(`已切换打印机：${target.name} (${index + 1} / ${visiblePrinters.length})`);
             return;
           }
         }
@@ -1661,6 +2137,7 @@ export function App() {
     globalSettings.printerName,
     globalSettings.sidesMode,
     handleBatchRemove,
+    handleClearQueue,
     handlePickFiles,
     handlePickFolder,
     handleRedo,
@@ -1668,6 +2145,7 @@ export function App() {
     handleSelectSavedProfile,
     handleToggleSort,
     handleUndo,
+    handleLoadFavorite,
     loadingSavedProfiles,
     queueState.isPrinting,
     queueState.items,
@@ -1775,6 +2253,15 @@ export function App() {
               onUndo={handleUndo}
               onRedo={handleRedo}
             />
+            <Tooltip title="收藏（B）">
+              <Button
+                type="text"
+                className="header-favorites-btn"
+                icon={<Bookmark size={16} />}
+                onClick={() => setFavoritesModalOpen(true)}
+                aria-label="收藏"
+              />
+            </Tooltip>
             <Tooltip title="打印历史（H）">
               <Button
                 type="text"
@@ -1782,6 +2269,15 @@ export function App() {
                 icon={<Clock size={16} />}
                 onClick={() => setHistoryOpen(true)}
                 aria-label="打印历史"
+              />
+            </Tooltip>
+            <Tooltip title="外部集成 / Quicker 与系统右键">
+              <Button
+                type="text"
+                className="header-external-integration-btn"
+                icon={<Terminal size={16} />}
+                onClick={() => setExternalIntegrationOpen(true)}
+                aria-label="外部集成"
               />
             </Tooltip>
             <Tooltip title="快捷键（/）">
@@ -1865,14 +2361,16 @@ export function App() {
                   </Button>
                 )}
                 {queueState.phase === 'editing' && (
-                  <Button
-                    type="text"
-                    danger
-                    disabled={queueState.isPrinting || queueState.items.length === 0}
-                    onClick={handleClearQueue}
-                  >
-                    清空列表
-                  </Button>
+                  <Tooltip title="清空列表（C）">
+                    <Button
+                      type="text"
+                      danger
+                      disabled={queueState.isPrinting || queueState.items.length === 0}
+                      onClick={handleClearQueue}
+                    >
+                      清空列表
+                    </Button>
+                  </Tooltip>
                 )}
               </Space>
             </div>
@@ -2139,6 +2637,40 @@ export function App() {
         onReloadFiles={(paths) => {
           void requestAppendPaths(paths);
         }}
+        onSaveAsFavorite={(record) => {
+          setAddFavoritePrefill(historyRecordToFavoriteTemplate(record));
+          setAddFavoriteModalOpen(true);
+        }}
+      />
+      <FavoritesModal
+        open={favoritesModalOpen}
+        onClose={() => setFavoritesModalOpen(false)}
+        onLoadFavorite={(fav) => {
+          void handleLoadFavorite(fav);
+        }}
+        onOpenAddFavorite={() => {
+          setAddFavoritePrefill(null);
+          setAddFavoriteModalOpen(true);
+        }}
+        isPrinting={queueState.isPrinting}
+        systemPrinters={systemPrinters}
+        customShortcuts={customShortcuts}
+        onSetCustomShortcut={(id, keys) => setTargetShortcut(id, keys)}
+        onUpdateFavoriteToCurrent={handleUpdateFavoriteToCurrent}
+      />
+      <AddFavoriteModal
+        open={addFavoriteModalOpen}
+        onClose={() => {
+          setAddFavoriteModalOpen(false);
+          setAddFavoritePrefill(null);
+        }}
+        onSave={handleSaveFavorite}
+        currentQueue={queueState.items}
+        currentPrinterName={globalSettings.printerName}
+        currentProfileName={globalSettings.persistentProfileName}
+        currentPersistentProfileId={globalSettings.persistentProfileId}
+        currentSettings={globalSettings}
+        initialData={addFavoritePrefill}
       />
       <SavePrinterProfileModal
         open={saveModalOpen}
@@ -2189,6 +2721,13 @@ export function App() {
         sortableColumns={visibleSortableColumns}
         customShortcuts={customShortcuts}
         onCustomShortcutsChange={(nextCustom) => setCustomShortcuts(nextCustom)}
+      />
+      <ExternalIntegrationSettingsModal
+        open={externalIntegrationOpen}
+        onClose={() => setExternalIntegrationOpen(false)}
+        onSimulateExternalRequest={(req) => {
+          void handleExecuteExternalRequest(req);
+        }}
       />
       <div role="status" aria-live="polite" className="sr-only">
         {announcement}

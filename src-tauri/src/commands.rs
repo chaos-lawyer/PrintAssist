@@ -627,9 +627,29 @@ pub fn cancel_print_batch() -> Result<(), String> {
     Ok(())
 }
 
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+pub struct ValidatePathsResult {
+    pub valid: Vec<String>,
+    pub missing: Vec<String>,
+}
+
 #[tauri::command]
 pub fn validate_supported_path(path: String) -> bool {
     is_supported_file(PathBuf::from(path).as_path())
+}
+
+#[tauri::command]
+pub fn validate_supported_paths(paths: Vec<String>) -> ValidatePathsResult {
+    let mut valid = Vec::new();
+    let mut missing = Vec::new();
+    for p in paths {
+        if is_supported_file(PathBuf::from(&p).as_path()) {
+            valid.push(p);
+        } else {
+            missing.push(p);
+        }
+    }
+    ValidatePathsResult { valid, missing }
 }
 
 #[tauri::command]
@@ -664,4 +684,47 @@ pub async fn get_file_metadata(paths: Vec<String>) -> Result<Vec<FileMetadata>, 
 #[tauri::command]
 pub async fn open_file(path: String) -> Result<(), String> {
     open::that(path).map_err(|error| format!("打开文件失败：{error}"))
+}
+
+#[tauri::command]
+pub fn get_shell_integration_status() -> Result<crate::shell_integration::ShellIntegrationStatus, String> {
+    crate::shell_integration::get_status()
+}
+
+#[tauri::command]
+pub fn register_shell_integration(
+    options: crate::shell_integration::ShellIntegrationOptions,
+) -> Result<crate::shell_integration::ShellIntegrationStatus, String> {
+    crate::shell_integration::register(&options)
+}
+
+#[tauri::command]
+pub fn unregister_shell_integration() -> Result<crate::shell_integration::ShellIntegrationStatus, String> {
+    crate::shell_integration::unregister()
+}
+
+#[tauri::command]
+pub fn repair_shell_integration() -> Result<crate::shell_integration::ShellIntegrationStatus, String> {
+    crate::shell_integration::repair()
+}
+
+#[tauri::command]
+pub fn get_app_executable_path() -> Result<String, String> {
+    crate::shell_integration::get_current_exe_path().map(|p| p.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+pub async fn write_external_request_result(
+    result_file: String,
+    result: crate::ingress::ExternalRequestResult,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let json_str = serde_json::to_string_pretty(&result)
+            .map_err(|e| format!("序列化结果 JSON 失败: {}", e))?;
+        std::fs::write(&result_file, json_str)
+            .map_err(|e| format!("写入结果文件失败: {}", e))?;
+        Ok::<(), String>(())
+    })
+    .await
+    .map_err(|e| format!("写入任务执行异常: {}", e))?
 }

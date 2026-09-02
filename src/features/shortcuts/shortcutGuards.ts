@@ -16,6 +16,39 @@ export interface ShortcutGuardOptions {
  * 6. 单键模式下按下了 Ctrl / Alt / Meta 修饰键；
  * 7. 用户在设置中停用了单键快捷键（仅单键被阻断，组合键如 Ctrl+A / Ctrl+P 仍允许）。
  */
+function isOverlayVisible(el: Element): boolean {
+  if (!(el instanceof HTMLElement)) return false;
+  // If element has hidden class
+  if (
+    el.classList.contains('ant-modal-wrap-hidden') ||
+    el.classList.contains('ant-dropdown-hidden') ||
+    el.classList.contains('ant-select-dropdown-hidden') ||
+    el.classList.contains('ant-drawer-hidden') ||
+    el.classList.contains('is-hidden')
+  ) {
+    return false;
+  }
+  // If element has inline style display: none (with or without spaces)
+  if (el.style.display === 'none') {
+    return false;
+  }
+  if (el.getAttribute('aria-hidden') === 'true') {
+    return false;
+  }
+  // Check if closed/hidden via computed style if available
+  if (typeof window !== 'undefined' && typeof window.getComputedStyle === 'function') {
+    try {
+      const style = window.getComputedStyle(el);
+      if (style.display === 'none' || style.visibility === 'hidden') {
+        return false;
+      }
+    } catch {
+      // ignore
+    }
+  }
+  return true;
+}
+
 export function shouldIgnoreShortcut(
   event: KeyboardEvent,
   options?: ShortcutGuardOptions,
@@ -57,12 +90,16 @@ export function shouldIgnoreShortcut(
   }
 
   // 3. 检查页面中是否存在活动的浮层（Modal, Drawer, 下拉菜单, 右键菜单等）
-  // 特殊：如果是按下 '/'，且当前没有其它 modal 打开（快捷键帮助本身除外），允许触发
-  const hasActiveOverlay = Boolean(
-    document.querySelector(
-      '.ant-modal-wrap:not([style*="display: none"]), .ant-drawer-open, .app-context-menu, .ant-dropdown:not(.ant-dropdown-hidden), .ant-select-dropdown:not(.ant-select-dropdown-hidden)',
-    ),
+  const overlays = document.querySelectorAll(
+    '.ant-modal-wrap, .ant-drawer-open, .app-context-menu, .ant-dropdown, .ant-select-dropdown',
   );
+  let hasActiveOverlay = false;
+  for (let i = 0; i < overlays.length; i++) {
+    if (isOverlayVisible(overlays[i])) {
+      hasActiveOverlay = true;
+      break;
+    }
+  }
 
   if (hasActiveOverlay) {
     return true;

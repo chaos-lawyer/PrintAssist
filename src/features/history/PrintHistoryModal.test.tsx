@@ -121,7 +121,7 @@ describe('PrintHistoryModal', () => {
     setupSampleData();
     render(<PrintHistoryModal open={true} onClose={() => {}} onReloadFiles={() => {}} />);
 
-    const favoriteButtons = screen.getAllByRole('button', { name: '收藏此记录' });
+    const favoriteButtons = screen.getAllByRole('button', { name: '保留此记录（防止自动清理）' });
     expect(favoriteButtons.length).toBe(2);
     expect(favoriteButtons[0].getAttribute('aria-pressed')).toBe('false');
 
@@ -187,7 +187,7 @@ describe('PrintHistoryModal', () => {
     setupSampleData();
     render(<PrintHistoryModal open={true} onClose={() => {}} onReloadFiles={() => {}} />);
 
-    const favoriteButtons = screen.getAllByRole('button', { name: '收藏此记录' });
+    const favoriteButtons = screen.getAllByRole('button', { name: '保留此记录（防止自动清理）' });
     fireEvent.click(favoriteButtons[0]);
 
     // Row should NOT have expanded, so "纸张卡住" should not be visible
@@ -292,7 +292,7 @@ describe('PrintHistoryModal', () => {
 
     expect(confirmSpy).toHaveBeenCalled();
     const config = confirmSpy.mock.calls[0][0];
-    expect(config.content).toContain('该记录已收藏');
+    expect(config.content).toContain('该记录已设为保留');
 
     confirmSpy.mockRestore();
   });
@@ -307,7 +307,8 @@ describe('PrintHistoryModal', () => {
 
     expect(screen.getByRole('menuitem', { name: /展开详情/ })).toBeDefined();
     expect(screen.getByRole('menuitem', { name: /重新加载此批文件/ })).toBeDefined();
-    expect(screen.getByRole('menuitem', { name: /收藏此记录/ })).toBeDefined();
+    expect(screen.getByRole('menuitem', { name: /保存为收藏模板/ })).toBeDefined();
+    expect(screen.getByRole('menuitem', { name: /设为保留记录/ })).toBeDefined();
     expect(screen.getByRole('menuitem', { name: /删除记录/ })).toBeDefined();
 
     fireEvent.click(screen.getByRole('menuitem', { name: /重新加载此批文件/ }));

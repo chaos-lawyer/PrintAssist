@@ -434,15 +434,22 @@ export function GlobalSettingsPanel({
                       {describePrinterState(printer)}
                       {printer.portName ? ` · ${printer.portName}` : ''}
                     </span>
-                    {onSetPrinterShortcut && (
-                      <span className="printer-picker-shortcut-action" onClick={(event) => event.stopPropagation()}>
-                        <ShortcutBindingButton
-                          label={printer.name}
-                          keys={printerShortcutMap[`printer:${printer.name}`]}
-                          onChange={(keys) => onSetPrinterShortcut(printer.name, keys)}
-                        />
-                      </span>
-                    )}
+                    <div className="printer-picker-option-actions">
+                      {index < 9 && (
+                        <kbd className="profile-shortcut-badge" title={`按快捷键 Shift+${index + 1} 快速选择`}>
+                          Shift+{index + 1}
+                        </kbd>
+                      )}
+                      {onSetPrinterShortcut && (
+                        <span className="printer-picker-shortcut-action" onClick={(event) => event.stopPropagation()}>
+                          <ShortcutBindingButton
+                            label={printer.name}
+                            keys={printerShortcutMap[`printer:${printer.name}`]}
+                            onChange={(keys) => onSetPrinterShortcut(printer.name, keys)}
+                          />
+                        </span>
+                      )}
+                    </div>
                   </div>
                 );
               })

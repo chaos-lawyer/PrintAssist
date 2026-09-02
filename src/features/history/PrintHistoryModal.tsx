@@ -12,6 +12,7 @@ import {
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import {
+  BookmarkPlus,
   CheckCircle2,
   ChevronDown,
   ChevronUp,
@@ -46,12 +47,14 @@ interface PrintHistoryModalProps {
   open: boolean;
   onClose: () => void;
   onReloadFiles: (paths: string[]) => void;
+  onSaveAsFavorite?: (record: PrintHistoryRecord) => void;
 }
 
 export function PrintHistoryModal({
   open,
   onClose,
   onReloadFiles,
+  onSaveAsFavorite,
 }: PrintHistoryModalProps) {
   const [history, setHistory] = useState<PrintHistoryRecord[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -103,8 +106,9 @@ export function PrintHistoryModal({
           item.id === record.id ? { ...item, isFavorite: nextFavorite } : item
         )
       );
+      message.success(nextFavorite ? '已设为保留记录（不会被自动清理）' : '已取消保留');
     } else {
-      message.error('收藏状态保存失败');
+      message.error('保留状态保存失败');
     }
   };
 
@@ -112,7 +116,7 @@ export function PrintHistoryModal({
     Modal.confirm({
       title: '删除历史记录',
       content: record.isFavorite
-        ? '确定要删除此条打印记录吗？该记录已收藏，删除后无法恢复。'
+        ? '确定要删除此条打印记录吗？该记录已设为保留，删除后无法恢复。'
         : '确定要删除此条打印记录吗？',
       okText: '删除',
       cancelText: '取消',
@@ -167,8 +171,17 @@ export function PrintHistoryModal({
           onClick: () => handleReloadRecordFiles(contextMenu.record),
         },
         {
+          key: 'save-favorite',
+          label: '保存为收藏模板',
+          icon: <BookmarkPlus size={14} />,
+          onClick: () => {
+            onClose();
+            onSaveAsFavorite?.(contextMenu.record);
+          },
+        },
+        {
           key: 'favorite',
-          label: contextMenu.record.isFavorite ? '取消收藏' : '收藏此记录',
+          label: contextMenu.record.isFavorite ? '取消保留' : '设为保留记录',
           icon: <Star size={14} fill={contextMenu.record.isFavorite ? 'currentColor' : 'none'} />,
           onClick: () => handleToggleFavorite(contextMenu.record),
         },
@@ -305,13 +318,13 @@ export function PrintHistoryModal({
       },
     },
     {
-      title: '收藏',
+      title: '保留',
       key: 'favorite',
       width: 64,
       align: 'center',
       render: (_, record) => {
         const isFav = Boolean(record.isFavorite);
-        const tooltipTitle = isFav ? '取消收藏' : '收藏此记录';
+        const tooltipTitle = isFav ? '取消保留' : '保留此记录（防止自动清理）';
         return (
           <Tooltip title={tooltipTitle}>
             <button
@@ -329,6 +342,28 @@ export function PrintHistoryModal({
           </Tooltip>
         );
       },
+    },
+    {
+      title: '转为收藏',
+      key: 'saveFavorite',
+      width: 76,
+      align: 'center',
+      render: (_, record) => (
+        <Tooltip title="将此批任务转存为收藏模板">
+          <button
+            type="button"
+            className="history-action-btn"
+            aria-label="转为收藏模板"
+            onClick={(e) => {
+              e.stopPropagation();
+              onClose();
+              onSaveAsFavorite?.(record);
+            }}
+          >
+            <BookmarkPlus size={16} />
+          </button>
+        </Tooltip>
+      ),
     },
     {
       title: '重新加载',
@@ -496,7 +531,7 @@ export function PrintHistoryModal({
                   onChange={(val) => setFilterType(val as 'all' | 'favorite')}
                   options={[
                     { label: '全部', value: 'all' },
-                    { label: '已收藏', value: 'favorite' },
+                    { label: '保留记录', value: 'favorite' },
                   ]}
                 />
               </div>

@@ -110,12 +110,8 @@ function SortablePrinterItem({
         <GripVertical size={15} />
       </div>
 
-      <div className="printer-item-index" title={`快捷键：Shift+${index + 1}`}>
-        {index < 9 ? (
-          <span className="printer-shortcut-badge">Shift+{index + 1}</span>
-        ) : (
-          <span className="printer-index-number">{index + 1}</span>
-        )}
+      <div className="printer-item-index">
+        <span className="printer-index-number">{index + 1}</span>
       </div>
 
       <div className="printer-item-main">
@@ -398,7 +394,7 @@ export function PrinterManagerModal({
               显示的打印机（{visiblePrinters.length}）
             </Typography.Text>
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              拖动手柄调整顺序，前 9 台对应快捷键 Shift+1~9
+              拖动手柄调整显示顺序
             </Typography.Text>
           </div>
 

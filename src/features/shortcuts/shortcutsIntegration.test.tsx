@@ -339,6 +339,8 @@ describe('Shortcuts Integration in PrintQueue', () => {
     const prevProfile = SHORTCUT_DEFINITIONS.find((d) => d.id === 'prev_profile');
     const nextProfile = SHORTCUT_DEFINITIONS.find((d) => d.id === 'next_profile');
 
+    const clearQueue = SHORTCUT_DEFINITIONS.find((d) => d.id === 'clear_queue');
+
     expect(shiftSelect).toBeDefined();
     expect(shiftSelect?.keys).toEqual(['Shift', '1 ~ 9']);
 
@@ -353,6 +355,9 @@ describe('Shortcuts Integration in PrintQueue', () => {
 
     expect(nextProfile).toBeDefined();
     expect(nextProfile?.keys).toEqual(['=']);
+
+    expect(clearQueue).toBeDefined();
+    expect(clearQueue?.keys).toEqual(['C']);
   });
 
   it('triggers onOpenPrinterManager when clicking manage button in GlobalSettingsPanel', () => {

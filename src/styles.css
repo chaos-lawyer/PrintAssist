@@ -608,10 +608,18 @@ button,
   line-height: 1.3;
 }
 
-.printer-picker-shortcut-action {
+.printer-picker-option-actions {
   grid-column: 2;
   grid-row: 1 / span 2;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   align-self: center;
+}
+
+.printer-picker-shortcut-action {
+  display: inline-flex;
+  align-items: center;
 }
 
 .profile-picker-menu .printer-picker-option {
@@ -2632,7 +2640,7 @@ button,
 }
 
 .printer-item-index {
-  min-width: 54px;
+  min-width: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2719,5 +2727,71 @@ button,
   font-size: 12px;
   color: var(--color-text-muted);
 }
+
+/* Favorites Center & Add Favorite Modal */
+.favorites-modal .ant-modal-body {
+  padding-top: 12px;
+}
+
+.favorites-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+  gap: 12px;
+}
+
+.favorites-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+}
+
+.favorites-search-input {
+  max-width: 280px;
+}
+
+.favorites-table-wrapper {
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.favorite-table-name-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.favorite-table-name-text {
+  font-weight: 500;
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.header-favorites-btn {
+  color: var(--color-text-muted);
+}
+
+.header-favorites-btn:hover {
+  color: var(--color-primary);
+}
+
+.undo-toast-content {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.undo-toast-btn {
+  padding: 0 4px !important;
+  height: auto !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+}
+
 
 

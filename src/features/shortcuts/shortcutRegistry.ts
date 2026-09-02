@@ -109,6 +109,14 @@ export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
     isSingleKey: true,
   },
   {
+    id: 'clear_queue',
+    category: 'file_queue',
+    name: '清空列表',
+    keys: ['C'],
+    description: '清空待打印列表中的全部文件',
+    isSingleKey: true,
+  },
+  {
     id: 'select_all',
     category: 'file_queue',
     name: '全选文件',
@@ -122,6 +130,14 @@ export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
     name: '选中相同文件副本',
     keys: ['Ctrl', 'Shift', 'A'],
     description: '选择与当前活动文件路径相同的所有副本',
+    isSingleKey: false,
+  },
+  {
+    id: 'add_favorite',
+    category: 'file_queue',
+    name: '添加收藏',
+    keys: ['Ctrl', 'B'],
+    description: '将当前文件列表、打印机和打印配置保存为收藏模板',
     isSingleKey: false,
   },
 
@@ -273,6 +289,14 @@ export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
     isSingleKey: true,
   },
   {
+    id: 'open_favorites',
+    category: 'help',
+    name: '打开收藏中心',
+    keys: ['B'],
+    description: '查看、管理和加载已保存的打印任务模板与配置',
+    isSingleKey: true,
+  },
+  {
     id: 'open_help',
     category: 'help',
     name: '快捷键说明',
@@ -386,4 +410,68 @@ export function matchShortcutKeys(event: KeyboardEvent, keys: string[]): boolean
   }
 
   return event.key.toUpperCase() === targetKey.toUpperCase();
+}
+
+export interface ShortcutConflictInfo {
+  conflictedId: string;
+  conflictedName: string;
+}
+
+export function normalizeKeyCombo(keys: string[]): string {
+  const mods: string[] = [];
+  let mainKey = '';
+  for (const k of keys) {
+    if (k === 'Ctrl' || k === 'Cmd' || k === 'Meta') mods.push('Ctrl');
+    else if (k === 'Alt') mods.push('Alt');
+    else if (k === 'Shift') mods.push('Shift');
+    else mainKey = k.toUpperCase();
+  }
+  return [...mods.sort(), mainKey].join('+');
+}
+
+export function findShortcutConflict(
+  targetKeys: string[],
+  customShortcuts: Record<string, string[]>,
+  currentId?: string,
+  dynamicNames?: Record<string, string>,
+): ShortcutConflictInfo | null {
+  if (!targetKeys || targetKeys.length === 0) return null;
+  const targetCombo = normalizeKeyCombo(targetKeys);
+
+  // 1. Check static definitions
+  const effectiveDefs = getEffectiveShortcuts(customShortcuts);
+  for (const def of effectiveDefs) {
+    if (def.id === currentId) continue;
+    if (def.keys.some((k) => k.includes('~'))) continue;
+    if (normalizeKeyCombo(def.keys) === targetCombo) {
+      return {
+        conflictedId: def.id,
+        conflictedName: def.name,
+      };
+    }
+  }
+
+  // 2. Check dynamic custom bindings
+  for (const [id, keys] of Object.entries(customShortcuts)) {
+    if (id === currentId) continue;
+    if (!Array.isArray(keys) || keys.length === 0) continue;
+    if (normalizeKeyCombo(keys) === targetCombo) {
+      let conflictedName = id;
+      if (dynamicNames && dynamicNames[id]) {
+        conflictedName = dynamicNames[id];
+      } else if (id.startsWith('printer:')) {
+        conflictedName = `打印机“${id.slice('printer:'.length)}”`;
+      } else if (id.startsWith('profile:')) {
+        conflictedName = `配置“${id.slice('profile:'.length)}”`;
+      } else if (id.startsWith('favorite:')) {
+        conflictedName = `收藏“${id.slice('favorite:'.length)}”`;
+      }
+      return {
+        conflictedId: id,
+        conflictedName,
+      };
+    }
+  }
+
+  return null;
 }

@@ -105,6 +105,34 @@ describe('shouldIgnoreShortcut', () => {
     expect(shouldIgnoreShortcut(event, { isSingleKey: true })).toBe(false);
   });
 
+  it('does not ignore shortcut when modal in DOM is hidden (ant-modal-wrap-hidden or display: none or display:none)', () => {
+    const modalWrap = document.createElement('div');
+    modalWrap.className = 'ant-modal-wrap ant-modal-wrap-hidden';
+    modalWrap.style.display = 'none';
+    document.body.appendChild(modalWrap);
+
+    const event = new KeyboardEvent('keydown', { key: 'A' });
+    expect(shouldIgnoreShortcut(event, { isSingleKey: true })).toBe(false);
+
+    // Test with display:none without spaces
+    modalWrap.className = 'ant-modal-wrap';
+    modalWrap.setAttribute('style', 'display:none;');
+    expect(shouldIgnoreShortcut(event, { isSingleKey: true })).toBe(false);
+
+    modalWrap.remove();
+  });
+
+  it('does not ignore shortcut when dropdown in DOM has ant-dropdown-hidden or ant-select-dropdown-hidden', () => {
+    const dropdown = document.createElement('div');
+    dropdown.className = 'ant-select-dropdown ant-select-dropdown-hidden';
+    document.body.appendChild(dropdown);
+
+    const event = new KeyboardEvent('keydown', { key: 'A' });
+    expect(shouldIgnoreShortcut(event, { isSingleKey: true })).toBe(false);
+
+    dropdown.remove();
+  });
+
   it('ignores single key shortcut when modifier key is pressed', () => {
     const ctrlA = new KeyboardEvent('keydown', { key: 'A', ctrlKey: true });
     expect(shouldIgnoreShortcut(ctrlA, { isSingleKey: true })).toBe(true);

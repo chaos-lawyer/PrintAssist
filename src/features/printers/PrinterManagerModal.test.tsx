@@ -85,9 +85,9 @@ describe('PrinterManagerModal', () => {
     expect(screen.getByText('显示的打印机（3）')).toBeDefined();
     expect(screen.getByText('Windows 默认')).toBeDefined();
     expect(screen.getByText('当前使用')).toBeDefined();
-    expect(screen.getByText('Shift+1')).toBeDefined();
-    expect(screen.getByText('Shift+2')).toBeDefined();
-    expect(screen.getByText('Shift+3')).toBeDefined();
+    expect(screen.getByText('1')).toBeDefined();
+    expect(screen.getByText('2')).toBeDefined();
+    expect(screen.getByText('3')).toBeDefined();
   });
 
   it('allows hiding a printer and moving it to hidden section', async () => {

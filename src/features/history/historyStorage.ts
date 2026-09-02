@@ -1,3 +1,5 @@
+import type { FavoritePrintConfig, FavoriteTemplateV1 } from '../favorites/favoriteTypes';
+
 export interface PrintHistoryRecord {
   id: string;
   timestamp: number;
@@ -13,6 +15,7 @@ export interface PrintHistoryRecord {
     message?: string;
   }>;
   isFavorite?: boolean;
+  printConfigSnapshot?: FavoritePrintConfig;
 }
 
 export const STORAGE_KEY = 'printassist_print_history';
@@ -212,4 +215,39 @@ export function clearPrintHistory(): void {
   } catch {
     // Ignore
   }
+}
+
+export function historyRecordToFavoriteTemplate(record: PrintHistoryRecord): FavoriteTemplateV1 {
+  const dateStr = new Date(record.timestamp).toLocaleDateString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+  });
+  const firstFile = record.files[0]?.fileName || '历史任务';
+  const name = `${firstFile}（${dateStr}）`;
+
+  return {
+    schemaVersion: 1,
+    id: `fav_hist_${record.id}`,
+    name,
+    createdAt: record.timestamp,
+    updatedAt: record.timestamp,
+    order: 0,
+    task: {
+      items: record.files.map((f) => ({
+        path: f.path,
+        fileName: f.fileName,
+        kind: 'pdf',
+        pageCount: null,
+        override: {},
+      })),
+    },
+    printer: record.printerName ? { name: record.printerName } : null,
+    printConfig: record.printConfigSnapshot || null,
+    source: 'history-migration',
+  };
+}
+
+export function migrateOldHistoryFavorites(history: PrintHistoryRecord[]): FavoriteTemplateV1[] {
+  const favoriteRecords = history.filter((h) => h.isFavorite);
+  return favoriteRecords.map(historyRecordToFavoriteTemplate);
 }
