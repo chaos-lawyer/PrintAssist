@@ -2253,13 +2253,13 @@ export function App() {
               onUndo={handleUndo}
               onRedo={handleRedo}
             />
-            <Tooltip title="收藏（B）">
+            <Tooltip title="常用模板与任务（B）">
               <Button
                 type="text"
                 className="header-favorites-btn"
                 icon={<Bookmark size={16} />}
                 onClick={() => setFavoritesModalOpen(true)}
-                aria-label="收藏"
+                aria-label="常用模板与任务"
               />
             </Tooltip>
             <Tooltip title="打印历史（H）">
@@ -2271,24 +2271,34 @@ export function App() {
                 aria-label="打印历史"
               />
             </Tooltip>
-            <Tooltip title="外部集成 / Quicker 与系统右键">
-              <Button
-                type="text"
-                className="header-external-integration-btn"
-                icon={<Terminal size={16} />}
-                onClick={() => setExternalIntegrationOpen(true)}
-                aria-label="外部集成"
-              />
-            </Tooltip>
-            <Tooltip title="快捷键（/）">
-              <Button
-                type="text"
-                className="header-help-btn"
-                icon={<CircleHelp size={16} />}
-                onClick={() => setIsShortcutHelpOpen(true)}
-                aria-label="快捷键帮助"
-              />
-            </Tooltip>
+            <Dropdown
+              menu={{
+                items: [
+                  {
+                    key: 'shortcuts',
+                    label: '快捷键清单（/）',
+                    icon: <CircleHelp size={14} />,
+                    onClick: () => setIsShortcutHelpOpen(true),
+                  },
+                  {
+                    key: 'external',
+                    label: '外部集成 / Quicker 与系统右键',
+                    icon: <Terminal size={14} />,
+                    onClick: () => setExternalIntegrationOpen(true),
+                  },
+                ],
+              }}
+              trigger={['click']}
+            >
+              <Tooltip title="帮助与更多（/）">
+                <Button
+                  type="text"
+                  className="header-help-btn"
+                  icon={<CircleHelp size={16} />}
+                  aria-label="帮助与更多"
+                />
+              </Tooltip>
+            </Dropdown>
           </Space>
         </Header>
         <Layout className="app-body">
@@ -2333,12 +2343,38 @@ export function App() {
               </div>
             )}
             <div className="queue-heading">
-              <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <Typography.Title level={4} className="queue-main-title">
-                  待打印文件
+                  1. 文件队列
                 </Typography.Title>
+                {queueState.items.length > 0 && (
+                  <Typography.Text type="secondary" style={{ fontSize: 13 }}>
+                    {queueState.items.length} 个文件
+                    {pageStats.allKnown && pageStats.knownPages > 0 ? ` · 预计 ${pageStats.knownPages} 页` : ''}
+                  </Typography.Text>
+                )}
               </div>
               <Space size={8}>
+                {queueState.items.length > 0 && (
+                  <>
+                    <Button
+                      type="text"
+                      icon={<FilePlus2 size={14} />}
+                      disabled={queueState.isPrinting}
+                      onClick={() => void handlePickFiles()}
+                    >
+                      添加文件 (A)
+                    </Button>
+                    <Button
+                      type="text"
+                      icon={<FolderPlus size={14} />}
+                      disabled={queueState.isPrinting}
+                      onClick={() => void handlePickFolder()}
+                    >
+                      添加文件夹 (F)
+                    </Button>
+                  </>
+                )}
                 {selectedRowKeys.length > 1 && queueState.phase !== 'completed' && (
                   <Button
                     type="text"
@@ -2360,7 +2396,7 @@ export function App() {
                     移除
                   </Button>
                 )}
-                {queueState.phase === 'editing' && (
+                {queueState.phase === 'editing' && queueState.items.length > 0 && (
                   <Tooltip title="清空列表（C）">
                     <Button
                       type="text"
@@ -2368,7 +2404,7 @@ export function App() {
                       disabled={queueState.isPrinting || queueState.items.length === 0}
                       onClick={handleClearQueue}
                     >
-                      清空列表
+                      清空列表 (C)
                     </Button>
                   </Tooltip>
                 )}
@@ -2479,12 +2515,22 @@ export function App() {
                         : ''}
                     </span>
                   </span>
+                ) : queueState.items.length === 0 ? (
+                  <span className="queue-footer-count">
+                    <strong>3. 打印确认</strong> · 尚未添加文件，请在左侧选择或拖入文件
+                  </span>
+                ) : !globalSettings.printerName ? (
+                  <span className="queue-footer-count">
+                    <strong>3. 打印确认</strong> · 已添加 <strong>{queueState.items.length}</strong> 个文件，请在右侧选择打印机
+                  </span>
                 ) : (
                   <span className="queue-footer-count">
-                    共 <strong>{queueState.items.length}</strong> 个文件
+                    <strong>3. 打印确认</strong> · 共 <strong>{queueState.items.length}</strong> 个文件
                     {pageStats.allKnown && pageStats.knownPages > 0
-                      ? ` · 共 ${pageStats.knownPages} 页 (预估耗纸 ${pageStats.estimatedSheets} 张)`
+                      ? ` · ${pageStats.knownPages} 页`
                       : ''}
+                    {` · ${globalSettings.colorMode === 'color' ? '彩色' : '黑白'}${globalSettings.sidesMode === 'duplex' ? '双面' : '单面'} · ${globalSettings.copies} 份`}
+                    {pageStats.estimatedSheets >= 100 ? ` (预计耗纸 ${pageStats.estimatedSheets} 张)` : ''}
                   </span>
                 )}
               </div>
@@ -2500,20 +2546,6 @@ export function App() {
                 />
               ) : (
                 <Space size={12} className="queue-footer-actions">
-                  <Button
-                    icon={<FilePlus2 size={15} />}
-                    disabled={queueState.isPrinting}
-                    onClick={() => void handlePickFiles()}
-                  >
-                    添加文件
-                  </Button>
-                  <Button
-                    icon={<FolderPlus size={15} />}
-                    disabled={queueState.isPrinting}
-                    onClick={() => void handlePickFolder()}
-                  >
-                    添加文件夹
-                  </Button>
                   <PrintPlaybackControls
                     phase={queueState.phase}
                     printEnabled={availability.printEnabled}

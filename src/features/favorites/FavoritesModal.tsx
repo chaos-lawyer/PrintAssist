@@ -496,11 +496,11 @@ export function FavoritesModal({
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <Bookmark size={18} color="var(--color-primary, #1557d0)" />
-            <span>收藏中心</span>
+            <span>常用模板与任务</span>
           </div>
           <Space size={8}>
             <Button size="small" icon={<Plus size={13} />} type="primary" onClick={onOpenAddFavorite}>
-              新建收藏
+              新建模板
             </Button>
             <Button size="small" icon={<Download size={13} />} onClick={handleExport}>
               导出备份
@@ -521,15 +521,26 @@ export function FavoritesModal({
     >
       <div className="favorites-modal-body">
         {favorites.length === 0 ? (
-          <Empty
-            image={Empty.PRESENTED_IMAGE_SIMPLE}
-            description="暂无收藏模板。您可以将常用的文件列表、打印机和打印配置一键保存为模板。"
-            style={{ marginTop: 48, marginBottom: 48 }}
-          >
-            <Button type="primary" icon={<Plus size={14} />} onClick={onOpenAddFavorite}>
-              创建第一个收藏
-            </Button>
-          </Empty>
+          <div className="favorites-empty-container">
+            <Empty
+              image={Empty.PRESENTED_IMAGE_SIMPLE}
+              description={
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'center' }}>
+                  <Typography.Text strong style={{ fontSize: 14 }}>
+                    暂无常用模板与任务
+                  </Typography.Text>
+                  <Typography.Text type="secondary" style={{ fontSize: 12, maxWidth: 460 }}>
+                    保存常用的一批文件及打印参数（如：合同双面打印、月度报表逐套），一键复用无需重复配置。
+                  </Typography.Text>
+                </div>
+              }
+              style={{ marginTop: 36, marginBottom: 36 }}
+            >
+              <Button type="primary" icon={<Plus size={14} />} onClick={onOpenAddFavorite}>
+                保存当前任务为新模板
+              </Button>
+            </Empty>
+          </div>
         ) : (
           <>
             <div className="favorites-toolbar">

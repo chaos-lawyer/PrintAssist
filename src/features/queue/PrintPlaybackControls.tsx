@@ -127,12 +127,15 @@ export function PrintPlaybackControls({
             onClick={onStartPrint}
             aria-label="开始打印"
           >
-            开始打印
+            开始打印 (Ctrl+P)
           </Button>
         );
 
-        if (!canStart && disabledReason) {
-          return <Tooltip title={disabledReason}>{btn}</Tooltip>;
+        if (!canStart) {
+          const reason = !hasItems
+            ? '请先在左侧添加要打印的文件'
+            : disabledReason || '请选择可用打印机并配置参数';
+          return <Tooltip title={reason}>{btn}</Tooltip>;
         }
         return btn;
       }

@@ -7,6 +7,7 @@ import {
   Table,
   Tag,
   Tooltip,
+  Typography,
   message,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
@@ -456,7 +457,16 @@ export function PrintHistoryModal({
         {history.length === 0 ? (
           <Empty
             image={Empty.PRESENTED_IMAGE_SIMPLE}
-            description="暂无打印历史记录"
+            description={
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'center' }}>
+                <Typography.Text strong style={{ fontSize: 14 }}>
+                  暂无打印历史记录
+                </Typography.Text>
+                <Typography.Text type="secondary" style={{ fontSize: 12, maxWidth: 440 }}>
+                  在此可追溯过往打印批次、查看成功与失败明细，并支持一键重新加载历史文件。
+                </Typography.Text>
+              </div>
+            }
             style={{ marginTop: 60, marginBottom: 60 }}
           />
         ) : (

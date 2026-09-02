@@ -1150,57 +1150,122 @@ button,
   padding: 30px 20px;
 }
 
-.queue-empty-container.is-clickable {
-  cursor: pointer;
-}
-
-.queue-empty-inner {
+.queue-empty-card {
   display: flex;
   flex-direction: column;
   align-items: center;
   text-align: center;
-  max-width: 380px;
+  max-width: 440px;
+  width: 100%;
   padding: 32px 28px;
-  background: linear-gradient(180deg, #f8fafc 0%, #f1f5fa 100%);
-  border: 1.5px dashed #a8b8cc;
-  border-radius: var(--radius-lg);
+  background: var(--color-surface, #ffffff);
+  border: 1px solid var(--color-border-soft, #e2e8f0);
+  border-radius: var(--radius-xl, 12px);
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.04);
   transition: all var(--motion-fast);
   user-select: none;
-}
-
-.queue-empty-container.is-clickable .queue-empty-inner:hover {
-  border-color: var(--color-primary);
-  background: var(--color-primary-soft);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(21, 87, 208, 0.08);
-}
-
-.queue-empty-container.is-clickable .queue-empty-inner:active {
-  transform: translateY(0);
 }
 
 .queue-empty-icon-wrap {
   display: grid;
   place-items: center;
-  width: 56px;
-  height: 56px;
-  border-radius: 50%;
-  background: #e2e8f0;
-  color: #475569;
+  width: 52px;
+  height: 52px;
+  border-radius: 12px;
+  background: var(--color-primary-soft, #edf4ff);
+  color: var(--color-primary, #1557d0);
   margin-bottom: 14px;
 }
 
 .queue-empty-title {
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 700;
-  color: var(--color-text);
+  color: var(--color-text, #1e293b);
   margin-bottom: 6px;
 }
 
 .queue-empty-desc {
-  font-size: 12px;
-  color: var(--color-text-secondary);
+  font-size: 13px;
+  color: var(--color-text-secondary, #64748b);
   line-height: 1.5;
+  margin-bottom: 18px;
+}
+
+.queue-empty-actions {
+  margin-bottom: 14px;
+}
+
+.queue-empty-drag-tip {
+  font-size: 12px;
+  color: var(--color-text-faint, #94a3b8);
+}
+
+/* Settings Empty Printer Card & Advanced Toggle */
+.settings-empty-printer-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 24px 16px;
+  background: var(--color-surface-soft, #f8fafc);
+  border: 1px dashed var(--color-border-soft, #cbd5e1);
+  border-radius: var(--radius-lg, 10px);
+  margin-top: 10px;
+}
+
+.settings-empty-printer-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: #e2e8f0;
+  color: #64748b;
+  margin-bottom: 10px;
+}
+
+.settings-empty-printer-title {
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--color-text, #1e293b);
+  margin-bottom: 4px;
+}
+
+.settings-empty-printer-desc {
+  font-size: 12px;
+  color: var(--color-text-secondary, #64748b);
+  line-height: 1.4;
+}
+
+.settings-advanced-toggle-wrap {
+  display: flex;
+  justify-content: flex-start;
+  padding-top: 4px;
+}
+
+.settings-advanced-toggle-btn {
+  padding: 0 !important;
+  height: auto !important;
+  color: var(--color-primary, #1557d0) !important;
+}
+
+.settings-advanced-content {
+  display: grid;
+  gap: 8px;
+  padding-top: 8px;
+  margin-top: 4px;
+  border-top: 1px dashed var(--color-border-soft, #e2e8f0);
+}
+
+.status-tag-default {
+  display: inline-block;
+  padding: 1px 5px;
+  margin-right: 4px;
+  background: var(--color-primary-soft, #edf4ff);
+  color: var(--color-primary, #1557d0);
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
 }
 
 /* Compact Table & Cells */

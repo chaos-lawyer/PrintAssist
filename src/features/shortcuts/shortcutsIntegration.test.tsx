@@ -251,10 +251,19 @@ describe('Shortcuts Integration in PrintQueue', () => {
 
   it('renders shortcut hint tooltips for S and D in GlobalSettingsPanel', () => {
     const handleChange = vi.fn();
+    const mockPrinter = {
+      name: 'Test Printer',
+      isDefault: false,
+      portName: 'USB001',
+      statusCode: 0,
+      state: 'ready' as const,
+      color: { support: 'supported' as const, source: 'driver' as const },
+      duplex: { support: 'supported' as const, source: 'driver' as const },
+    };
     render(
       <GlobalSettingsPanel
-        settings={mockSettings}
-        printers={[]}
+        settings={{ ...mockSettings, printerName: 'Test Printer' }}
+        printers={[mockPrinter]}
         loadingPrinters={false}
         onChange={handleChange}
         onOpenProperties={vi.fn()}

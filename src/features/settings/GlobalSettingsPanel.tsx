@@ -1,5 +1,5 @@
 import { Alert, Button, Checkbox, Input, InputNumber, Segmented, Select, Space, Tooltip, Typography } from 'antd';
-import { ChevronDown, RefreshCw, SlidersHorizontal } from 'lucide-react';
+import { ChevronDown, ChevronRight, Printer, RefreshCw, SlidersHorizontal } from 'lucide-react';
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { PaperSourceCapability, SavedPrinterProfileSummary, SystemPrinter } from '../../shared/contracts/printer';
@@ -81,6 +81,7 @@ export function GlobalSettingsPanel({
   );
   const [paperCapability, setPaperCapability] = useState<PaperSourceCapability | null>(null);
   const [loadingPaperSources, setLoadingPaperSources] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   const isNup = isNupActive(settings.nupLayout);
 
@@ -516,7 +517,7 @@ export function GlobalSettingsPanel({
     <div className="settings-block">
       <div className="settings-block-head">
         <Typography.Title level={5} className="settings-panel-title">
-          打印设置
+          2. 打印设置
         </Typography.Title>
       </div>
 
@@ -574,388 +575,417 @@ export function GlobalSettingsPanel({
         </div>
       </div>
 
-      {selectedPrinter && (
-        <div className={`printer-status-inline ${selectedPrinter.state}`}>
-          <span className="status-pill">{describePrinterState(selectedPrinter)}</span>
-          <span className="status-meta">
-            彩色{describeCapabilitySupport(selectedPrinter.color.support)}
-            <span className="status-dot-sep" aria-hidden>
-              ·
-            </span>
-            双面{describeCapabilitySupport(selectedPrinter.duplex.support)}
-            {selectedPrinter.portName ? (
-              <>
-                <span className="status-dot-sep" aria-hidden>
-                  ·
-                </span>
-                {selectedPrinter.portName}
-              </>
-            ) : null}
-          </span>
+      {!selectedPrinter ? (
+        <div className="settings-empty-printer-card">
+          <div className="settings-empty-printer-icon">
+            <Printer size={28} />
+          </div>
+          <div className="settings-empty-printer-title">请先选择打印机</div>
+          <div className="settings-empty-printer-desc">
+            选择目标打印机后，系统将加载支持的颜色、双面及模板参数
+          </div>
         </div>
-      )}
-
-      <div className="setting-field">
-        <div className="field-label-row">
-          <span className="field-label" id="profile-select-label">
-            驱动配置
-            {settings.profileDirty && (
-              <span className="profile-dirty-badge" title="当前参数与已保存配置不一致">
-                * 未保存修改
+      ) : (
+        <>
+          <div className={`printer-status-inline ${selectedPrinter.state}`}>
+            <span className="status-pill">{describePrinterState(selectedPrinter)}</span>
+            <span className="status-meta">
+              {selectedPrinter.isDefault && <span className="status-tag-default">默认</span>}
+              彩色{describeCapabilitySupport(selectedPrinter.color.support)}
+              <span className="status-dot-sep" aria-hidden>
+                ·
               </span>
-            )}
-          </span>
-          <Space size={4}>
-            <Button
-              type="text"
-              className="profile-action-btn"
-              disabled={!selectedPrinter || loadingProperties}
-              onClick={onOpenSaveProfile}
-            >
-              保存
-            </Button>
-            <Button
-              type="text"
-              className="profile-action-btn"
-              disabled={!selectedPrinter}
-              onClick={onOpenProfileManager}
-            >
-              管理
-            </Button>
-            <Button
-              type="text"
-              className="profile-action-btn"
-              disabled={!selectedPrinter || loadingPrinters || loadingProperties}
-              loading={loadingProperties}
-              icon={<SlidersHorizontal size={13} />}
-              onClick={onOpenProperties}
-              title="打开 Windows 原生打印机属性窗口"
-            >
-              属性
-            </Button>
-          </Space>
-        </div>
-        <div className="printer-picker profile-select">
-          <button
-            ref={profileTriggerRef}
-            type="button"
-            className={`printer-picker-trigger${profileSelectOpen ? ' is-open' : ''}${
-              loadingProfiles ? ' is-loading' : ''
-            }`}
-            aria-labelledby="profile-select-label"
-            aria-haspopup="listbox"
-            aria-expanded={profileSelectOpen}
-            aria-controls={profileListboxId}
-            disabled={!selectedPrinter || loadingProfiles}
-            onClick={() => {
-              setPrinterSelectOpen(false);
-              setProfileSelectOpen((currentOpen) => !currentOpen);
-            }}
-          >
-            <span className="printer-picker-value">{selectedProfileLabel}</span>
-            <ChevronDown size={16} className="printer-picker-caret" aria-hidden />
-          </button>
-          {profileMenu}
-        </div>
-      </div>
-
-
-
-      <div className="settings-controls">
-        <div className="setting-row">
-          <Tooltip title="快捷键：S 切换黑白/彩色" mouseEnterDelay={0.5}>
-            <span className="setting-row-label" id="color-mode-label">
-              颜色
+              双面{describeCapabilitySupport(selectedPrinter.duplex.support)}
+              {selectedPrinter.portName ? (
+                <>
+                  <span className="status-dot-sep" aria-hidden>
+                    ·
+                  </span>
+                  {selectedPrinter.portName}
+                </>
+              ) : null}
             </span>
-          </Tooltip>
-          <Segmented
-            className="setting-segmented"
-            size="small"
-            block
-            aria-labelledby="color-mode-label"
-            value={settings.colorMode}
-            options={[
-              { label: '黑白', value: 'monochrome' },
-              {
-                label: '彩色',
-                value: 'color',
-                disabled: !availability.colorEnabled,
-              },
-            ]}
-            onChange={(value) =>
-              onChange({ ...settings, colorMode: value as ColorMode })
-            }
-          />
-        </div>
-        {showColorHint && (
-          <Typography.Text type="secondary" className="field-hint field-hint-inline">
-            彩色不可用：{selectedPrinter?.color.detail ?? '打印机不支持或能力未知'}
-          </Typography.Text>
-        )}
-
-        <div className="setting-group">
-          <div className="setting-row">
-            <Tooltip title="快捷键：D 切换单双面" mouseEnterDelay={0.5}>
-              <span className="setting-row-label" id="sides-mode-label">
-                单双面
-              </span>
-            </Tooltip>
-            <Segmented
-              className="setting-segmented"
-              size="small"
-              block
-              aria-labelledby="sides-mode-label"
-              value={settings.sidesMode}
-              options={[
-                { label: '单面', value: 'simplex' },
-                {
-                  label: '双面',
-                  value: 'duplex',
-                  disabled: !availability.duplexEnabled,
-                },
-              ]}
-              onChange={(value) => {
-                const sidesMode = value as SidesMode;
-                onChange({
-                  ...settings,
-                  sidesMode,
-                });
-              }}
-            />
           </div>
 
-          {showFlipOptions && (
-            <div className="setting-submenu setting-submenu-compact">
-              <span className="setting-row-label" id="flip-mode-label">
-                翻转
+          <div className="setting-field">
+            <div className="field-label-row">
+              <span className="field-label" id="profile-select-label">
+                常用模板
+                {settings.profileDirty && (
+                  <span className="profile-dirty-badge" title="当前参数与已保存配置不一致">
+                    * 未保存修改
+                  </span>
+                )}
               </span>
-              <Segmented
-                className="setting-segmented"
-                size="small"
-                block
-                aria-labelledby="flip-mode-label"
-                value={settings.flipMode}
-                options={[
-                  { label: '长边', value: 'longEdge' },
-                  { label: '短边', value: 'shortEdge' },
-                ]}
-                onChange={(value) =>
-                  onChange({ ...settings, flipMode: value as FlipMode })
-                }
-              />
+              <Space size={4}>
+                <Button
+                  type="text"
+                  className="profile-action-btn"
+                  disabled={!selectedPrinter || loadingProperties}
+                  onClick={onOpenSaveProfile}
+                >
+                  保存
+                </Button>
+                <Button
+                  type="text"
+                  className="profile-action-btn"
+                  disabled={!selectedPrinter}
+                  onClick={onOpenProfileManager}
+                >
+                  管理
+                </Button>
+                <Button
+                  type="text"
+                  className="profile-action-btn"
+                  disabled={!selectedPrinter || loadingPrinters || loadingProperties}
+                  loading={loadingProperties}
+                  icon={<SlidersHorizontal size={13} />}
+                  onClick={onOpenProperties}
+                  title="打开 Windows 原生打印机属性窗口"
+                >
+                  属性
+                </Button>
+              </Space>
             </div>
-          )}
-        </div>
-        {showDuplexHint && (
-          <Typography.Text type="secondary" className="field-hint field-hint-inline">
-            双面不可用：{selectedPrinter?.duplex.detail ?? '打印机不支持或能力未知'}
-          </Typography.Text>
-        )}
-
-        {paperCapability?.status === 'available' && paperCapability.sources.length >= 1 && (
-          <div className="setting-row">
-            <span className="setting-row-label" id="paper-tray-label">
-              纸盘
-            </span>
-            <SettingSelect
-              ariaLabelledBy="paper-tray-label"
-              value={settings.sourceCode ?? -1}
-              options={[
-                { value: -1, label: '自动选择 / 默认纸盘' },
-                ...paperCapability.sources.map((s) => ({
-                  value: s.code,
-                  label: s.name,
-                })),
-              ]}
-              onChange={(val) => {
-                if (val === -1) {
-                  onChange({ ...settings, sourceCode: undefined, sourceName: undefined });
-                } else {
-                  const found = paperCapability.sources.find((s) => s.code === val);
-                  onChange({ ...settings, sourceCode: val, sourceName: found?.name });
-                }
-              }}
-            />
-          </div>
-        )}
-
-        <NupSettings settings={settings} onChange={onChange} />
-
-        <div className="setting-row">
-          <span className="setting-row-label" id="scale-mode-label">
-            缩放
-          </span>
-          <Tooltip title={isNup ? '拼接模式下自动适应网格大小' : undefined}>
-            <div style={{ width: '100%' }}>
-              <SettingSelect
-                ariaLabelledBy="scale-mode-label"
-                value={settings.scaleMode ?? 'actualSize'}
-                disabled={isNup}
-                options={[
-                  { value: 'actualSize', label: '实际大小 (100%)' },
-                  { value: 'shrinkOversized', label: '仅缩小过大页面' },
-                  { value: 'fitPrintable', label: '适应可打印区域' },
-                ]}
-                onChange={(val) =>
-                  onChange({
-                    ...settings,
-                    scaleMode: val as PageScaleMode,
-                  })
-                }
-              />
-            </div>
-          </Tooltip>
-        </div>
-
-        <div className="setting-group">
-          <div className="setting-row setting-row-copies">
-            <label className="setting-row-label" htmlFor="copies-input">
-              份数
-            </label>
-            <div className="copies-control">
-              <InputNumber
-                id="copies-input"
-                size="small"
-                min={1}
-                max={99}
-                value={settings.copies}
-                onChange={(value) =>
-                  onChange(
-                    {
-                      ...settings,
-                      copies: typeof value === 'number' && value > 0 ? value : 1,
-                    },
-                    'copies',
-                  )
-                }
-              />
-              <Typography.Text type="secondary">份</Typography.Text>
-            </div>
-          </div>
-
-          {settings.copies > 1 && (
-            <div className="setting-submenu setting-submenu-compact">
-              <span className="setting-row-label" id="collate-mode-label">
-                分发
-              </span>
-              <Segmented
-                className="setting-segmented"
-                size="small"
-                block
-                aria-labelledby="collate-mode-label"
-                value={settings.collateMode ?? (settings.collate ? 'byDocument' : 'byPage')}
-                options={[
-                  {
-                    label: (
-                      <Tooltip title={collateModeDescriptions.byPage} mouseEnterDelay={0.2}>
-                        <span
-                          aria-label={collateModeDescriptions.byPage}
-                          title={collateModeDescriptions.byPage}
-                          style={{ display: 'inline-block', width: '100%' }}
-                        >
-                          逐页
-                        </span>
-                      </Tooltip>
-                    ),
-                    value: 'byPage',
-                  },
-                  {
-                    label: (
-                      <Tooltip title={collateModeDescriptions.byDocument} mouseEnterDelay={0.2}>
-                        <span
-                          aria-label={collateModeDescriptions.byDocument}
-                          title={collateModeDescriptions.byDocument}
-                          style={{ display: 'inline-block', width: '100%' }}
-                        >
-                          逐份
-                        </span>
-                      </Tooltip>
-                    ),
-                    value: 'byDocument',
-                  },
-                  {
-                    label: (
-                      <Tooltip title={collateModeDescriptions.bySet} mouseEnterDelay={0.2}>
-                        <span
-                          aria-label={collateModeDescriptions.bySet}
-                          title={collateModeDescriptions.bySet}
-                          style={{ display: 'inline-block', width: '100%' }}
-                        >
-                          逐套
-                        </span>
-                      </Tooltip>
-                    ),
-                    value: 'bySet',
-                  },
-                ]}
-                onChange={(value) => {
-                  const nextMode = value as CollateMode;
-                  onChange({
-                    ...settings,
-                    collateMode: nextMode,
-                    collate: nextMode !== 'byPage',
-                  });
+            <div className="printer-picker profile-select">
+              <button
+                ref={profileTriggerRef}
+                type="button"
+                className={`printer-picker-trigger${profileSelectOpen ? ' is-open' : ''}${
+                  loadingProfiles ? ' is-loading' : ''
+                }`}
+                aria-labelledby="profile-select-label"
+                aria-haspopup="listbox"
+                aria-expanded={profileSelectOpen}
+                aria-controls={profileListboxId}
+                disabled={!selectedPrinter || loadingProfiles}
+                onClick={() => {
+                  setPrinterSelectOpen(false);
+                  setProfileSelectOpen((currentOpen) => !currentOpen);
                 }}
-              />
+              >
+                <span className="printer-picker-value">{selectedProfileLabel}</span>
+                <ChevronDown size={16} className="printer-picker-caret" aria-hidden />
+              </button>
+              {profileMenu}
             </div>
-          )}
-        </div>
-
-        <div className="setting-group">
-          <div className="setting-row">
-            <span className="setting-row-label" id="page-range-label">
-              页码
-            </span>
-            <Segmented
-              className="setting-segmented"
-              size="small"
-              block
-              aria-labelledby="page-range-label"
-              value={settings.pageRange?.mode ?? 'all'}
-              options={[
-                { label: '全部页', value: 'all' },
-                { label: '自定义', value: 'custom' },
-              ]}
-              onChange={(value) => {
-                const mode = value as 'all' | 'custom';
-                onChange({
-                  ...settings,
-                  pageRange: {
-                    mode,
-                    expression: settings.pageRange?.expression || (mode === 'custom' ? '1,3,5-8' : ''),
-                  },
-                });
-              }}
-            />
           </div>
 
-          {settings.pageRange?.mode === 'custom' && (
-            <div className="setting-submenu setting-submenu-compact">
-              <span className="setting-row-label" id="page-expr-label">
-                范围
-              </span>
-              <Input
-                id="page-expr-input"
+          <div className="settings-controls">
+            <div className="setting-row">
+              <Tooltip title="快捷键：S 切换黑白/彩色" mouseEnterDelay={0.5}>
+                <span className="setting-row-label" id="color-mode-label">
+                  颜色
+                </span>
+              </Tooltip>
+              <Segmented
+                className="setting-segmented"
                 size="small"
-                placeholder="例如 1,3,5-8"
-                value={settings.pageRange?.expression}
-                onChange={(e) =>
-                  onChange(
+                block
+                aria-labelledby="color-mode-label"
+                value={settings.colorMode}
+                options={[
+                  { label: '黑白 (更低成本)', value: 'monochrome' },
+                  {
+                    label: '彩色',
+                    value: 'color',
+                    disabled: !availability.colorEnabled,
+                  },
+                ]}
+                onChange={(value) =>
+                  onChange({ ...settings, colorMode: value as ColorMode })
+                }
+              />
+            </div>
+            {showColorHint && (
+              <Typography.Text type="secondary" className="field-hint field-hint-inline">
+                彩色不可用：{selectedPrinter?.color.detail ?? '打印机不支持或能力未知'}
+              </Typography.Text>
+            )}
+
+            <div className="setting-group">
+              <div className="setting-row">
+                <Tooltip title="快捷键：D 切换单双面" mouseEnterDelay={0.5}>
+                  <span className="setting-row-label" id="sides-mode-label">
+                    单双面
+                  </span>
+                </Tooltip>
+                <Segmented
+                  className="setting-segmented"
+                  size="small"
+                  block
+                  aria-labelledby="sides-mode-label"
+                  value={settings.sidesMode}
+                  options={[
+                    { label: '单面', value: 'simplex' },
                     {
+                      label: '双面 (节约纸张)',
+                      value: 'duplex',
+                      disabled: !availability.duplexEnabled,
+                    },
+                  ]}
+                  onChange={(value) => {
+                    const sidesMode = value as SidesMode;
+                    onChange({
+                      ...settings,
+                      sidesMode,
+                    });
+                  }}
+                />
+              </div>
+
+              {showFlipOptions && (
+                <div className="setting-submenu setting-submenu-compact">
+                  <span className="setting-row-label" id="flip-mode-label">
+                    翻转
+                  </span>
+                  <Segmented
+                    className="setting-segmented"
+                    size="small"
+                    block
+                    aria-labelledby="flip-mode-label"
+                    value={settings.flipMode}
+                    options={[
+                      { label: '长边', value: 'longEdge' },
+                      { label: '短边', value: 'shortEdge' },
+                    ]}
+                    onChange={(value) =>
+                      onChange({ ...settings, flipMode: value as FlipMode })
+                    }
+                  />
+                </div>
+              )}
+            </div>
+            {showDuplexHint && (
+              <Typography.Text type="secondary" className="field-hint field-hint-inline">
+                双面不可用：{selectedPrinter?.duplex.detail ?? '打印机不支持或能力未知'}
+              </Typography.Text>
+            )}
+
+            <div className="setting-group">
+              <div className="setting-row setting-row-copies">
+                <label className="setting-row-label" htmlFor="copies-input">
+                  份数
+                </label>
+                <div className="copies-control">
+                  <InputNumber
+                    id="copies-input"
+                    size="small"
+                    min={1}
+                    max={99}
+                    value={settings.copies}
+                    onChange={(value) =>
+                      onChange(
+                        {
+                          ...settings,
+                          copies: typeof value === 'number' && value > 0 ? value : 1,
+                        },
+                        'copies',
+                      )
+                    }
+                  />
+                  <Typography.Text type="secondary">份</Typography.Text>
+                </div>
+              </div>
+
+              {settings.copies > 1 && (
+                <div className="setting-submenu setting-submenu-compact">
+                  <span className="setting-row-label" id="collate-mode-label">
+                    分发
+                  </span>
+                  <Segmented
+                    className="setting-segmented"
+                    size="small"
+                    block
+                    aria-labelledby="collate-mode-label"
+                    value={settings.collateMode ?? (settings.collate ? 'byDocument' : 'byPage')}
+                    options={[
+                      {
+                        label: (
+                          <Tooltip title={collateModeDescriptions.byPage} mouseEnterDelay={0.2}>
+                            <span
+                              aria-label={collateModeDescriptions.byPage}
+                              title={collateModeDescriptions.byPage}
+                              style={{ display: 'inline-block', width: '100%' }}
+                            >
+                              逐页
+                            </span>
+                          </Tooltip>
+                        ),
+                        value: 'byPage',
+                      },
+                      {
+                        label: (
+                          <Tooltip title={collateModeDescriptions.byDocument} mouseEnterDelay={0.2}>
+                            <span
+                              aria-label={collateModeDescriptions.byDocument}
+                              title={collateModeDescriptions.byDocument}
+                              style={{ display: 'inline-block', width: '100%' }}
+                            >
+                              逐份
+                            </span>
+                          </Tooltip>
+                        ),
+                        value: 'byDocument',
+                      },
+                      {
+                        label: (
+                          <Tooltip title={collateModeDescriptions.bySet} mouseEnterDelay={0.2}>
+                            <span
+                              aria-label={collateModeDescriptions.bySet}
+                              title={collateModeDescriptions.bySet}
+                              style={{ display: 'inline-block', width: '100%' }}
+                            >
+                              逐套
+                            </span>
+                          </Tooltip>
+                        ),
+                        value: 'bySet',
+                      },
+                    ]}
+                    onChange={(value) => {
+                      const nextMode = value as CollateMode;
+                      onChange({
+                        ...settings,
+                        collateMode: nextMode,
+                        collate: nextMode !== 'byPage',
+                      });
+                    }}
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="setting-group">
+              <div className="setting-row">
+                <span className="setting-row-label" id="page-range-label">
+                  页码
+                </span>
+                <Segmented
+                  className="setting-segmented"
+                  size="small"
+                  block
+                  aria-labelledby="page-range-label"
+                  value={settings.pageRange?.mode ?? 'all'}
+                  options={[
+                    { label: '全部页', value: 'all' },
+                    { label: '自定义', value: 'custom' },
+                  ]}
+                  onChange={(value) => {
+                    const mode = value as 'all' | 'custom';
+                    onChange({
                       ...settings,
                       pageRange: {
-                        mode: 'custom',
-                        expression: e.target.value,
+                        mode,
+                        expression: settings.pageRange?.expression || (mode === 'custom' ? '1,3,5-8' : ''),
                       },
-                    },
-                    'pageRange',
-                  )
-                }
-              />
+                    });
+                  }}
+                />
+              </div>
+
+              {settings.pageRange?.mode === 'custom' && (
+                <div className="setting-submenu setting-submenu-compact">
+                  <span className="setting-row-label" id="page-expr-label">
+                    范围
+                  </span>
+                  <Input
+                    id="page-expr-input"
+                    size="small"
+                    placeholder="例如 1,3,5-8"
+                    value={settings.pageRange?.expression}
+                    onChange={(e) =>
+                      onChange(
+                        {
+                          ...settings,
+                          pageRange: {
+                            mode: 'custom',
+                            expression: e.target.value,
+                          },
+                        },
+                        'pageRange',
+                      )
+                    }
+                  />
+                </div>
+              )}
             </div>
-          )}
-        </div>
-      </div>
+
+            {/* 高级设置折叠 */}
+            <div className="settings-advanced-toggle-wrap">
+              <Button
+                type="text"
+                className="settings-advanced-toggle-btn"
+                onClick={() => setShowAdvanced((v) => !v)}
+              >
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+                  {showAdvanced ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                  <span>更多高级设置 (纸盘、缩放、拼接)</span>
+                </span>
+              </Button>
+            </div>
+
+            {showAdvanced && (
+              <div className="settings-advanced-content">
+                {paperCapability?.status === 'available' && paperCapability.sources.length >= 1 && (
+                  <div className="setting-row">
+                    <span className="setting-row-label" id="paper-tray-label">
+                      纸盘
+                    </span>
+                    <SettingSelect
+                      ariaLabelledBy="paper-tray-label"
+                      value={settings.sourceCode ?? -1}
+                      options={[
+                        { value: -1, label: '自动选择 / 默认纸盘' },
+                        ...paperCapability.sources.map((s) => ({
+                          value: s.code,
+                          label: s.name,
+                        })),
+                      ]}
+                      onChange={(val) => {
+                        if (val === -1) {
+                          onChange({ ...settings, sourceCode: undefined, sourceName: undefined });
+                        } else {
+                          const found = paperCapability.sources.find((s) => s.code === val);
+                          onChange({ ...settings, sourceCode: val, sourceName: found?.name });
+                        }
+                      }}
+                    />
+                  </div>
+                )}
+
+                <div className="setting-row">
+                  <span className="setting-row-label" id="scale-mode-label">
+                    缩放
+                  </span>
+                  <Tooltip title={isNup ? '拼接模式下自动适应网格大小' : undefined}>
+                    <div style={{ width: '100%' }}>
+                      <SettingSelect
+                        ariaLabelledBy="scale-mode-label"
+                        value={settings.scaleMode ?? 'actualSize'}
+                        disabled={isNup}
+                        options={[
+                          { value: 'actualSize', label: '实际大小 (100%)' },
+                          { value: 'shrinkOversized', label: '仅缩小过大页面' },
+                          { value: 'fitPrintable', label: '适应可打印区域' },
+                        ]}
+                        onChange={(val) =>
+                          onChange({
+                            ...settings,
+                            scaleMode: val as PageScaleMode,
+                          })
+                        }
+                      />
+                    </div>
+                  </Tooltip>
+                </div>
+
+                <NupSettings settings={settings} onChange={onChange} />
+              </div>
+            )}
+          </div>
+        </>
+      )}
 
       {criticalReasons.length > 0 && (
         <Alert

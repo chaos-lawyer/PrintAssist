@@ -64,8 +64,8 @@ describe('FavoritesModal', () => {
       />,
     );
 
-    expect(screen.getByText(/暂无收藏模板/)).toBeDefined();
-    const btn = screen.getByRole('button', { name: /创建第一个收藏/ });
+    expect(screen.getByText(/暂无常用模板与任务/)).toBeDefined();
+    const btn = screen.getByRole('button', { name: /保存当前任务为新模板/ });
     fireEvent.click(btn);
     expect(handleAdd).toHaveBeenCalledTimes(1);
   });

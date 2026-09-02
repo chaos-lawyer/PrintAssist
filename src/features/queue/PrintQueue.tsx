@@ -2010,12 +2010,7 @@ export function PrintQueue({
   if (items.length === 0) {
     return (
       <div
-        className={`queue-empty-container${!isPrinting ? ' is-clickable' : ''}`}
-        onClick={() => {
-          if (!isPrinting) {
-            onAddFiles?.();
-          }
-        }}
+        className="queue-empty-container"
         onContextMenu={(e) => {
           e.preventDefault();
           setContextMenu({
@@ -2024,13 +2019,39 @@ export function PrintQueue({
           });
         }}
       >
-        <div className="queue-empty-inner">
+        <div className="queue-empty-card">
           <div className="queue-empty-icon-wrap">
-            <FileText size={36} />
+            <FileText size={32} />
           </div>
-          <div className="queue-empty-title">将文件或文件夹拖到此处，或点击添加</div>
+          <div className="queue-empty-title">添加要打印的文件</div>
           <div className="queue-empty-desc">
             支持 PDF、图片及 Office 文档（Word、Excel、PPT）
+          </div>
+          <Space size={12} className="queue-empty-actions">
+            <Button
+              type="primary"
+              icon={<FilePlus2 size={15} />}
+              disabled={isPrinting}
+              onClick={(e) => {
+                e.stopPropagation();
+                onAddFiles?.();
+              }}
+            >
+              选择文件 (A)
+            </Button>
+            <Button
+              icon={<FolderPlus size={15} />}
+              disabled={isPrinting}
+              onClick={(e) => {
+                e.stopPropagation();
+                onAddFolder?.();
+              }}
+            >
+              选择文件夹 (F)
+            </Button>
+          </Space>
+          <div className="queue-empty-drag-tip">
+            可直接从 Windows 资源管理器拖入文件或文件夹
           </div>
         </div>
         <AppContextMenu
