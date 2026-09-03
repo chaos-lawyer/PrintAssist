@@ -1,4 +1,4 @@
-import { Alert, Button, Checkbox, Input, InputNumber, Segmented, Select, Space, Tooltip, Typography } from 'antd';
+import { Button, Checkbox, Input, InputNumber, Segmented, Select, Space, Tooltip, Typography } from 'antd';
 import { ChevronDown, ChevronRight, Printer, RefreshCw, SlidersHorizontal } from 'lucide-react';
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -76,9 +76,6 @@ export function GlobalSettingsPanel({
   const showFlipOptions = settings.sidesMode === 'duplex' && availability.duplexEnabled;
   const showColorHint = Boolean(selectedPrinter) && !availability.colorEnabled;
   const showDuplexHint = Boolean(selectedPrinter) && !availability.duplexEnabled;
-  const criticalReasons = availability.reasons.filter(
-    (reason) => reason.includes('离线') || reason.includes('错误'),
-  );
   const [paperCapability, setPaperCapability] = useState<PaperSourceCapability | null>(null);
   const [loadingPaperSources, setLoadingPaperSources] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -985,16 +982,6 @@ export function GlobalSettingsPanel({
             )}
           </div>
         </>
-      )}
-
-      {criticalReasons.length > 0 && (
-        <Alert
-          className="settings-alert"
-          type="warning"
-          showIcon
-          banner
-          message={criticalReasons.join('；')}
-        />
       )}
     </div>
   );

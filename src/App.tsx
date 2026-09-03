@@ -343,15 +343,20 @@ export function App() {
 
   useEffect(() => {
     // 软件启动时确保窗口和主工作区获得焦点，使用户无需先点击鼠标即可立即触发快捷键
-    window.focus();
-    const timer = setTimeout(() => {
+    const focusWorkspace = () => {
       window.focus();
-      const queueWrap = document.querySelector('.queue-table-wrap') as HTMLElement | null;
+      const queueWrap = document.querySelector(
+        '.queue-table-wrap, .queue-empty-container',
+      ) as HTMLElement | null;
       if (queueWrap) {
         queueWrap.focus({ preventScroll: true });
       }
-    }, 50);
-    return () => clearTimeout(timer);
+    };
+
+    focusWorkspace();
+    // WebView2 首次绘制可能晚于 React 挂载；重复聚焦以覆盖空队列和延迟布局。
+    const timers = [50, 200, 500].map((delay) => setTimeout(focusWorkspace, delay));
+    return () => timers.forEach(clearTimeout);
   }, []);
 
   useEffect(() => {

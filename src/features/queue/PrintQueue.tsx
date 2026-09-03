@@ -2010,7 +2010,13 @@ export function PrintQueue({
   if (items.length === 0) {
     return (
       <div
-        className="queue-empty-container"
+        className={`queue-empty-container${!isPrinting ? ' is-clickable' : ''}`}
+        tabIndex={0}
+        onClick={() => {
+          if (!isPrinting) {
+            onAddFiles?.();
+          }
+        }}
         onContextMenu={(e) => {
           e.preventDefault();
           setContextMenu({

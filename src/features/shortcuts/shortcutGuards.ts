@@ -64,23 +64,53 @@ export function shouldIgnoreShortcut(
 
   const isInputElement = (el: HTMLElement | null): boolean => {
     if (!el || typeof el.tagName !== 'string') return false;
-    const tagName = el.tagName.toUpperCase();
-    if (tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT') {
-      return true;
-    }
-    if (el.isContentEditable || el.getAttribute?.('contenteditable') === 'true') {
-      return true;
-    }
-    if (
-      el.classList &&
-      (el.classList.contains('ant-input') ||
-        el.classList.contains('ant-input-number-input') ||
-        el.classList.contains('ant-select-selection-search-input'))
-    ) {
+
+    const isTextInput = (node: HTMLElement): boolean => {
+      const tagName = node.tagName.toUpperCase();
+      if (tagName === 'TEXTAREA' || tagName === 'SELECT') {
+        return true;
+      }
+      if (tagName === 'INPUT') {
+        const type = (node as HTMLInputElement).type?.toLowerCase();
+        if (
+          type === 'checkbox' ||
+          type === 'radio' ||
+          type === 'button' ||
+          type === 'submit' ||
+          type === 'reset' ||
+          type === 'file' ||
+          type === 'image' ||
+          type === 'range' ||
+          type === 'color'
+        ) {
+          return false;
+        }
+        return true;
+      }
+      if (node.isContentEditable || node.getAttribute?.('contenteditable') === 'true') {
+        return true;
+      }
+      if (
+        node.classList &&
+        (node.classList.contains('ant-input') ||
+          node.classList.contains('ant-input-number-input') ||
+          node.classList.contains('ant-select-selection-search-input'))
+      ) {
+        return true;
+      }
+      return false;
+    };
+
+    if (isTextInput(el)) {
       return true;
     }
     if (typeof el.closest === 'function') {
-      return Boolean(el.closest('input, textarea, select, [contenteditable="true"]'));
+      const closest = el.closest(
+        'input, textarea, select, [contenteditable="true"], .ant-input, .ant-input-number-input, .ant-select-selection-search-input',
+      );
+      if (closest && isTextInput(closest as HTMLElement)) {
+        return true;
+      }
     }
     return false;
   };

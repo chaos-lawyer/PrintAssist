@@ -186,6 +186,10 @@ button,
 
 .app-header .header-history-btn,
 .app-header .ant-btn.header-history-btn,
+.app-header .header-favorites-btn,
+.app-header .ant-btn.header-favorites-btn,
+.app-header .header-external-integration-btn,
+.app-header .ant-btn.header-external-integration-btn,
 .app-header .header-help-btn,
 .app-header .ant-btn.header-help-btn {
   color: #ffffff !important;
@@ -202,6 +206,10 @@ button,
 
 .app-header .header-history-btn:hover,
 .app-header .ant-btn.header-history-btn:hover,
+.app-header .header-favorites-btn:hover,
+.app-header .ant-btn.header-favorites-btn:hover,
+.app-header .header-external-integration-btn:hover,
+.app-header .ant-btn.header-external-integration-btn:hover,
 .app-header .header-help-btn:hover,
 .app-header .ant-btn.header-help-btn:hover {
   color: #ffffff !important;
@@ -210,6 +218,8 @@ button,
 }
 
 .app-header .header-history-btn svg,
+.app-header .header-favorites-btn svg,
+.app-header .header-external-integration-btn svg,
 .app-header .header-help-btn svg {
   color: #ffffff !important;
 }
@@ -2820,14 +2830,6 @@ button,
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.header-favorites-btn {
-  color: var(--color-text-muted);
-}
-
-.header-favorites-btn:hover {
-  color: var(--color-primary);
 }
 
 .undo-toast-content {

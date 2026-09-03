@@ -71,7 +71,7 @@ describe('shouldIgnoreShortcut', () => {
     expect(shouldIgnoreShortcut(event, { isSingleKey: true })).toBe(true);
   });
 
-  it('ignores shortcut when active element is an input or textarea', () => {
+  it('ignores shortcut when active element is a text input or textarea', () => {
     const input = document.createElement('input');
     document.body.appendChild(input);
     input.focus();
@@ -81,6 +81,24 @@ describe('shouldIgnoreShortcut', () => {
 
     input.blur();
     expect(shouldIgnoreShortcut(event, { isSingleKey: true })).toBe(false);
+  });
+
+  it('does not ignore shortcut when active element is a checkbox or radio', () => {
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    document.body.appendChild(checkbox);
+    checkbox.focus();
+
+    const eventE = new KeyboardEvent('keydown', { key: 'E' });
+    expect(shouldIgnoreShortcut(eventE, { isSingleKey: true })).toBe(false);
+
+    const radio = document.createElement('input');
+    radio.type = 'radio';
+    document.body.appendChild(radio);
+    radio.focus();
+
+    const eventA = new KeyboardEvent('keydown', { key: 'A' });
+    expect(shouldIgnoreShortcut(eventA, { isSingleKey: true })).toBe(false);
   });
 
   it('ignores shortcut when element is contenteditable', () => {
