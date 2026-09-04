@@ -7,7 +7,8 @@ use std::thread;
 use std::time::Duration;
 
 use crate::contracts::{
-    PrintBatchRequest, PrintBatchResult, PrintBatchResultItem, PrintQueueItemPayload,
+    PrintBatchRequest, PrintBatchResult, PrintBatchResultItem, PrintItemErrorKind,
+    PrintQueueItemPayload,
 };
 #[cfg(windows)]
 use crate::documents::office::convert_office_to_pdf;
@@ -149,6 +150,7 @@ pub fn terminate_current_batch() {
     }
 }
 
+#[deprecated(note = "Use terminate_current_batch instead")]
 pub fn cancel_current_batch() {
     terminate_current_batch();
 }
@@ -198,6 +200,7 @@ pub fn run_print_batch_sync(
                     file_name: item.file_name,
                     status: "failed".to_string(),
                     message: Some("当前平台不支持跨文件拼接打印".to_string()),
+                    error_kind: Some(PrintItemErrorKind::Unsupported),
                 })
                 .collect(),
         });
@@ -222,6 +225,7 @@ fn run_batch_per_file(
     let mut failed = 0_u32;
     let mut skipped = 0_u32;
     let total = request.items.len();
+    let cached_printers = printers::list_system_printers_sync().ok();
 
     for (index, item) in request.items.into_iter().enumerate() {
         let item_id = item.queue_item_id.clone();
@@ -247,6 +251,7 @@ fn run_batch_per_file(
                 file_name: item.file_name.clone(),
                 status: "skipped".to_string(),
                 message: Some("用户已终止打印".to_string()),
+                error_kind: None,
             };
             skipped += 1;
             if let Some(app_handle) = app {
@@ -281,7 +286,7 @@ fn run_batch_per_file(
             );
         }
 
-        let result_item = print_single_item(item, profile_store);
+        let result_item = print_single_item(item, profile_store, cached_printers.as_deref());
         match result_item.status.as_str() {
             "succeeded" => succeeded += 1,
             "skipped" => skipped += 1,
@@ -319,36 +324,41 @@ fn run_batch_per_file(
 fn print_single_item(
     item: PrintQueueItemPayload,
     profile_store: Option<&printers::PrinterProfileStore>,
+    cached_printers: Option<&[crate::contracts::SystemPrinter]>,
 ) -> PrintBatchResultItem {
     let path = Path::new(&item.path);
     if !path.exists() {
-        return failed_item(item, "文件不存在");
+        return failed_item(item, "文件不存在", Some(PrintItemErrorKind::General));
     }
 
     if item.settings.printer_name.trim().is_empty() {
-        return failed_item(item, "未指定打印机");
+        return failed_item(item, "未指定打印机", Some(PrintItemErrorKind::PrinterUnavailable));
     }
 
-    if let Err(error) = validate_printer_capabilities(&item) {
-        return failed_item(item, &error);
+    if let Err(error) = validate_printer_capabilities(&item, cached_printers) {
+        return failed_item(item, &error, Some(PrintItemErrorKind::PrinterUnavailable));
     }
 
     let kind = detect_document_kind(path);
     if kind == DocumentKind::Unknown {
-        return failed_item(item, "不支持的文件类型");
+        return failed_item(item, "不支持的文件类型", Some(PrintItemErrorKind::Unsupported));
     }
 
     if item.settings.page_range_mode == "custom"
         && item.settings.page_range_expression.trim().is_empty()
     {
-        return failed_item(item, "自定义页码表达式为空");
+        return failed_item(item, "自定义页码表达式为空", Some(PrintItemErrorKind::General));
     }
 
     let custom_range = item.settings.page_range_mode == "custom";
 
     // Image/text do not define multi-page custom ranges.
     if custom_range && matches!(kind, DocumentKind::Image | DocumentKind::Text) {
-        return failed_item(item, "图片/文本不支持自定义页码范围，请使用全部页");
+        return failed_item(
+            item,
+            "图片/文本不支持自定义页码范围，请使用全部页",
+            Some(PrintItemErrorKind::Unsupported),
+        );
     }
 
     let mut temporary_paths: Vec<PathBuf> = Vec::new();
@@ -385,8 +395,9 @@ fn print_single_item(
             file_name: item.file_name,
             status: "succeeded".to_string(),
             message: None,
+            error_kind: None,
         },
-        Err(error) => failed_item(item, &error),
+        Err(error) => failed_item(item, &error, None),
     }
 }
 
@@ -693,6 +704,7 @@ fn run_batch_cross_file_nup(
                         file_name: item.file_name,
                         status: "failed".to_string(),
                         message: Some(format!("应用打印机驱动配置失败：{err}")),
+                        error_kind: Some(PrintItemErrorKind::PrinterUnavailable),
                     })
                     .collect(),
             };
@@ -722,6 +734,7 @@ fn run_batch_cross_file_nup(
                         file_name: item.file_name,
                         status: "failed".to_string(),
                         message: Some(format!("初始化打印会话失败：{err}")),
+                        error_kind: Some(PrintItemErrorKind::PrinterUnavailable),
                     })
                     .collect(),
             };
@@ -761,6 +774,7 @@ fn run_batch_cross_file_nup(
                 file_name: item.file_name.clone(),
                 status: "skipped".to_string(),
                 message: Some("用户已终止打印".to_string()),
+                error_kind: None,
             };
             results.push(result_item);
             break;
@@ -845,6 +859,7 @@ fn run_batch_cross_file_nup(
                 file_name: item.file_name,
                 status: "failed".to_string(),
                 message: Some(err_msg.clone()),
+                error_kind: Some(classify_error(&err_msg)),
             };
             if let Some(app_handle) = app {
                 use tauri::Emitter;
@@ -873,6 +888,7 @@ fn run_batch_cross_file_nup(
                 file_name: item.file_name,
                 status: "failed".to_string(),
                 message: Some("前序页面拼接打印失败，后续任务已中止".to_string()),
+                error_kind: Some(PrintItemErrorKind::General),
             };
             if let Some(app_handle) = app {
                 use tauri::Emitter;
@@ -912,6 +928,7 @@ fn run_batch_cross_file_nup(
                 file_name: item.file_name,
                 status: "skipped".to_string(),
                 message: Some("用户已取消打印".to_string()),
+                error_kind: None,
             });
         }
         for (_, item) in items_iter {
@@ -921,6 +938,7 @@ fn run_batch_cross_file_nup(
                 file_name: item.file_name,
                 status: "skipped".to_string(),
                 message: Some("用户已取消打印".to_string()),
+                error_kind: None,
             });
         }
         let skipped_count = results.len() as u32;
@@ -946,6 +964,7 @@ fn run_batch_cross_file_nup(
                     file_name: item.file_name,
                     status: "failed".to_string(),
                     message: Some(err_msg.clone()),
+                    error_kind: Some(classify_error(&err_msg)),
                 });
             }
             let failed_count = results.len() as u32;
@@ -970,6 +989,7 @@ fn run_batch_cross_file_nup(
                 file_name: item.file_name,
                 status: "failed".to_string(),
                 message: Some(err_msg.clone()),
+                error_kind: Some(PrintItemErrorKind::PrinterUnavailable),
             });
         }
         let failed_count = results.len() as u32;
@@ -992,6 +1012,7 @@ fn run_batch_cross_file_nup(
             file_name: item.file_name,
             status: "succeeded".to_string(),
             message: None,
+            error_kind: None,
         };
         if let Some(app_handle) = app {
             use tauri::Emitter;
@@ -1020,10 +1041,20 @@ fn run_batch_cross_file_nup(
     }
 }
 
-fn validate_printer_capabilities(item: &PrintQueueItemPayload) -> Result<(), String> {
-    let printers = printers::list_system_printers_sync()?;
+fn validate_printer_capabilities(
+    item: &PrintQueueItemPayload,
+    cached_printers: Option<&[crate::contracts::SystemPrinter]>,
+) -> Result<(), String> {
+    let owned_printers;
+    let printers = match cached_printers {
+        Some(p) => p,
+        None => {
+            owned_printers = printers::list_system_printers_sync()?;
+            &owned_printers[..]
+        }
+    };
     let printer = printers
-        .into_iter()
+        .iter()
         .find(|candidate| {
             candidate
                 .name
@@ -1053,13 +1084,51 @@ fn validate_printer_capabilities(item: &PrintQueueItemPayload) -> Result<(), Str
     Ok(())
 }
 
-fn failed_item(item: PrintQueueItemPayload, message: &str) -> PrintBatchResultItem {
+pub fn classify_error(msg: &str) -> PrintItemErrorKind {
+    let lower = msg.to_lowercase();
+    if lower.contains("0x800a14bb")
+        || lower.contains("正在被另一进程使用")
+        || lower.contains("被占用")
+        || lower.contains("正由另一进程使用")
+        || lower.contains("文件被锁定")
+    {
+        PrintItemErrorKind::FileLocked
+    } else if lower.contains("密码") || lower.contains("password") {
+        PrintItemErrorKind::PasswordProtected
+    } else if msg.contains("未检测到可用的 Microsoft Office 或 WPS Office")
+        || msg.contains("请确认已安装")
+        || msg.contains("未检测到已安装组件")
+        || msg.contains("kwps.application")
+        || msg.contains("ket.application")
+        || msg.contains("kwpp.application")
+        || msg.contains("Word.Application")
+        || msg.contains("Excel.Application")
+        || msg.contains("PowerPoint.Application")
+        || msg.contains("CLSIDFromProgID")
+    {
+        PrintItemErrorKind::OfficeMissing
+    } else if msg.contains("不支持") || msg.contains("格式不支持") {
+        PrintItemErrorKind::Unsupported
+    } else if msg.contains("打印机") {
+        PrintItemErrorKind::PrinterUnavailable
+    } else {
+        PrintItemErrorKind::General
+    }
+}
+
+fn failed_item(
+    item: PrintQueueItemPayload,
+    message: &str,
+    explicit_kind: Option<PrintItemErrorKind>,
+) -> PrintBatchResultItem {
+    let kind = explicit_kind.unwrap_or_else(|| classify_error(message));
     PrintBatchResultItem {
         queue_item_id: item.queue_item_id,
         path: item.path,
         file_name: item.file_name,
         status: "failed".to_string(),
         message: Some(message.to_string()),
+        error_kind: Some(kind),
     }
 }
 
@@ -1122,7 +1191,7 @@ mod tests {
         assert!(second_res.unwrap_err().contains("已有打印任务正在执行中"));
 
         // Terminate sets state
-        cancel_current_batch();
+        terminate_current_batch();
         assert_eq!(control.current_state(), BatchControlState::TerminateRequested);
 
         // Dropping guard1 releases the lock
@@ -1154,7 +1223,9 @@ mod tests {
         });
 
         // Give thread a moment to reach safe boundary and enter paused state
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
         while !paused_notified.load(Ordering::SeqCst) {
+            assert!(std::time::Instant::now() < deadline, "timeout waiting for paused state");
             thread::sleep(Duration::from_millis(10));
         }
         assert_eq!(control.current_state(), BatchControlState::Paused);
@@ -1237,4 +1308,33 @@ mod tests {
             .unwrap_err()
             .contains("跨文件多页拼接要求队列中所有文件使用同一台打印机"));
     }
+
+    #[test]
+    fn test_classify_error() {
+        assert_eq!(
+            classify_error("CLSIDFromProgID failed for Word.Application"),
+            PrintItemErrorKind::OfficeMissing
+        );
+        assert_eq!(
+            classify_error("文件正在被另一进程使用，无法打开"),
+            PrintItemErrorKind::FileLocked
+        );
+        assert_eq!(
+            classify_error("文档受密码保护"),
+            PrintItemErrorKind::PasswordProtected
+        );
+        assert_eq!(
+            classify_error("不支持的文件类型"),
+            PrintItemErrorKind::Unsupported
+        );
+        assert_eq!(
+            classify_error("未找到指定的打印机"),
+            PrintItemErrorKind::PrinterUnavailable
+        );
+        assert_eq!(
+            classify_error("未知内部错误"),
+            PrintItemErrorKind::General
+        );
+    }
 }
+

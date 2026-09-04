@@ -449,7 +449,7 @@ pub fn query_paper_source_capability(
     printer_name: &str,
     port_name: Option<&str>,
 ) -> crate::contracts::PaperSourceCapability {
-    use crate::contracts::{PaperSourceCapability, PaperSourceOption};
+    use crate::contracts::{PaperSourceCapability, PaperSourceOption, PaperSourceStatus};
 
     let printer_wide = null_terminated_wide(printer_name);
     let port_name_wide = port_name.map(null_terminated_wide);
@@ -470,7 +470,7 @@ pub fn query_paper_source_capability(
 
     if count < 0 {
         return PaperSourceCapability {
-            status: "unavailable".to_string(),
+            status: PaperSourceStatus::Unavailable,
             sources: Vec::new(),
             default_source_code: None,
             detail: Some(format!(
@@ -481,7 +481,7 @@ pub fn query_paper_source_capability(
 
     if count == 0 {
         return PaperSourceCapability {
-            status: "unsupported".to_string(),
+            status: PaperSourceStatus::Unsupported,
             sources: Vec::new(),
             default_source_code: None,
             detail: None,
@@ -502,7 +502,7 @@ pub fn query_paper_source_capability(
 
     if codes_ret <= 0 {
         return PaperSourceCapability {
-            status: "unavailable".to_string(),
+            status: PaperSourceStatus::Unavailable,
             sources: Vec::new(),
             default_source_code: None,
             detail: Some(format!(
@@ -524,7 +524,7 @@ pub fn query_paper_source_capability(
 
     if names_ret <= 0 {
         return PaperSourceCapability {
-            status: "unavailable".to_string(),
+            status: PaperSourceStatus::Unavailable,
             sources: Vec::new(),
             default_source_code: None,
             detail: Some(format!(
@@ -547,14 +547,14 @@ pub fn query_paper_source_capability(
 
     if sources.len() < 2 {
         PaperSourceCapability {
-            status: "unsupported".to_string(),
+            status: PaperSourceStatus::Unsupported,
             sources,
             default_source_code: None,
             detail: None,
         }
     } else {
         PaperSourceCapability {
-            status: "available".to_string(),
+            status: PaperSourceStatus::Available,
             sources,
             default_source_code: None,
             detail: None,

@@ -46,6 +46,7 @@ export interface PrintBatchResultItem {
   fileName: string;
   status: 'succeeded' | 'failed' | 'skipped';
   message?: string;
+  errorKind?: string;
 }
 
 export interface PrintBatchResult {

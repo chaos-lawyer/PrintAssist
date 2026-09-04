@@ -476,12 +476,12 @@ export function subscribePrintItemEvents(handlers: {
 
 export interface ValidatePathsResult {
   valid: string[];
-  missing: string[];
+  unsupported: string[];
 }
 
 export async function validateSupportedPaths(paths: string[]): Promise<ValidatePathsResult> {
   if (!isTauriRuntime()) {
-    return { valid: paths, missing: [] };
+    return { valid: paths, unsupported: [] };
   }
   return invokeCommand<ValidatePathsResult>('validate_supported_paths', { paths });
 }

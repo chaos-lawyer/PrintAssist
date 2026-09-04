@@ -3,7 +3,6 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 pub use crate::documents::{is_supported_file, SUPPORTED_EXTENSIONS};
-pub use expand_path_argument as collect_path_argument;
 
 const MAX_REQUEST_FILE_BYTES: u64 = 2 * 1024 * 1024; // 2 MB
 const MAX_REQUEST_PATHS: usize = 500;
@@ -126,12 +125,21 @@ pub fn parse_request_file(file_path: &Path) -> Result<ExternalRequestV1, String>
             break;
         }
     }
-    // Deduplicate in-place
-    let mut seen = std::collections::HashSet::new();
-    expanded_paths.retain(|p| seen.insert(p.clone()));
+    // Deduplicate in-place without cloning strings
+    deduplicate_in_place(&mut expanded_paths);
     req.paths = expanded_paths;
 
     Ok(req)
+}
+
+fn deduplicate_in_place(paths: &mut Vec<String>) {
+    let mut seen = std::collections::HashSet::new();
+    let mut keep = Vec::with_capacity(paths.len());
+    for p in paths.iter() {
+        keep.push(seen.insert(p.as_str()));
+    }
+    let mut iter = keep.into_iter();
+    paths.retain(|_| iter.next().unwrap_or(false));
 }
 
 /// Parses command line arguments (from initial launch or subsequent single-instance invocation)
@@ -353,8 +361,7 @@ pub fn parse_external_request(arguments: &[String]) -> Result<Option<ExternalReq
                 expand_path_argument(p, &mut extra_paths);
             }
             file_req.paths.extend(extra_paths);
-            let mut seen = std::collections::HashSet::new();
-            file_req.paths.retain(|p| seen.insert(p.clone()));
+            deduplicate_in_place(&mut file_req.paths);
         }
         return Ok(Some(file_req));
     }
@@ -367,8 +374,7 @@ pub fn parse_external_request(arguments: &[String]) -> Result<Option<ExternalReq
             break;
         }
     }
-    let mut seen = std::collections::HashSet::new();
-    expanded_paths.retain(|p| seen.insert(p.clone()));
+    deduplicate_in_place(&mut expanded_paths);
 
     // If no paths and no action specified, return None
     if expanded_paths.is_empty() && action.is_none() && favorite_id.is_none() {

@@ -32,16 +32,9 @@ function getStorage(): {
   };
 
   try {
-    if (typeof window !== 'undefined' && isStorageLike(window.localStorage)) {
-      return window.localStorage;
-    }
-  } catch {
-    // ignore
-  }
-
-  try {
-    if (typeof localStorage !== 'undefined' && isStorageLike(localStorage)) {
-      return localStorage;
+    const storage = typeof window !== 'undefined' ? window.localStorage : typeof localStorage !== 'undefined' ? localStorage : null;
+    if (isStorageLike(storage)) {
+      return storage;
     }
   } catch {
     // ignore

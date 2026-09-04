@@ -185,7 +185,10 @@ describe('PrintHistoryModal', () => {
 
   it('opens confirmation dialog and clears history when clicking clear button', () => {
     setupSampleData();
-    const confirmSpy = vi.spyOn(Modal, 'confirm');
+    const confirmSpy = vi.spyOn(Modal, 'confirm').mockImplementation((() => ({
+      destroy: vi.fn(),
+      update: vi.fn(),
+    })) as any);
 
     render(<PrintHistoryModal open={true} onClose={() => {}} onReloadFiles={() => {}} />);
 
@@ -206,7 +209,10 @@ describe('PrintHistoryModal', () => {
 
   it('renders delete buttons and deletes record after confirmation', () => {
     setupSampleData();
-    const confirmSpy = vi.spyOn(Modal, 'confirm');
+    const confirmSpy = vi.spyOn(Modal, 'confirm').mockImplementation((() => ({
+      destroy: vi.fn(),
+      update: vi.fn(),
+    })) as any);
 
     render(<PrintHistoryModal open={true} onClose={() => {}} onReloadFiles={() => {}} />);
 

@@ -83,7 +83,7 @@ describe('favoriteResolver', () => {
       systemPrinters: mockSystemPrinters,
       printerPreferences: defaultPreferences,
       savedProfiles: [],
-      validatePathsFn: async (paths) => ({ valid: paths, missing: [] }),
+      validatePathsFn: async (paths) => ({ valid: paths, unsupported: [] }),
     });
 
     expect(res.status).toBe('blocked');
@@ -112,7 +112,7 @@ describe('favoriteResolver', () => {
       printerPreferences: defaultPreferences,
       savedProfiles: [],
       loadProfileFn: mockLoadProfile,
-      validatePathsFn: async (paths) => ({ valid: paths, missing: [] }),
+      validatePathsFn: async (paths) => ({ valid: paths, unsupported: [] }),
     });
 
     expect(res.status).toBe('ready');
@@ -135,7 +135,7 @@ describe('favoriteResolver', () => {
       savedProfiles: [],
       validatePathsFn: async (paths) => ({
         valid: ['/docs/doc1.pdf'],
-        missing: ['/docs/doc2.pdf'],
+        unsupported: ['/docs/doc2.pdf'],
       }),
     });
 
@@ -169,7 +169,7 @@ describe('favoriteResolver', () => {
       systemPrinters: mockSystemPrinters,
       printerPreferences: defaultPreferences,
       savedProfiles: [],
-      validatePathsFn: async (paths) => ({ valid: paths, missing: [] }),
+      validatePathsFn: async (paths) => ({ valid: paths, unsupported: [] }),
     });
 
     expect(res.status).toBe('needs_duplicate_decision');
@@ -184,7 +184,7 @@ describe('favoriteResolver', () => {
       printerPreferences: defaultPreferences,
       savedProfiles: [],
       duplicateDecision: 'new_only',
-      validatePathsFn: async (paths) => ({ valid: paths, missing: [] }),
+      validatePathsFn: async (paths) => ({ valid: paths, unsupported: [] }),
     });
 
     expect(resNewOnly.status).toBe('ready');
@@ -203,7 +203,7 @@ describe('favoriteResolver', () => {
       printerPreferences: defaultPreferences,
       savedProfiles: [],
       loadProfileFn: vi.fn().mockRejectedValue(new Error('Profile not found')),
-      validatePathsFn: async (paths) => ({ valid: paths, missing: [] }),
+      validatePathsFn: async (paths) => ({ valid: paths, unsupported: [] }),
     });
 
     expect(res.status).toBe('ready');
@@ -229,7 +229,7 @@ describe('favoriteResolver', () => {
       systemPrinters: mockSystemPrinters,
       printerPreferences: defaultPreferences,
       savedProfiles: [],
-      validatePathsFn: async (paths) => ({ valid: paths, missing: [] }),
+      validatePathsFn: async (paths) => ({ valid: paths, unsupported: [] }),
     });
 
     expect(res.status).toBe('ready');

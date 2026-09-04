@@ -10,7 +10,7 @@ use crate::contracts::{
     LoadedPrinterProfileResult, PaperSourceCapability, PrintBatchRequest, PrintBatchResult,
     PrinterPropertiesResult, SavePrinterProfileRequest, SavedPrinterProfileSummary, SystemPrinter,
 };
-use crate::ingress::{collect_path_argument, is_supported_file};
+use crate::ingress::{expand_path_argument, is_supported_file};
 use crate::printers::{
     self, evaluate_profile_compatibility, query_printer_fingerprint, PersistentPrinterProfileStore,
     PrinterProfileStore,
@@ -201,17 +201,7 @@ pub async fn load_printer_profile(
     if compatibility != crate::contracts::PrinterProfileCompatibility::Compatible {
         return Err(format!(
             "配置“{}”当前不可用（{}），若驱动已更新请选择“标准字段重建”",
-            profile.name,
-            match compatibility {
-                crate::contracts::PrinterProfileCompatibility::PrinterUnavailable =>
-                    "打印机离线或不存在",
-                crate::contracts::PrinterProfileCompatibility::DriverChanged =>
-                    "驱动版本已发生变更",
-                crate::contracts::PrinterProfileCompatibility::Corrupted => "配置文件校验损坏",
-                crate::contracts::PrinterProfileCompatibility::UnsupportedSchema =>
-                    "配置架构版本不兼容",
-                _ => "未知状态",
-            }
+            profile.name, compatibility
         ));
     }
 
@@ -497,12 +487,41 @@ pub async fn import_printer_profile(
     target_printer_name: Option<String>,
     persistent_store: tauri::State<'_, PersistentPrinterProfileStore>,
 ) -> Result<SavedPrinterProfileSummary, String> {
-    let mut summaries = import_printer_profiles(
-        vec![source_path],
-        target_printer_name,
-        persistent_store,
-    ).await?;
-    summaries.pop().ok_or_else(|| "未导入任何有效配置".to_string())
+    let path = std::path::Path::new(&source_path);
+    if !path.is_file() {
+        return Err(format!("导入文件不存在：{}", path.display()));
+    }
+
+    let json_str = std::fs::read_to_string(path)
+        .map_err(|err| format!("读取文件失败（{}）：{err}", path.display()))?;
+
+    let content: ImportProfileFileContent = serde_json::from_str(&json_str)
+        .map_err(|err| format!("解析文件失败（{}）：{err}", path.display()))?;
+
+    let payloads = match content {
+        ImportProfileFileContent::Bundle(b) => b.profiles,
+        ImportProfileFileContent::List(l) => l,
+        ImportProfileFileContent::Single(s) => vec![s],
+    };
+
+    let payload = payloads
+        .into_iter()
+        .next()
+        .ok_or_else(|| "配置文件中未包含任何配置项目".to_string())?;
+
+    let saved = persistent_store
+        .import_profile(payload, target_printer_name.as_deref())
+        .map_err(|err| format!("导入配置失败：{err}"))?;
+
+    let is_default = persistent_store
+        .get_default_profile_id(&saved.printer.printer_name)
+        .as_deref()
+        == Some(&saved.id);
+
+    Ok(saved.to_summary(
+        is_default,
+        crate::contracts::PrinterProfileCompatibility::Compatible,
+    ))
 }
 
 #[tauri::command]
@@ -529,7 +548,7 @@ pub async fn pick_folder_files(app: AppHandle) -> Result<Vec<String>, String> {
     };
 
     let mut paths = Vec::new();
-    collect_path_argument(&folder_path.to_string_lossy(), &mut paths);
+    expand_path_argument(&folder_path.to_string_lossy(), &mut paths);
     Ok(paths)
 }
 
@@ -584,7 +603,7 @@ pub async fn pick_import_profile_files(app: AppHandle) -> Result<Vec<String>, St
 pub async fn expand_file_paths(paths: Vec<String>) -> Result<Vec<String>, String> {
     let mut expanded = Vec::new();
     for path in paths {
-        collect_path_argument(&path, &mut expanded);
+        expand_path_argument(&path, &mut expanded);
     }
     Ok(expanded)
 }
@@ -623,14 +642,14 @@ pub fn terminate_print_batch() -> Result<(), String> {
 
 #[tauri::command]
 pub fn cancel_print_batch() -> Result<(), String> {
-    crate::printing::cancel_current_batch();
+    crate::printing::terminate_current_batch();
     Ok(())
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct ValidatePathsResult {
     pub valid: Vec<String>,
-    pub missing: Vec<String>,
+    pub unsupported: Vec<String>,
 }
 
 #[tauri::command]
@@ -641,15 +660,15 @@ pub fn validate_supported_path(path: String) -> bool {
 #[tauri::command]
 pub fn validate_supported_paths(paths: Vec<String>) -> ValidatePathsResult {
     let mut valid = Vec::new();
-    let mut missing = Vec::new();
+    let mut unsupported = Vec::new();
     for p in paths {
         if is_supported_file(PathBuf::from(&p).as_path()) {
             valid.push(p);
         } else {
-            missing.push(p);
+            unsupported.push(p);
         }
     }
-    ValidatePathsResult { valid, missing }
+    ValidatePathsResult { valid, unsupported }
 }
 
 #[tauri::command]

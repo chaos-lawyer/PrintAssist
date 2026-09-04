@@ -36,7 +36,6 @@ pub fn run() {
         .setup(|app| {
             #[cfg(desktop)]
             {
-                use tauri::Manager;
                 let window = app.get_webview_window("main").unwrap();
                 window.set_icon(
                     tauri::image::Image::from_bytes(include_bytes!("../icons/icon.ico"))

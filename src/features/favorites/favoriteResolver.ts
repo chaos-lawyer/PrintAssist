@@ -99,11 +99,11 @@ export async function resolveFavorite(options: ResolveFavoriteOptions): Promise<
     const allPaths = rawFavoriteItems.map((i) => i.path).filter(Boolean);
     try {
       const validation = await validatePathsFn(allPaths);
-      if (validation && Array.isArray(validation.missing) && validation.missing.length > 0) {
-        const missingSet = new Set(validation.missing.map(normalizeLocalPath));
+      if (validation && Array.isArray(validation.unsupported) && validation.unsupported.length > 0) {
+        const missingSet = new Set(validation.unsupported.map(normalizeLocalPath));
         validFavoriteItems = rawFavoriteItems.filter((i) => !missingSet.has(normalizeLocalPath(i.path)));
-        missingFilePaths.push(...validation.missing);
-        warnings.push(`收藏中有 ${validation.missing.length} 个文件已不存在或格式不支持，已自动跳过`);
+        missingFilePaths.push(...validation.unsupported);
+        warnings.push(`收藏中有 ${validation.unsupported.length} 个文件已不存在或格式不支持，已自动跳过`);
       }
     } catch {
       // If validation fails unexpectedly, continue with raw items

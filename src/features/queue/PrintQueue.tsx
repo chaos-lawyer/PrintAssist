@@ -60,14 +60,8 @@ import type { QueueItemSnapshot } from './queueReducer';
 import { AppContextMenu, type AppContextMenuItem } from '../../components/AppContextMenu';
 import { OverflowTooltipText } from '../../components/OverflowTooltipText';
 import { shouldIgnoreShortcut } from '../shortcuts/shortcutGuards';
-
-export interface QueueClipboardState {
-  mode: 'copy' | 'cut';
-  snapshots: QueueItemSnapshot[];
-  sourceIds: string[];
-}
-
-let queueClipboard: QueueClipboardState | null = null;
+import { useQueueClipboard, type QueueClipboardState } from './useQueueClipboard';
+export type { QueueClipboardState };
 
 interface PrintQueueProps {
   items: QueueItem[];
@@ -516,6 +510,13 @@ export function PrintQueue({
   const [rangeAnchorId, setRangeAnchorId] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState<string>('');
   const [cutSourceIds, setCutSourceIds] = useState<string[]>([]);
+  const {
+    clipboard: queueClipboard,
+    copy: setClipboardCopy,
+    cut: setClipboardCut,
+    clear: clearClipboard,
+    updateCutSources,
+  } = useQueueClipboard();
   const [internalVisibleColumns, setInternalVisibleColumns] = useState<QueueColumnKey[]>(
     () => propsVisibleColumns ?? getStoredVisibleColumns(),
   );
@@ -760,20 +761,17 @@ export function PrintQueue({
     const toCopy = items.filter((i) => targetSet.has(i.id));
     if (toCopy.length === 0) return;
 
-    queueClipboard = {
-      mode: 'copy',
-      snapshots: toCopy.map((i) => ({
-        path: i.path,
-        fileName: i.fileName,
-        kind: i.kind,
-        pageCount: i.pageCount,
-        override: { ...i.override },
-      })),
-      sourceIds: [],
-    };
+    const snapshots = toCopy.map((i) => ({
+      path: i.path,
+      fileName: i.fileName,
+      kind: i.kind,
+      pageCount: i.pageCount,
+      override: { ...i.override },
+    }));
+    setClipboardCopy(snapshots, []);
     setCutSourceIds([]);
-    message.success(`已复制 ${queueClipboard.snapshots.length} 个文件`);
-  }, [items, selectedRowKeys, activeId]);
+    message.success(`已复制 ${snapshots.length} 个文件`);
+  }, [items, selectedRowKeys, activeId, setClipboardCopy]);
 
   const cutSelection = useCallback(() => {
     if (isLocked) {
@@ -795,20 +793,17 @@ export function PrintQueue({
     if (toCut.length === 0) return;
 
     const ids = toCut.map((i) => i.id);
-    queueClipboard = {
-      mode: 'cut',
-      snapshots: toCut.map((i) => ({
-        path: i.path,
-        fileName: i.fileName,
-        kind: i.kind,
-        pageCount: i.pageCount,
-        override: { ...i.override },
-      })),
-      sourceIds: ids,
-    };
+    const snapshots = toCut.map((i) => ({
+      path: i.path,
+      fileName: i.fileName,
+      kind: i.kind,
+      pageCount: i.pageCount,
+      override: { ...i.override },
+    }));
+    setClipboardCut(snapshots, ids);
     setCutSourceIds(ids);
     message.info(`已剪切 ${ids.length} 个文件，按 V 粘贴移动`);
-  }, [isLocked, isPrinting, items, selectedRowKeys, activeId]);
+  }, [isLocked, isPrinting, items, selectedRowKeys, activeId, setClipboardCut]);
 
   const pasteAfterTarget = useCallback(
     (targetId: string | null) => {
@@ -840,7 +835,7 @@ export function PrintQueue({
             message.success(`已移动 ${newIds.length} 个文件`);
           }
         }
-        queueClipboard = null;
+        clearClipboard();
         setCutSourceIds([]);
       } else {
         const newIds = onPasteSnapshots?.(queueClipboard.snapshots, effectiveTargetId);
@@ -851,31 +846,31 @@ export function PrintQueue({
         message.success(`已粘贴 ${queueClipboard.snapshots.length} 个文件`);
       }
     },
-    [activeId, isLocked, isPrinting, items, onPasteSnapshots, onReorderItems, onRemove, onSelectionChange, setActiveId],
+    [activeId, clearClipboard, isLocked, isPrinting, items, onPasteSnapshots, onReorderItems, onRemove, onSelectionChange, queueClipboard, setActiveId],
   );
 
   // 清除失效的剪切状态或锁定状态下的剪切
   useEffect(() => {
     if (cutSourceIds.length > 0) {
       if (isLocked) {
-        queueClipboard = null;
+        clearClipboard();
         setCutSourceIds([]);
         return;
       }
       const valid = cutSourceIds.filter((id) => items.some((item) => item.id === id));
       if (valid.length !== cutSourceIds.length) {
         if (valid.length === 0) {
-          queueClipboard = null;
+          clearClipboard();
           setCutSourceIds([]);
         } else {
           setCutSourceIds(valid);
           if (queueClipboard?.mode === 'cut') {
-            queueClipboard.sourceIds = valid;
+            updateCutSources(valid);
           }
         }
       }
     }
-  }, [items, isLocked, cutSourceIds]);
+  }, [items, isLocked, cutSourceIds, clearClipboard, queueClipboard?.mode, updateCutSources]);
 
   const handleShowInFolder = useCallback(async (filePath: string) => {
     try {
@@ -939,7 +934,7 @@ export function PrintQueue({
       if (e.key === 'Escape') {
         if (!shouldIgnoreShortcut(e, { isSingleKey: true })) {
           if (cutSourceIds.length > 0) {
-            if (queueClipboard?.mode === 'cut') queueClipboard = null;
+            if (queueClipboard?.mode === 'cut') clearClipboard();
             setCutSourceIds([]);
           }
           onSelectionChange([]);

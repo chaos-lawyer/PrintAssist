@@ -62,7 +62,7 @@ pub fn query_paper_source_capability(
     _port_name: Option<&str>,
 ) -> crate::contracts::PaperSourceCapability {
     crate::contracts::PaperSourceCapability {
-        status: "unsupported".to_string(),
+        status: crate::contracts::PaperSourceStatus::Unsupported,
         sources: Vec::new(),
         default_source_code: None,
         detail: None,
