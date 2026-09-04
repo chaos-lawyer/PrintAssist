@@ -46,10 +46,7 @@ body,
 body {
   margin: 0;
   min-width: 960px;
-  background:
-    radial-gradient(ellipse 80% 50% at 10% -10%, rgba(21, 87, 208, 0.07), transparent 55%),
-    radial-gradient(ellipse 60% 40% at 100% 0%, rgba(91, 141, 239, 0.06), transparent 50%),
-    var(--color-bg);
+  background: var(--color-bg);
 }
 
 /* Smooth interactive feedback */
@@ -131,7 +128,7 @@ button,
   padding: 0 28px;
   line-height: normal;
   color: white;
-  background: linear-gradient(135deg, #0f1f38 0%, #153056 55%, #1a3a6a 100%);
+  background: #112b4e;
   border-bottom: none;
   box-shadow: 0 4px 18px rgba(15, 31, 56, 0.18);
 }
@@ -184,10 +181,23 @@ button,
   border-color: rgba(255, 255, 255, 0.28);
 }
 
-.app-header .header-history-btn,
-.app-header .ant-btn.header-history-btn,
 .app-header .header-favorites-btn,
-.app-header .ant-btn.header-favorites-btn,
+.app-header .header-history-btn {
+  padding-inline: 10px !important;
+  color: #ffffff !important;
+  background: transparent !important;
+  border-color: transparent !important;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.app-header .header-favorites-btn:hover,
+.app-header .header-history-btn:hover {
+  color: #ffffff !important;
+  background: rgba(255, 255, 255, 0.1) !important;
+  border-color: rgba(255, 255, 255, 0.2) !important;
+}
+
 .app-header .header-external-integration-btn,
 .app-header .ant-btn.header-external-integration-btn,
 .app-header .header-help-btn,
@@ -204,10 +214,6 @@ button,
   border-radius: var(--radius-md) !important;
 }
 
-.app-header .header-history-btn:hover,
-.app-header .ant-btn.header-history-btn:hover,
-.app-header .header-favorites-btn:hover,
-.app-header .ant-btn.header-favorites-btn:hover,
 .app-header .header-external-integration-btn:hover,
 .app-header .ant-btn.header-external-integration-btn:hover,
 .app-header .header-help-btn:hover,
@@ -268,27 +274,37 @@ button,
 }
 
 .app-body {
+  position: relative;
   flex: 1;
   min-height: 0;
   overflow: hidden;
 }
 
-.app-body > .ant-layout-content.queue-panel {
+.workspace-main-column {
+  display: flex;
   flex: 1 1 auto;
-  align-self: stretch;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  margin: 14px 0 98px 18px;
+}
+
+.workspace-main-column > .ant-layout-content.queue-panel {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .control-rail {
-  height: calc(100% - 28px) !important;
-  max-height: calc(100% - 28px);
+  height: calc(100% - 112px) !important;
+  max-height: calc(100% - 112px);
   align-self: stretch;
-  min-width: 280px;
+  min-width: 320px;
   max-width: 600px;
   padding: 20px 18px 24px;
   overflow-x: hidden;
   overflow-y: auto;
   border: 1px solid var(--color-border-soft);
-  margin: 14px 18px 14px 0;
+  margin: 14px 18px 98px 0;
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-soft);
   background: rgba(255, 255, 255, 0.92);
@@ -297,7 +313,7 @@ button,
 
 .layout-splitter {
   width: 16px;
-  margin: 14px 0;
+  margin: 14px 0 98px;
   cursor: col-resize;
   position: relative;
   z-index: 10;
@@ -402,8 +418,9 @@ button,
 
 .settings-block-head h5.ant-typography {
   margin: 0;
-  font-size: 15px;
+  font-size: 16px;
   line-height: 1.3;
+  font-weight: 700;
 }
 
 .refresh-printers-btn {
@@ -748,6 +765,23 @@ button,
   border-radius: var(--radius-lg);
 }
 
+.settings-controls-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 2px;
+  color: var(--color-text);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.settings-controls-hint {
+  color: var(--color-text-faint);
+  font-size: 11px;
+  font-weight: 500;
+}
+
 .setting-row {
   display: grid;
   grid-template-columns: 52px minmax(0, 1fr);
@@ -1032,8 +1066,8 @@ button,
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  margin: 14px 0 14px 18px;
-  padding: 18px 20px 0;
+  margin: 0;
+  padding: 18px 20px;
   overflow: hidden;
   background: var(--color-surface);
   border: 1px solid var(--color-border-soft);
@@ -1069,20 +1103,46 @@ button,
   overflow: hidden;
 }
 
-.queue-footer {
+.print-confirmation-panel {
+  position: absolute;
+  right: 18px;
+  bottom: 14px;
+  left: 18px;
+  z-index: 20;
   display: flex;
   align-items: center;
-  justify-content: space-between;
   flex-shrink: 0;
-  padding: 12px 0 16px;
-  margin-top: auto;
-  border-top: 1px solid var(--color-border-soft);
+  gap: 20px;
+  min-height: 72px;
+  margin: 0;
+  padding: 14px 20px;
   background: var(--color-surface);
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-soft);
+}
+
+.print-confirmation-title {
+  flex-shrink: 0;
+  color: var(--color-text);
+  font-size: 16px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.print-confirmation-content {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+  gap: 16px;
 }
 
 .queue-footer-stats {
   display: flex;
   align-items: center;
+  min-width: 0;
   font-size: 13px;
   color: var(--color-text-secondary);
 }
@@ -1099,6 +1159,7 @@ button,
 
 .queue-footer-actions {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
 }
 
@@ -1210,7 +1271,7 @@ button,
   color: var(--color-text-faint, #94a3b8);
 }
 
-/* Settings Empty Printer Card & Advanced Toggle */
+/* Settings Empty Printer Card */
 .settings-empty-printer-card {
   display: flex;
   flex-direction: column;
@@ -1247,24 +1308,10 @@ button,
   line-height: 1.4;
 }
 
-.settings-advanced-toggle-wrap {
-  display: flex;
-  justify-content: flex-start;
-  padding-top: 4px;
-}
-
-.settings-advanced-toggle-btn {
-  padding: 0 !important;
-  height: auto !important;
-  color: var(--color-primary, #1557d0) !important;
-}
-
-.settings-advanced-content {
+.settings-expanded-options {
   display: grid;
   gap: 8px;
-  padding-top: 8px;
-  margin-top: 4px;
-  border-top: 1px dashed var(--color-border-soft, #e2e8f0);
+  padding-top: 2px;
 }
 
 .status-tag-default {
@@ -2844,6 +2891,3 @@ button,
   font-size: 13px !important;
   font-weight: 600 !important;
 }
-
-
-

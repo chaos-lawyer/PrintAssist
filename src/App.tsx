@@ -220,7 +220,7 @@ export function App() {
     } catch {
       // ignore
     }
-    return 320;
+    return 360;
   });
   const [isResizingSplitter, setIsResizingSplitter] = useState(false);
 
@@ -2265,7 +2265,9 @@ export function App() {
                 icon={<Bookmark size={16} />}
                 onClick={() => setFavoritesModalOpen(true)}
                 aria-label="常用模板与任务"
-              />
+              >
+                常用模板
+              </Button>
             </Tooltip>
             <Tooltip title="打印历史（H）">
               <Button
@@ -2274,7 +2276,9 @@ export function App() {
                 icon={<Clock size={16} />}
                 onClick={() => setHistoryOpen(true)}
                 aria-label="打印历史"
-              />
+              >
+                打印记录
+              </Button>
             </Tooltip>
             <Dropdown
               menu={{
@@ -2307,6 +2311,7 @@ export function App() {
           </Space>
         </Header>
         <Layout className="app-body">
+          <div className="workspace-main-column">
           <Content
             className={`queue-panel${isDragOver ? ' is-drag-over' : ''}`}
             onDragOver={(event) => {
@@ -2460,7 +2465,12 @@ export function App() {
                 </Button>
               </div>
             )}
-            <div className="queue-footer">
+          </Content>
+          <section className="print-confirmation-panel" aria-labelledby="print-confirmation-title">
+            <div className="print-confirmation-title" id="print-confirmation-title">
+              3. 打印确认
+            </div>
+            <div className="print-confirmation-content">
               <div className="queue-footer-stats">
                 {queueState.isPrinting ? (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -2522,15 +2532,15 @@ export function App() {
                   </span>
                 ) : queueState.items.length === 0 ? (
                   <span className="queue-footer-count">
-                    <strong>3. 打印确认</strong> · 尚未添加文件，请在左侧选择或拖入文件
+                    尚未添加文件，请在左侧选择或拖入文件
                   </span>
                 ) : !globalSettings.printerName ? (
                   <span className="queue-footer-count">
-                    <strong>3. 打印确认</strong> · 已添加 <strong>{queueState.items.length}</strong> 个文件，请在右侧选择打印机
+                    已添加 <strong>{queueState.items.length}</strong> 个文件，请在右侧选择打印机
                   </span>
                 ) : (
                   <span className="queue-footer-count">
-                    <strong>3. 打印确认</strong> · 共 <strong>{queueState.items.length}</strong> 个文件
+                    共 <strong>{queueState.items.length}</strong> 个文件
                     {pageStats.allKnown && pageStats.knownPages > 0
                       ? ` · ${pageStats.knownPages} 页`
                       : ''}
@@ -2564,7 +2574,8 @@ export function App() {
                 </Space>
               )}
             </div>
-          </Content>
+          </section>
+          </div>
           <div
             className={`layout-splitter${isResizingSplitter ? ' is-resizing' : ''}`}
             role="separator"

@@ -1,5 +1,5 @@
 import { Button, Checkbox, Input, InputNumber, Segmented, Select, Space, Tooltip, Typography } from 'antd';
-import { ChevronDown, ChevronRight, Printer, RefreshCw, SlidersHorizontal } from 'lucide-react';
+import { ChevronDown, Printer, RefreshCw, SlidersHorizontal } from 'lucide-react';
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { PaperSourceCapability, SavedPrinterProfileSummary, SystemPrinter } from '../../shared/contracts/printer';
@@ -78,7 +78,6 @@ export function GlobalSettingsPanel({
   const showDuplexHint = Boolean(selectedPrinter) && !availability.duplexEnabled;
   const [paperCapability, setPaperCapability] = useState<PaperSourceCapability | null>(null);
   const [loadingPaperSources, setLoadingPaperSources] = useState(false);
-  const [showAdvanced, setShowAdvanced] = useState(false);
 
   const isNup = isNupActive(settings.nupLayout);
 
@@ -669,6 +668,10 @@ export function GlobalSettingsPanel({
           </div>
 
           <div className="settings-controls">
+            <div className="settings-controls-title">
+              <span>基础打印设置</span>
+              <span className="settings-controls-hint">所有选项已展开</span>
+            </div>
             <div className="setting-row">
               <Tooltip title="快捷键：S 切换黑白/彩色" mouseEnterDelay={0.5}>
                 <span className="setting-row-label" id="color-mode-label">
@@ -908,78 +911,62 @@ export function GlobalSettingsPanel({
               )}
             </div>
 
-            {/* 高级设置折叠 */}
-            <div className="settings-advanced-toggle-wrap">
-              <Button
-                type="text"
-                className="settings-advanced-toggle-btn"
-                onClick={() => setShowAdvanced((v) => !v)}
-              >
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
-                  {showAdvanced ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                  <span>更多高级设置 (纸盘、缩放、拼接)</span>
-                </span>
-              </Button>
-            </div>
+            <div className="settings-expanded-options">
+              {paperCapability?.status === 'available' && paperCapability.sources.length >= 1 && (
+                <div className="setting-row">
+                  <span className="setting-row-label" id="paper-tray-label">
+                    纸盘
+                  </span>
+                  <SettingSelect
+                    ariaLabelledBy="paper-tray-label"
+                    value={settings.sourceCode ?? -1}
+                    options={[
+                      { value: -1, label: '自动选择 / 默认纸盘' },
+                      ...paperCapability.sources.map((s) => ({
+                        value: s.code,
+                        label: s.name,
+                      })),
+                    ]}
+                    onChange={(val) => {
+                      if (val === -1) {
+                        onChange({ ...settings, sourceCode: undefined, sourceName: undefined });
+                      } else {
+                        const found = paperCapability.sources.find((s) => s.code === val);
+                        onChange({ ...settings, sourceCode: val, sourceName: found?.name });
+                      }
+                    }}
+                  />
+                </div>
+              )}
 
-            {showAdvanced && (
-              <div className="settings-advanced-content">
-                {paperCapability?.status === 'available' && paperCapability.sources.length >= 1 && (
-                  <div className="setting-row">
-                    <span className="setting-row-label" id="paper-tray-label">
-                      纸盘
-                    </span>
+              <div className="setting-row">
+                <span className="setting-row-label" id="scale-mode-label">
+                  缩放
+                </span>
+                <Tooltip title={isNup ? '拼接模式下自动适应网格大小' : undefined}>
+                  <div style={{ width: '100%' }}>
                     <SettingSelect
-                      ariaLabelledBy="paper-tray-label"
-                      value={settings.sourceCode ?? -1}
+                      ariaLabelledBy="scale-mode-label"
+                      value={settings.scaleMode ?? 'actualSize'}
+                      disabled={isNup}
                       options={[
-                        { value: -1, label: '自动选择 / 默认纸盘' },
-                        ...paperCapability.sources.map((s) => ({
-                          value: s.code,
-                          label: s.name,
-                        })),
+                        { value: 'actualSize', label: '实际大小 (100%)' },
+                        { value: 'shrinkOversized', label: '仅缩小过大页面' },
+                        { value: 'fitPrintable', label: '适应可打印区域' },
                       ]}
-                      onChange={(val) => {
-                        if (val === -1) {
-                          onChange({ ...settings, sourceCode: undefined, sourceName: undefined });
-                        } else {
-                          const found = paperCapability.sources.find((s) => s.code === val);
-                          onChange({ ...settings, sourceCode: val, sourceName: found?.name });
-                        }
-                      }}
+                      onChange={(val) =>
+                        onChange({
+                          ...settings,
+                          scaleMode: val as PageScaleMode,
+                        })
+                      }
                     />
                   </div>
-                )}
-
-                <div className="setting-row">
-                  <span className="setting-row-label" id="scale-mode-label">
-                    缩放
-                  </span>
-                  <Tooltip title={isNup ? '拼接模式下自动适应网格大小' : undefined}>
-                    <div style={{ width: '100%' }}>
-                      <SettingSelect
-                        ariaLabelledBy="scale-mode-label"
-                        value={settings.scaleMode ?? 'actualSize'}
-                        disabled={isNup}
-                        options={[
-                          { value: 'actualSize', label: '实际大小 (100%)' },
-                          { value: 'shrinkOversized', label: '仅缩小过大页面' },
-                          { value: 'fitPrintable', label: '适应可打印区域' },
-                        ]}
-                        onChange={(val) =>
-                          onChange({
-                            ...settings,
-                            scaleMode: val as PageScaleMode,
-                          })
-                        }
-                      />
-                    </div>
-                  </Tooltip>
-                </div>
-
-                <NupSettings settings={settings} onChange={onChange} />
+                </Tooltip>
               </div>
-            )}
+
+              <NupSettings settings={settings} onChange={onChange} />
+            </div>
           </div>
         </>
       )}
