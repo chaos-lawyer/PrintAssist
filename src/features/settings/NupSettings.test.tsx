@@ -61,7 +61,7 @@ describe('NupSettings component', () => {
     );
   });
 
-  it('renders templates, inputs, summary and scope when N-up is active', () => {
+  it('renders inputs and scope when N-up is active', () => {
     const settings: PrintSettings = {
       ...createDefaultGlobalSettings(),
       nupLayout: { cols: 2, rows: 1 },
@@ -75,10 +75,7 @@ describe('NupSettings component', () => {
     expect(panel.classList.contains('setting-submenu')).toBe(true);
     expect(panel.classList.contains('setting-submenu-wide')).toBe(true);
     expect(panel.classList.contains('nup-config-panel')).toBe(true);
-    const templateLabel = screen.getByText('快捷模板');
-    expect(templateLabel.classList.contains('setting-row-label')).toBe(true);
-    const templateSelect = screen.getByLabelText('快捷模板');
-    expect(templateSelect).toBeDefined();
+    expect(screen.queryByLabelText('快捷模板')).toBeNull();
 
     // Inputs
     const colsInput = screen.getByLabelText('横向页数（列）');
@@ -86,17 +83,12 @@ describe('NupSettings component', () => {
     expect(colsInput).toBeDefined();
     expect(rowsInput).toBeDefined();
 
-    // Summary
-    expect(screen.getAllByText('2 × 1').length).toBeGreaterThan(0);
-    expect(screen.getByText('2 × 1，每个打印面容纳 2 页')).toBeDefined();
-    expect(screen.getByText('预计横向纸张')).toBeDefined();
-
     // Scope
     expect(screen.getByText('文件独立')).toBeDefined();
     expect(screen.getByText('跨文件拼接')).toBeDefined();
   });
 
-  it('updates layout when selecting a template', () => {
+  it('updates layout when modifying col and row inputs', () => {
     const settings: PrintSettings = {
       ...createDefaultGlobalSettings(),
       nupLayout: { cols: 2, rows: 1 },
@@ -105,28 +97,14 @@ describe('NupSettings component', () => {
 
     render(<NupSettings settings={settings} onChange={handleChange} />);
 
-    fireEvent.click(screen.getByLabelText('快捷模板'));
-    fireEvent.click(screen.getByRole('option', { name: '2 × 2' }));
+    const rowsInput = screen.getByLabelText('纵向页数（行）');
+    fireEvent.change(rowsInput, { target: { value: '2' } });
 
     expect(handleChange).toHaveBeenCalledWith(
       expect.objectContaining({
         nupLayout: { cols: 2, rows: 2 },
       })
     );
-  });
-
-  it('supports custom layouts and shows a custom summary', () => {
-    const settingsCustom: PrintSettings = {
-      ...createDefaultGlobalSettings(),
-      nupLayout: { cols: 4, rows: 3 },
-    };
-
-    render(<NupSettings settings={settingsCustom} onChange={() => {}} />);
-
-    // Summary shows slots and orientation hint
-    expect(screen.getByText('4 × 3，每个打印面容纳 12 页')).toBeDefined();
-    expect(screen.getByText('预计横向纸张')).toBeDefined();
-
   });
 
   it('restores last valid layout when toggling off and on within session', () => {
@@ -169,7 +147,8 @@ describe('NupSettings component', () => {
 
     render(<NupSettings settings={settings1x2} onChange={() => {}} />);
 
-    expect(screen.getByText('预计纵向纸张')).toBeDefined();
+    expect((screen.getByLabelText('横向页数（列）') as HTMLInputElement).value).toBe('1');
+    expect((screen.getByLabelText('纵向页数（行）') as HTMLInputElement).value).toBe('2');
   });
 
   it('changes nupScope when selecting scope options', () => {

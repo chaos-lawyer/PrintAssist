@@ -586,21 +586,27 @@ export function GlobalSettingsPanel({
           <div className={`printer-status-inline ${selectedPrinter.state}`}>
             <span className="status-pill">{describePrinterState(selectedPrinter)}</span>
             <span className="status-meta">
-              {selectedPrinter.isDefault && <span className="status-tag-default">默认</span>}
+              {selectedPrinter.isDefault && selectedPrinter.state !== 'offline' && (
+                <span className="status-tag-default">默认</span>
+              )}
               彩色{describeCapabilitySupport(selectedPrinter.color.support)}
               <span className="status-dot-sep" aria-hidden>
                 ·
               </span>
               双面{describeCapabilitySupport(selectedPrinter.duplex.support)}
-              {selectedPrinter.portName ? (
-                <>
-                  <span className="status-dot-sep" aria-hidden>
-                    ·
-                  </span>
-                  {selectedPrinter.portName}
-                </>
-              ) : null}
             </span>
+            <Button
+              type="text"
+              size="small"
+              className="printer-status-properties-btn"
+              disabled={!selectedPrinter || loadingPrinters || loadingProperties}
+              loading={loadingProperties}
+              icon={<SlidersHorizontal size={12} />}
+              onClick={onOpenProperties}
+              title="打开 Windows 原生打印机属性窗口"
+            >
+              属性
+            </Button>
           </div>
 
           <div className="setting-field">
@@ -629,17 +635,6 @@ export function GlobalSettingsPanel({
                   onClick={onOpenProfileManager}
                 >
                   管理
-                </Button>
-                <Button
-                  type="text"
-                  className="profile-action-btn"
-                  disabled={!selectedPrinter || loadingPrinters || loadingProperties}
-                  loading={loadingProperties}
-                  icon={<SlidersHorizontal size={13} />}
-                  onClick={onOpenProperties}
-                  title="打开 Windows 原生打印机属性窗口"
-                >
-                  属性
                 </Button>
               </Space>
             </div>
@@ -670,7 +665,6 @@ export function GlobalSettingsPanel({
           <div className="settings-controls">
             <div className="settings-controls-title">
               <span>基础打印设置</span>
-              <span className="settings-controls-hint">所有选项已展开</span>
             </div>
             <div className="setting-row">
               <Tooltip title="快捷键：S 切换黑白/彩色" mouseEnterDelay={0.5}>
@@ -685,7 +679,7 @@ export function GlobalSettingsPanel({
                 aria-labelledby="color-mode-label"
                 value={settings.colorMode}
                 options={[
-                  { label: '黑白 (更低成本)', value: 'monochrome' },
+                  { label: '黑白', value: 'monochrome' },
                   {
                     label: '彩色',
                     value: 'color',
@@ -719,7 +713,7 @@ export function GlobalSettingsPanel({
                   options={[
                     { label: '单面', value: 'simplex' },
                     {
-                      label: '双面 (节约纸张)',
+                      label: '双面',
                       value: 'duplex',
                       disabled: !availability.duplexEnabled,
                     },

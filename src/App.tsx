@@ -997,34 +997,34 @@ export function App() {
                 打印记录
               </Button>
             </Tooltip>
-            <Dropdown
-              menu={{
-                items: [
-                  {
-                    key: 'shortcuts',
-                    label: '快捷键清单（/）',
-                    icon: <CircleHelp size={14} />,
-                    onClick: () => setIsShortcutHelpOpen(true),
-                  },
-                  {
-                    key: 'external',
-                    label: '外部集成 / Quicker 与系统右键',
-                    icon: <Terminal size={14} />,
-                    onClick: () => setExternalIntegrationOpen(true),
-                  },
-                ],
-              }}
-              trigger={['click']}
-            >
-              <Tooltip title="帮助与更多（/）">
+            <Tooltip title="帮助与更多（/）">
+              <Dropdown
+                menu={{
+                  items: [
+                    {
+                      key: 'shortcuts',
+                      label: '快捷键清单（/）',
+                      icon: <CircleHelp size={14} />,
+                      onClick: () => setIsShortcutHelpOpen(true),
+                    },
+                    {
+                      key: 'external',
+                      label: '外部集成 / Quicker 与系统右键',
+                      icon: <Terminal size={14} />,
+                      onClick: () => setExternalIntegrationOpen(true),
+                    },
+                  ],
+                }}
+                trigger={['click']}
+              >
                 <Button
                   type="text"
                   className="header-help-btn"
                   icon={<CircleHelp size={16} />}
                   aria-label="帮助与更多"
                 />
-              </Tooltip>
-            </Dropdown>
+              </Dropdown>
+            </Tooltip>
           </Space>
         </Header>
         <Layout className="app-body">

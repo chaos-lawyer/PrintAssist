@@ -49,6 +49,22 @@ body {
   background: var(--color-bg);
 }
 
+/* Remove browser default black focus ring from structural containers */
+div:focus,
+div:focus-visible,
+section:focus,
+section:focus-visible,
+main:focus,
+main:focus-visible,
+article:focus,
+article:focus-visible,
+.ant-layout:focus,
+.ant-layout:focus-visible,
+.ant-layout-content:focus,
+.ant-layout-content:focus-visible {
+  outline: none !important;
+}
+
 /* Smooth interactive feedback */
 button,
 .ant-btn,
@@ -705,11 +721,36 @@ button,
 }
 
 .status-meta {
+  flex: 1;
   min-width: 0;
   color: var(--color-text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.printer-status-properties-btn {
+  margin-left: auto;
+  flex-shrink: 0;
+  height: 22px !important;
+  padding: 0 7px !important;
+  font-size: 11px !important;
+  line-height: 20px !important;
+  color: var(--color-text) !important;
+  background: rgba(255, 255, 255, 0.75) !important;
+  border: 1px solid rgba(0, 0, 0, 0.1) !important;
+  border-radius: var(--radius-xs) !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 3px !important;
+  cursor: pointer;
+  transition: all var(--motion-fast) !important;
+}
+
+.printer-status-properties-btn:hover:not(:disabled) {
+  color: var(--color-primary) !important;
+  background: #ffffff !important;
+  border-color: var(--color-primary-hover) !important;
 }
 
 .status-dot-sep {
@@ -1073,6 +1114,13 @@ button,
   border: 1px solid var(--color-border-soft);
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-soft);
+  outline: none !important;
+}
+
+.queue-panel:focus,
+.queue-panel:focus-visible,
+.queue-panel:focus-within {
+  outline: none !important;
 }
 
 .queue-heading {
@@ -1219,6 +1267,15 @@ button,
   height: 100%;
   min-height: 220px;
   padding: 30px 20px;
+  outline: none !important;
+}
+
+.queue-empty-container:focus,
+.queue-empty-container:focus-visible,
+.queue-empty-container:focus-within,
+.queue-empty-card:focus,
+.queue-empty-card:focus-visible {
+  outline: none !important;
 }
 
 .queue-empty-card {
@@ -1454,8 +1511,14 @@ button,
   height: 100%;
   overflow-x: hidden;
   overflow-y: auto;
-  outline: none;
+  outline: none !important;
   user-select: none;
+}
+
+.queue-table-wrap:focus,
+.queue-table-wrap:focus-visible,
+.queue-table-wrap:focus-within {
+  outline: none !important;
 }
 
 .queue-table-wrap.is-marquee-active {
@@ -1472,7 +1535,28 @@ button,
   border-radius: 2px;
 }
 
-.queue-compact-table {
+.queue-compact-table,
+.queue-compact-table:focus,
+.queue-compact-table:focus-visible,
+.queue-compact-table .ant-table,
+.queue-compact-table .ant-table:focus,
+.queue-compact-table .ant-table:focus-visible,
+.queue-compact-table .ant-table-container,
+.queue-compact-table .ant-table-container:focus,
+.queue-compact-table .ant-table-container:focus-visible,
+.queue-compact-table .ant-table-content,
+.queue-compact-table .ant-table-content:focus,
+.queue-compact-table .ant-table-content:focus-visible,
+.queue-compact-table .ant-table-body,
+.queue-compact-table .ant-table-body:focus,
+.queue-compact-table .ant-table-body:focus-visible,
+.queue-compact-table .ant-table-tbody > tr,
+.queue-compact-table .ant-table-tbody > tr:focus,
+.queue-compact-table .ant-table-tbody > tr:focus-visible,
+.queue-compact-table .ant-table-tbody > tr > td,
+.queue-compact-table .ant-table-tbody > tr > td:focus,
+.queue-compact-table .ant-table-tbody > tr > td:focus-visible {
+  outline: none !important;
   user-select: none;
 }
 

@@ -1,15 +1,11 @@
 import { InputNumber, Segmented, Tooltip } from 'antd';
 import React, { useEffect, useRef } from 'react';
-import { SettingSelect } from '../../components/SettingSelect';
 import {
   clampNupDimension,
   getLinkedNupMin,
-  getNupLayoutSummary,
   isNupActive,
-  NUP_TEMPLATES,
   type NupLayout,
   type NupScope,
-  type NupTemplate,
   type PrintSettings,
 } from '../../domain/printSettings';
 
@@ -31,7 +27,6 @@ export function NupSettings({ settings, onChange }: NupSettingsProps) {
     }
   }, [settings.nupLayout?.cols, settings.nupLayout?.rows]);
 
-  const summary = getNupLayoutSummary(currentLayout);
   const cols = clampNupDimension(currentLayout.cols);
   const rows = clampNupDimension(currentLayout.rows);
 
@@ -51,13 +46,6 @@ export function NupSettings({ settings, onChange }: NupSettingsProps) {
         nupLayout: target,
       });
     }
-  };
-
-  const handleSelectTemplate = (template: NupTemplate) => {
-    onChange({
-      ...settings,
-      nupLayout: { ...template.layout },
-    });
   };
 
   const handleColsChange = (val: number | null) => {
@@ -106,26 +94,6 @@ export function NupSettings({ settings, onChange }: NupSettingsProps) {
           role="group"
           aria-label="拼接布局设置"
         >
-          <div className="nup-template-select">
-            <span className="setting-row-label nup-section-label" id="nup-template-label">
-              快捷模板
-            </span>
-            <SettingSelect
-              ariaLabelledBy="nup-template-label"
-              placeholder="选择快捷布局"
-              value={summary.matchingTemplate?.id ?? ''}
-              options={NUP_TEMPLATES.map((template) => ({
-                value: template.id,
-                label: template.label,
-                title: template.description,
-              }))}
-              onChange={(templateId) => {
-                const template = NUP_TEMPLATES.find((item) => item.id === templateId);
-                if (template) handleSelectTemplate(template);
-              }}
-            />
-          </div>
-
           {/* 横向与纵向计数 */}
           <div className="nup-section">
             <div className="nup-counts-container">
@@ -166,15 +134,6 @@ export function NupSettings({ settings, onChange }: NupSettingsProps) {
                   style={{ width: '100%' }}
                 />
               </div>
-            </div>
-          </div>
-
-          {/* 布局摘要 */}
-          <div className="nup-summary-banner">
-            <div className="nup-summary-details">
-              <span>{summary.slotsText}</span>
-              <span className="nup-summary-divider">·</span>
-              <span>{summary.orientationHint}</span>
             </div>
           </div>
 
