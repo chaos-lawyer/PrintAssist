@@ -614,4 +614,27 @@ export async function getAppExecutablePath(): Promise<string> {
   return invokeCommand<string>('get_app_executable_path');
 }
 
+export interface ReferencePageCountResult {
+  path: string;
+  pageCount: number | null;
+  status: 'available' | 'unavailable' | 'unsupported';
+  source: 'docxMetadata' | 'pdfPageTree' | null;
+  reason?: string;
+  fileSize?: number;
+  modifiedAt?: number;
+}
+
+export async function getReferencePageCount(path: string): Promise<ReferencePageCountResult> {
+  if (!isTauriRuntime()) {
+    return {
+      path,
+      pageCount: null,
+      status: 'unavailable',
+      source: null,
+      reason: 'fileNotFound',
+    };
+  }
+  return invokeCommand<ReferencePageCountResult>('get_reference_page_count', { path });
+}
+
 export { isTauriRuntime };

@@ -747,3 +747,16 @@ pub async fn write_external_request_result(
     .await
     .map_err(|e| format!("写入任务执行异常: {}", e))?
 }
+
+#[tauri::command]
+pub async fn get_reference_page_count(
+    path: String,
+) -> Result<crate::documents::reference_pages::ReferencePageCountResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        Ok(crate::documents::reference_pages::read_reference_page_count(
+            std::path::Path::new(&path),
+        ))
+    })
+    .await
+    .map_err(|error| format!("读取参考页数任务异常：{error}"))?
+}

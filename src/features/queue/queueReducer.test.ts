@@ -548,4 +548,97 @@ describe('queueReducer', () => {
       expect(state.phase).toBe('terminating');
     });
   });
+
+  describe('reference page counts', () => {
+    it('initializes docx and pdf with pending status, and other formats with unsupported', () => {
+      const state = queueReducer(createEmptyQueueState(), {
+        type: 'append_files',
+        paths: ['report.docx', 'doc.pdf', 'image.png', 'sheet.xlsx'],
+      });
+
+      expect(state.items[0].pageCountStatus).toBe('pending');
+      expect(state.items[0].pageCount).toBeNull();
+      expect(state.items[0].pageCountReason).toBeUndefined();
+
+      expect(state.items[1].pageCountStatus).toBe('pending');
+      expect(state.items[1].pageCount).toBeNull();
+
+      expect(state.items[2].pageCountStatus).toBe('unsupported');
+      expect(state.items[2].pageCountReason).toBe('unsupportedFormat');
+
+      expect(state.items[3].pageCountStatus).toBe('unsupported');
+      expect(state.items[3].pageCountReason).toBe('unsupportedFormat');
+    });
+
+    it('updates reference page counts via update_reference_page_counts action', () => {
+      let state = queueReducer(createEmptyQueueState(), {
+        type: 'append_files',
+        paths: ['report.docx', 'manual.pdf'],
+      });
+
+      const docxId = state.items[0].id;
+      const pdfId = state.items[1].id;
+
+      state = queueReducer(state, {
+        type: 'update_reference_page_counts',
+        updates: {
+          [docxId]: {
+            pageCount: 15,
+            status: 'available',
+            source: 'docxMetadata',
+            fileVersion: '1234:5678',
+          },
+          [pdfId]: {
+            pageCount: null,
+            status: 'unavailable',
+            source: null,
+            reason: 'encryptedPdf',
+            fileVersion: '9999:0000',
+          },
+        },
+      });
+
+      expect(state.items[0].pageCount).toBe(15);
+      expect(state.items[0].pageCountStatus).toBe('available');
+      expect(state.items[0].pageCountSource).toBe('docxMetadata');
+      expect(state.items[0].pageCountFileVersion).toBe('1234:5678');
+
+      expect(state.items[1].pageCount).toBeNull();
+      expect(state.items[1].pageCountStatus).toBe('unavailable');
+      expect(state.items[1].pageCountReason).toBe('encryptedPdf');
+    });
+
+    it('preserves reference page count fields during clone_items', () => {
+      let state = queueReducer(createEmptyQueueState(), {
+        type: 'append_files',
+        paths: ['report.docx'],
+      });
+
+      const origId = state.items[0].id;
+      state = queueReducer(state, {
+        type: 'update_reference_page_counts',
+        updates: {
+          [origId]: {
+            pageCount: 22,
+            status: 'available',
+            source: 'docxMetadata',
+            fileVersion: '100:200',
+          },
+        },
+      });
+
+      state = queueReducer(state, {
+        type: 'clone_items',
+        sourceIds: [origId],
+        targetId: origId,
+        position: 'after',
+      });
+
+      expect(state.items.length).toBe(2);
+      expect(state.items[1].pageCount).toBe(22);
+      expect(state.items[1].pageCountStatus).toBe('available');
+      expect(state.items[1].pageCountSource).toBe('docxMetadata');
+      expect(state.items[1].pageCountFileVersion).toBe('100:200');
+    });
+  });
 });

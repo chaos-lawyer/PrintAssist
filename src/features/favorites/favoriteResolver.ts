@@ -130,16 +130,23 @@ export async function resolveFavorite(options: ResolveFavoriteOptions): Promise<
 
   // 2. 构建新追加的队列项
   const now = Date.now();
-  const newQueueItems: QueueItem[] = validFavoriteItems.map((favItem, index) => ({
-    id: generateItemId() + `_${index}`,
-    path: favItem.path,
-    fileName: favItem.fileName,
-    kind: favItem.kind,
-    pageCount: favItem.pageCount,
-    status: 'ready',
-    addedAt: now + index,
-    override: favItem.override ? { ...favItem.override } : {},
-  }));
+  const newQueueItems: QueueItem[] = validFavoriteItems.map((favItem, index) => {
+    const ext = favItem.path.split('.').pop()?.toLowerCase() ?? '';
+    const isSupported = ext === 'docx' || ext === 'pdf';
+    return {
+      id: generateItemId() + `_${index}`,
+      path: favItem.path,
+      fileName: favItem.fileName,
+      kind: favItem.kind,
+      pageCount: null,
+      pageCountStatus: isSupported ? 'pending' : 'unsupported',
+      pageCountSource: null,
+      pageCountReason: isSupported ? undefined : 'unsupportedFormat',
+      status: 'ready',
+      addedAt: now + index,
+      override: favItem.override ? { ...favItem.override } : {},
+    };
+  });
 
   let combinedItems = [...existingItems, ...newQueueItems];
   if (currentQueue.order.mode === 'fileName') {

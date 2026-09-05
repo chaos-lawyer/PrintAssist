@@ -7,6 +7,7 @@ export type QueueColumnKey =
   | 'modifiedAt'
   | 'fileSize'
   | 'kind'
+  | 'pageCount'
   | 'settings'
   | 'status'
   | 'actions';
@@ -20,6 +21,7 @@ export const DEFAULT_COLUMN_WIDTHS: Record<QueueColumnKey, number> = {
   modifiedAt: 155,
   fileSize: 100,
   kind: 80,
+  pageCount: 90,
   settings: 220,
   status: 70,
   actions: 100,
@@ -35,6 +37,7 @@ export const DEFAULT_VISIBLE_COLUMNS: QueueColumnKey[] = [
   'modifiedAt',
   'fileSize',
   'kind',
+  'pageCount',
   'settings',
   'status',
   'actions',
@@ -47,6 +50,7 @@ export const COLUMN_LABELS: Record<QueueColumnKey, string> = {
   modifiedAt: '修改时间',
   fileSize: '文件大小',
   kind: '类型',
+  pageCount: '参考页数',
   settings: '设置',
   status: '状态',
   actions: '操作',
@@ -84,9 +88,13 @@ export function getStoredVisibleColumns(): QueueColumnKey[] {
         const hasExplicitFileName =
           saved.includes('fileName') ||
           Boolean(localStorage.getItem('printassist_queue_filename_explicit'));
+        const hasExplicitPageCount =
+          saved.includes('pageCount') ||
+          Boolean(localStorage.getItem('printassist_queue_pagecount_explicit'));
         return DEFAULT_VISIBLE_COLUMNS.filter((key) => {
           if (key === 'actions' && !hasExplicitActions) return true;
           if (key === 'fileName' && !hasExplicitFileName) return true;
+          if (key === 'pageCount' && !hasExplicitPageCount) return true;
           return saved.includes(key);
         });
       }

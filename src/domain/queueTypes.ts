@@ -18,12 +18,40 @@ export type SupportedDocumentKind =
   | 'powerpoint'
   | 'unknown';
 
+export type ReferencePageCountStatus =
+  | 'pending'
+  | 'loading'
+  | 'available'
+  | 'unavailable'
+  | 'unsupported';
+
+export type ReferencePageCountSource = 'docxMetadata' | 'pdfPageTree' | null;
+
+export type ReferencePageCountReason =
+  | 'missingAttribute'
+  | 'fileTooLarge'
+  | 'corruptZip'
+  | 'corruptXml'
+  | 'corruptPdf'
+  | 'encryptedPdf'
+  | 'invalidNumber'
+  | 'zeroPages'
+  | 'accessDenied'
+  | 'fileNotFound'
+  | 'ioError'
+  | 'unsupportedFormat'
+  | string;
+
 export interface QueueItem {
   id: string;
   path: string;
   fileName: string;
   kind: SupportedDocumentKind;
   pageCount: number | null;
+  pageCountStatus?: ReferencePageCountStatus;
+  pageCountSource?: ReferencePageCountSource;
+  pageCountReason?: ReferencePageCountReason;
+  pageCountFileVersion?: string;
   status: QueueItemStatus;
   override: FileSettingsOverride;
   errorMessage?: string;

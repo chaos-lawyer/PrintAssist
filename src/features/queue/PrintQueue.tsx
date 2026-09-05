@@ -27,6 +27,7 @@ import {
   MinusCircle,
   Presentation,
   RotateCcw,
+  RotateCw,
   Scissors,
   Settings2,
   Trash2,
@@ -97,6 +98,7 @@ interface PrintQueueProps {
   onActiveIdChange?: (id: string | null) => void;
   visibleColumns?: QueueColumnKey[];
   onVisibleColumnsChange?: (cols: QueueColumnKey[]) => void;
+  onRefreshReferencePageCounts?: (ids?: string[]) => void;
 }
 
 export function formatPrintErrorMessage(errorMessage?: string): string {
@@ -470,6 +472,37 @@ function FileNameCell({
   );
 }
 
+export function getPageCountReasonText(reason?: string): string {
+  switch (reason) {
+    case 'missingAttribute':
+      return '文档未记录页数属性，或尚未在 Word 中分页保存';
+    case 'fileTooLarge':
+      return '文件超出大小限制（PDF 上限 100MB），跳过统计';
+    case 'corruptZip':
+      return 'ZIP 格式损坏或无效';
+    case 'corruptXml':
+      return 'XML 属性文件损坏或无法解析';
+    case 'corruptPdf':
+      return 'PDF 页面结构损坏或不完整';
+    case 'encryptedPdf':
+      return 'PDF 已加密或受保护，无法读取页面树';
+    case 'invalidNumber':
+      return '记录的页数不是有效正整数';
+    case 'zeroPages':
+      return '记录的页数为 0';
+    case 'accessDenied':
+      return '文件无读取权限';
+    case 'fileNotFound':
+      return '文件未找到';
+    case 'ioError':
+      return '读取文件时发生 I/O 错误';
+    case 'unsupportedFormat':
+      return '暂不支持此格式的参考页数统计';
+    default:
+      return reason || '无法读取参考页数';
+  }
+}
+
 export function PrintQueue({
   items,
   globalSettings,
@@ -492,6 +525,7 @@ export function PrintQueue({
   onActiveIdChange,
   visibleColumns: propsVisibleColumns,
   onVisibleColumnsChange,
+  onRefreshReferencePageCounts,
 }: PrintQueueProps) {
   const isCompleted = phase === 'completed';
   const isLocked = isPrinting || isCompleted;
@@ -1118,6 +1152,24 @@ export function PrintQueue({
     </div>
   );
 
+  const renderPageCountTitle = (defaultWidth: number) => (
+    <div className="queue-th-title-wrapper" onContextMenu={handleHeaderContextMenu}>
+      <Tooltip title="基于文档属性或页面树快速提取的参考页数，未经 Office 排版重新分页，仅供参考">
+        <span style={{ cursor: 'help' }}>参考页数</span>
+      </Tooltip>
+      <span
+        className="queue-col-resizer"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="调整 参考页数 列宽"
+        title="左右拖动调整列宽，双击恢复默认"
+        onMouseDown={(e) => handleColumnResizeStart('pageCount', defaultWidth, e)}
+        onDoubleClick={(e) => handleColumnReset('pageCount', defaultWidth, e)}
+        onClick={(e) => e.stopPropagation()}
+      />
+    </div>
+  );
+
   const handleRowContextMenu = (record: QueueItem, event: React.MouseEvent) => {
     const isAlreadySelected = selectedRowKeys.map(String).includes(record.id);
     if (!isAlreadySelected) {
@@ -1168,6 +1220,16 @@ export function PrintQueue({
           onClick: () => onAddFolder?.(),
         },
       ];
+      if (items.length > 0) {
+        itemsList.push({
+          key: 'refresh-all-page-counts',
+          label: '刷新整批参考页数',
+          icon: <RotateCw size={14} />,
+          disabled: isLocked,
+          disabledReason: lockReason,
+          onClick: () => onRefreshReferencePageCounts?.(),
+        });
+      }
       if (queueClipboard && queueClipboard.snapshots.length > 0) {
         itemsList.push({
           key: 'paste',
@@ -1254,6 +1316,14 @@ export function PrintQueue({
           disabledReason: lockReason,
           onClick: cutSelection,
         },
+        {
+          key: 'refresh-page-count',
+          label: '刷新参考页数',
+          icon: <RotateCw size={14} />,
+          disabled: isLocked,
+          disabledReason: lockReason,
+          onClick: () => onRefreshReferencePageCounts?.(selectedRowKeys.map(String)),
+        },
       ];
 
       if (queueClipboard && queueClipboard.snapshots.length > 0) {
@@ -1313,6 +1383,14 @@ export function PrintQueue({
         disabled: isLocked,
         disabledReason: lockReason,
         onClick: () => onOpenSettings(contextMenu.item.id),
+      },
+      {
+        key: 'refresh-page-count',
+        label: '刷新参考页数',
+        icon: <RotateCw size={14} />,
+        disabled: isLocked,
+        disabledReason: lockReason,
+        onClick: () => onRefreshReferencePageCounts?.([contextMenu.item.id]),
       },
       { type: 'divider' },
     ];
@@ -1895,6 +1973,67 @@ export function PrintQueue({
       render: (kind: QueueItem['kind']) => (
         <span className="queue-type-badge">{kindLabel(kind)}</span>
       ),
+    },
+    {
+      title: renderPageCountTitle(DEFAULT_COLUMN_WIDTHS.pageCount),
+      dataIndex: 'pageCount',
+      key: 'pageCount',
+      width: columnWidths.pageCount ?? DEFAULT_COLUMN_WIDTHS.pageCount,
+      align: 'center',
+      render: (_, record: QueueItem) => {
+        const status = record.pageCountStatus ?? 'pending';
+        if (status === 'loading') {
+          return (
+            <span
+              style={{
+                color: 'var(--color-text-muted)',
+                fontSize: 12,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+              }}
+            >
+              <Loader2 size={12} className="spin-icon" />
+              <span>读取中…</span>
+            </span>
+          );
+        }
+        if (status === 'pending') {
+          return (
+            <span style={{ color: 'var(--color-text-faint)', fontSize: 12 }}>
+              待读取
+            </span>
+          );
+        }
+        if (status === 'available' && typeof record.pageCount === 'number') {
+          const sourceDesc =
+            record.pageCountSource === 'docxMetadata'
+              ? 'DOCX 属性保存的页数（仅供参考，未经实际排版分页）'
+              : record.pageCountSource === 'pdfPageTree'
+                ? 'PDF 页面树中的总页数（仅供参考）'
+                : '参考页数（仅供参考）';
+          return (
+            <Tooltip title={sourceDesc}>
+              <span className="queue-pagecount-val" style={{ cursor: 'default' }}>
+                {record.pageCount} 页
+              </span>
+            </Tooltip>
+          );
+        }
+        if (status === 'unavailable') {
+          const reasonDesc = getPageCountReasonText(record.pageCountReason);
+          return (
+            <Tooltip title={reasonDesc}>
+              <span style={{ color: 'var(--color-text-muted)', cursor: 'help' }}>未知</span>
+            </Tooltip>
+          );
+        }
+        return (
+          <Tooltip title="暂不支持此类格式的参考页数统计">
+            <span style={{ color: 'var(--color-text-faint)', cursor: 'default' }}>—</span>
+          </Tooltip>
+        );
+      },
     },
     {
       title: renderColumnMenuTitle('设置', 'settings', DEFAULT_COLUMN_WIDTHS.settings),

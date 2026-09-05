@@ -7,6 +7,9 @@ import type {
   SupportedDocumentKind,
   QueueOrder,
   QueueSortField,
+  ReferencePageCountReason,
+  ReferencePageCountSource,
+  ReferencePageCountStatus,
 } from '../../domain/queueTypes';
 import { createEmptyQueueState } from '../../domain/queueTypes';
 import type { FileSettingsOverride } from '../../domain/printSettings';
@@ -26,6 +29,19 @@ export type QueueAction =
   | { type: 'toggle_sort'; field: QueueSortField }
   | { type: 'toggle_filename_sort' }
   | { type: 'set_file_metadata'; metadata: Record<string, { fileSize?: number; createdAt?: number; modifiedAt?: number }> }
+  | {
+      type: 'update_reference_page_counts';
+      updates: Record<
+        string,
+        {
+          pageCount: number | null;
+          status: ReferencePageCountStatus;
+          source?: ReferencePageCountSource;
+          reason?: ReferencePageCountReason;
+          fileVersion?: string;
+        }
+      >;
+    }
   | { type: 'reorder_items'; movingIds: string[]; targetId: string; position: 'before' | 'after' }
   | { type: 'clone_items'; sourceIds: string[]; targetId: string; position: 'before' | 'after' }
   | { type: 'paste_snapshots'; snapshots: QueueItemSnapshot[]; targetId: string | null }
@@ -45,6 +61,10 @@ export interface QueueItemSnapshot {
   fileName: string;
   kind: SupportedDocumentKind;
   pageCount: number | null;
+  pageCountStatus?: ReferencePageCountStatus;
+  pageCountSource?: ReferencePageCountSource;
+  pageCountReason?: ReferencePageCountReason;
+  pageCountFileVersion?: string;
   override: FileSettingsOverride;
   errorMessage?: string;
 }
@@ -121,12 +141,17 @@ export function extractFileName(filePath: string): string {
 
 function createQueueItem(filePath: string): QueueItem {
   const kind = detectDocumentKind(filePath);
+  const ext = filePath.split('.').pop()?.toLowerCase() ?? '';
+  const isSupportedReference = ext === 'docx' || ext === 'pdf';
   return {
     id: `${filePath}::${Date.now()}::${Math.random().toString(36).slice(2, 8)}`,
     path: filePath,
     fileName: extractFileName(filePath),
     kind,
     pageCount: null,
+    pageCountStatus: isSupportedReference ? 'pending' : 'unsupported',
+    pageCountSource: null,
+    pageCountReason: isSupportedReference ? undefined : 'unsupportedFormat',
     status: kind === 'unknown' ? 'failed' : 'ready',
     override: {},
     errorMessage: kind === 'unknown' ? '不支持的文件类型' : undefined,
@@ -139,6 +164,10 @@ export function createCloneItem(source: {
   fileName: string;
   kind: SupportedDocumentKind;
   pageCount: number | null;
+  pageCountStatus?: ReferencePageCountStatus;
+  pageCountSource?: ReferencePageCountSource;
+  pageCountReason?: ReferencePageCountReason;
+  pageCountFileVersion?: string;
   override?: FileSettingsOverride;
   errorMessage?: string;
 }): QueueItem {
@@ -148,6 +177,10 @@ export function createCloneItem(source: {
     fileName: source.fileName,
     kind: source.kind,
     pageCount: source.pageCount,
+    pageCountStatus: source.pageCountStatus,
+    pageCountSource: source.pageCountSource,
+    pageCountReason: source.pageCountReason,
+    pageCountFileVersion: source.pageCountFileVersion,
     status: source.kind === 'unknown' ? 'failed' : 'ready',
     override: source.override ? { ...source.override } : {},
     errorMessage: source.kind === 'unknown' ? (source.errorMessage || '不支持的文件类型') : undefined,
@@ -305,6 +338,26 @@ export function queueReducer(state: QueueState, action: QueueAction): QueueState
             ...item,
             ...(metadata ?? {}),
             metadataLoaded: true,
+          };
+        }),
+      };
+    }
+
+    case 'update_reference_page_counts': {
+      const updates = action.updates;
+      return {
+        ...state,
+        items: state.items.map((item) => {
+          const update = updates[item.id];
+          if (!update) return item;
+          return {
+            ...item,
+            pageCount: update.pageCount,
+            pageCountStatus: update.status,
+            pageCountSource: update.source !== undefined ? update.source : item.pageCountSource,
+            pageCountReason: update.reason !== undefined ? update.reason : item.pageCountReason,
+            pageCountFileVersion:
+              update.fileVersion !== undefined ? update.fileVersion : item.pageCountFileVersion,
           };
         }),
       };

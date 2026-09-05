@@ -48,6 +48,7 @@ import type {
 import { usePrinterManagement } from './features/printers/usePrinterManagement';
 import { useSavedProfiles } from './features/settings/useSavedProfiles';
 import { useFileIngress } from './features/queue/useFileIngress';
+import { useReferencePageCounts } from './features/queue/useReferencePageCounts';
 import { usePrintExecution } from './features/printing/usePrintExecution';
 import { useExternalRequest } from './features/integration/useExternalRequest';
 import { useKeyboardShortcuts } from './features/shortcuts/useKeyboardShortcuts';
@@ -107,6 +108,11 @@ const { Header, Content, Sider } = Layout;
 
 export function App() {
   const [queueState, dispatch] = useReducer(queueReducer, undefined, createEmptyQueueState);
+  const { refreshReferencePageCounts } = useReferencePageCounts({
+    items: queueState.items,
+    isPrinting: queueState.isPrinting,
+    dispatch,
+  });
   const [globalSettings, setGlobalSettings] = useState<PrintSettings>(createDefaultGlobalSettings);
   const globalSettingsRef = useRef(globalSettings);
   globalSettingsRef.current = globalSettings;
@@ -302,6 +308,7 @@ export function App() {
     let knownPages = 0;
     let knownCount = 0;
     let estimatedSheets = 0;
+    let hasUncalculableItem = false;
 
     const nupSlots =
       globalSettings.nupLayout && globalSettings.nupLayout.cols * globalSettings.nupLayout.rows > 1
@@ -313,16 +320,19 @@ export function App() {
 
     for (const item of queueState.items) {
       if (typeof item.pageCount === 'number' && item.pageCount > 0) {
+        knownPages += item.pageCount;
+        knownCount += 1;
+
         const resolved = mergePrintSettings(globalSettings, item.override);
         let pagesToPrint = item.pageCount;
         if (resolved.pageRange.mode === 'custom') {
           const parsed = parsePageRangeExpression(resolved.pageRange.expression, item.pageCount);
           if (parsed.ok && parsed.pages.length > 0) {
             pagesToPrint = parsed.pages.length;
+          } else {
+            hasUncalculableItem = true;
           }
         }
-        knownPages += item.pageCount;
-        knownCount += 1;
 
         if (isCrossFile) {
           totalCrossPages += pagesToPrint;
@@ -332,10 +342,12 @@ export function App() {
             resolved.sidesMode === 'duplex' ? Math.ceil(logicalSides / 2) : logicalSides;
           estimatedSheets += sheetsPerCopy * (resolved.copies || 1);
         }
+      } else {
+        hasUncalculableItem = true;
       }
     }
 
-    if (isCrossFile) {
+    if (isCrossFile && !hasUncalculableItem) {
       const logicalSides = Math.ceil(totalCrossPages / nupSlots);
       const sheetsPerCopy =
         globalSettings.sidesMode === 'duplex' ? Math.ceil(logicalSides / 2) : logicalSides;
@@ -343,7 +355,8 @@ export function App() {
     }
 
     const allKnown = queueState.items.length > 0 && knownCount === queueState.items.length;
-    return { knownPages, knownCount, estimatedSheets, allKnown };
+    const canEstimateSheets = queueState.items.length > 0 && !hasUncalculableItem;
+    return { knownPages, knownCount, estimatedSheets, allKnown, canEstimateSheets };
   }, [queueState.items, globalSettings]);
 
   const {
@@ -1066,7 +1079,11 @@ export function App() {
                 {queueState.items.length > 0 && (
                   <Typography.Text type="secondary" style={{ fontSize: 13 }}>
                     {queueState.items.length} 个文件
-                    {pageStats.allKnown && pageStats.knownPages > 0 ? ` · 预计 ${pageStats.knownPages} 页` : ''}
+                    {pageStats.allKnown
+                      ? ` · 参考总页数：${pageStats.knownPages} 页`
+                      : pageStats.knownCount > 0
+                        ? ` · 已知参考页数：${pageStats.knownPages} 页（${pageStats.knownCount}/${queueState.items.length} 个已读取）`
+                        : ' · 参考页数：暂无数据'}
                   </Typography.Text>
                 )}
               </div>
@@ -1156,6 +1173,7 @@ export function App() {
                 onAddFolder={() => void handlePickFolder()}
                 visibleColumns={visibleColumns}
                 onVisibleColumnsChange={setVisibleColumns}
+                onRefreshReferencePageCounts={refreshReferencePageCounts}
               />
             </div>
             {canRestoreBatch && undoLabel === '开始新批次' && (
@@ -1233,7 +1251,9 @@ export function App() {
                       已完成：<strong>{queueState.lastSummary.succeeded}</strong> 个文件
                       {pageStats.allKnown && pageStats.knownPages > 0
                         ? ` · 共 ${pageStats.knownPages} 页`
-                        : ''}
+                        : pageStats.knownCount > 0
+                          ? ` · 已知参考页数：${pageStats.knownPages} 页`
+                          : ''}
                     </span>
                   </span>
                 ) : queueState.items.length === 0 ? (
@@ -1247,11 +1267,17 @@ export function App() {
                 ) : (
                   <span className="queue-footer-count">
                     共 <strong>{queueState.items.length}</strong> 个文件
-                    {pageStats.allKnown && pageStats.knownPages > 0
-                      ? ` · ${pageStats.knownPages} 页`
-                      : ''}
+                    {pageStats.allKnown
+                      ? ` · 参考总页数：${pageStats.knownPages} 页`
+                      : pageStats.knownCount > 0
+                        ? ` · 已知参考页数：${pageStats.knownPages} 页（${pageStats.knownCount}/${queueState.items.length}）`
+                        : ' · 参考页数：暂无数据'}
                     {` · ${globalSettings.colorMode === 'color' ? '彩色' : '黑白'}${globalSettings.sidesMode === 'duplex' ? '双面' : '单面'} · ${globalSettings.copies} 份`}
-                    {pageStats.estimatedSheets >= 100 ? ` (预计耗纸 ${pageStats.estimatedSheets} 张)` : ''}
+                    {pageStats.canEstimateSheets
+                      ? pageStats.estimatedSheets >= 100
+                        ? ` (预计耗纸 ${pageStats.estimatedSheets} 张)`
+                        : ''
+                      : ' (预计用纸：暂无法完整估算)'}
                   </span>
                 )}
               </div>

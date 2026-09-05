@@ -115,7 +115,8 @@ pub fn run() {
             commands::unregister_shell_integration,
             commands::repair_shell_integration,
             commands::get_app_executable_path,
-            commands::write_external_request_result
+            commands::write_external_request_result,
+            commands::get_reference_page_count,
         ])
         .run(tauri::generate_context!())
         .expect("error while running PrintAssist");

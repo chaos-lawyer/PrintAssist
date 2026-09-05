@@ -1,6 +1,6 @@
 [package]
 name = "print-assist"
-version = "1.3.2"
+version = "1.3.3"
 description = "Native printer discovery baseline for PrintAssist"
 edition = "2021"
 rust-version = "1.81"
@@ -29,6 +29,8 @@ open = "5"
 lopdf = "0.34"
 uuid = { version = "1", features = ["v4", "fast-rng"] }
 sha2 = "0.10"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+quick-xml = "0.39"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "=0.58.0", features = [

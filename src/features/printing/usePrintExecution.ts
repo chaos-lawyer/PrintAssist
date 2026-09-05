@@ -74,7 +74,6 @@ export function usePrintExecution(options: UsePrintExecutionOptions) {
       if (resolved.pageRange.mode === 'custom') {
         const parseResult = parsePageRangeExpression(
           resolved.pageRange.expression,
-          item.pageCount ?? undefined,
         );
         if (!parseResult.ok) {
           message.error(`${item.fileName}：${parseResult.message}`);

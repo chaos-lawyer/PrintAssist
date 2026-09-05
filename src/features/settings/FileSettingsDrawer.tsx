@@ -177,7 +177,6 @@ export function FileSettingsDrawer({
     if (draftOverride.pageRange) {
       const parseResult = parsePageRangeExpression(
         draftOverride.pageRange.expression,
-        item?.pageCount ?? undefined,
       );
       if (!parseResult.ok) {
         message.error(parseResult.message);
