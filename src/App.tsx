@@ -1,7 +1,6 @@
 import {
   Button,
   ConfigProvider,
-  Dropdown,
   Layout,
   Modal,
   Progress,
@@ -271,7 +270,7 @@ export function App() {
 
     focusWorkspace();
     // WebView2 首次绘制可能晚于 React 挂载；重复聚焦以覆盖空队列和延迟布局。
-    const timers = [50, 200, 500].map((delay) => setTimeout(focusWorkspace, delay));
+    const timers = [50, 200, 500, 900, 1200].map((delay) => setTimeout(focusWorkspace, delay));
     return () => timers.forEach(clearTimeout);
   }, []);
 
@@ -997,33 +996,23 @@ export function App() {
                 打印记录
               </Button>
             </Tooltip>
-            <Tooltip title="帮助与更多（/）">
-              <Dropdown
-                menu={{
-                  items: [
-                    {
-                      key: 'shortcuts',
-                      label: '快捷键清单（/）',
-                      icon: <CircleHelp size={14} />,
-                      onClick: () => setIsShortcutHelpOpen(true),
-                    },
-                    {
-                      key: 'external',
-                      label: '外部集成 / Quicker 与系统右键',
-                      icon: <Terminal size={14} />,
-                      onClick: () => setExternalIntegrationOpen(true),
-                    },
-                  ],
-                }}
-                trigger={['click']}
-              >
-                <Button
-                  type="text"
-                  className="header-help-btn"
-                  icon={<CircleHelp size={16} />}
-                  aria-label="帮助与更多"
-                />
-              </Dropdown>
+            <Tooltip title="快捷键帮助（/）">
+              <Button
+                type="text"
+                className="header-help-btn"
+                icon={<CircleHelp size={16} />}
+                onClick={() => setIsShortcutHelpOpen(true)}
+                aria-label="快捷键帮助"
+              />
+            </Tooltip>
+            <Tooltip title="外部集成 / Quicker 与系统右键">
+              <Button
+                type="text"
+                className="header-external-integration-btn"
+                icon={<Terminal size={16} />}
+                onClick={() => setExternalIntegrationOpen(true)}
+                aria-label="外部集成"
+              />
             </Tooltip>
           </Space>
         </Header>

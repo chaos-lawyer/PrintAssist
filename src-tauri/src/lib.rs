@@ -42,6 +42,16 @@ pub fn run() {
                         .expect("Failed to load icon"),
                 )?;
                 let _ = window.set_focus();
+
+                // WebView2 在窗口创建后仍会继续导航；过早聚焦只会落在原生窗口，
+                // 页面尚未获得键盘输入。导航稳定后再聚焦一次，保证首个快捷键可用。
+                let startup_handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_millis(800));
+                    if let Some(window) = startup_handle.get_webview_window("main") {
+                        let _ = window.set_focus();
+                    }
+                });
             }
 
             let app_data_dir = app
