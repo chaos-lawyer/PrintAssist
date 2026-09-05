@@ -1102,11 +1102,16 @@ export function PrintQueue({
   ) => {
     const shortcutNum = sortableShortcutMap.get(field);
     const shortcutText = shortcutNum !== undefined ? `Ctrl+${shortcutNum}` : undefined;
+    const sortTip = shortcutText ? `点击或按 ${shortcutText} 排序：正序/逆序切换` : '点击排序：正序/逆序切换';
+    const titleText =
+      field === 'pageCount'
+        ? `参考页数（仅供参考，未经 Office 重新分页）。${sortTip}`
+        : sortTip;
     return (
       <div
         className="queue-th-sort-wrapper"
         onContextMenu={handleHeaderContextMenu}
-        title={shortcutText ? `点击或按 ${shortcutText} 排序：正序/逆序切换` : '点击排序：正序/逆序切换'}
+        title={titleText}
       >
         <span>{label}</span>
         {sortOrder?.mode === field ? (
@@ -1147,24 +1152,6 @@ export function PrintQueue({
         title="左右拖动调整列宽，双击恢复默认"
         onMouseDown={(e) => handleColumnResizeStart(colKey, defaultWidth, e)}
         onDoubleClick={(e) => handleColumnReset(colKey, defaultWidth, e)}
-        onClick={(e) => e.stopPropagation()}
-      />
-    </div>
-  );
-
-  const renderPageCountTitle = (defaultWidth: number) => (
-    <div className="queue-th-title-wrapper" onContextMenu={handleHeaderContextMenu}>
-      <Tooltip title="基于文档属性或页面树快速提取的参考页数，未经 Office 排版重新分页，仅供参考">
-        <span style={{ cursor: 'help' }}>参考页数</span>
-      </Tooltip>
-      <span
-        className="queue-col-resizer"
-        role="separator"
-        aria-orientation="vertical"
-        aria-label="调整 参考页数 列宽"
-        title="左右拖动调整列宽，双击恢复默认"
-        onMouseDown={(e) => handleColumnResizeStart('pageCount', defaultWidth, e)}
-        onDoubleClick={(e) => handleColumnReset('pageCount', defaultWidth, e)}
         onClick={(e) => e.stopPropagation()}
       />
     </div>
@@ -1975,11 +1962,18 @@ export function PrintQueue({
       ),
     },
     {
-      title: renderPageCountTitle(DEFAULT_COLUMN_WIDTHS.pageCount),
+      title: renderSortableTitle('参考页数', 'pageCount', 'pageCount', DEFAULT_COLUMN_WIDTHS.pageCount),
       dataIndex: 'pageCount',
       key: 'pageCount',
       width: columnWidths.pageCount ?? DEFAULT_COLUMN_WIDTHS.pageCount,
       align: 'center',
+      onHeaderCell: () => ({
+        onClick: (e: React.MouseEvent) => {
+          if ((e.target as HTMLElement).closest('.queue-col-resizer')) return;
+          onToggleSort?.('pageCount');
+        },
+        className: 'queue-th-sortable',
+      }),
       render: (_, record: QueueItem) => {
         const status = record.pageCountStatus ?? 'pending';
         if (status === 'loading') {
@@ -2024,7 +2018,7 @@ export function PrintQueue({
           const reasonDesc = getPageCountReasonText(record.pageCountReason);
           return (
             <Tooltip title={reasonDesc}>
-              <span style={{ color: 'var(--color-text-muted)', cursor: 'help' }}>未知</span>
+              <span style={{ color: 'var(--color-text-muted)', cursor: 'default' }}>未知</span>
             </Tooltip>
           );
         }
@@ -2145,7 +2139,6 @@ export function PrintQueue({
     return (
       <div
         className={`queue-empty-container${!isPrinting ? ' is-clickable' : ''}`}
-        tabIndex={0}
         onClick={() => {
           if (!isPrinting) {
             onAddFiles?.();

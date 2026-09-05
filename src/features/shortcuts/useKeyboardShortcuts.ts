@@ -510,24 +510,26 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions) {
 
       // 19. '1' ~ '9'：应用当前打印机保存配置 1-9 (单键)
       if (!isCtrlOrMeta && !event.shiftKey && !event.altKey && numMatch) {
-        const index = parseInt(numMatch[0], 10) - 1;
-        if (!globalSettings.printerName) {
-          message.warning('请先选择打印机');
-          return;
-        }
-        if (loadingSavedProfiles) {
-          message.warning('配置正在加载中，请稍候');
-          return;
-        }
-        if (index < savedProfiles.length) {
-          const profile = savedProfiles[index];
-          if (profile.compatibility !== 'compatible') {
-            message.warning(`配置“${profile.name}”与当前打印机不兼容`);
+        if (!shouldIgnoreShortcut(event, { isSingleKey: true })) {
+          const index = parseInt(numMatch[0], 10) - 1;
+          if (!globalSettings.printerName) {
+            message.warning('请先选择打印机');
             return;
           }
-          event.preventDefault();
-          void handleSelectSavedProfile(profile.id);
-          return;
+          if (loadingSavedProfiles) {
+            message.warning('配置正在加载中，请稍候');
+            return;
+          }
+          if (index < savedProfiles.length) {
+            const profile = savedProfiles[index];
+            if (profile.compatibility !== 'compatible') {
+              message.warning(`配置“${profile.name}”与当前打印机不兼容`);
+              return;
+            }
+            event.preventDefault();
+            void handleSelectSavedProfile(profile.id);
+            return;
+          }
         }
       }
     };

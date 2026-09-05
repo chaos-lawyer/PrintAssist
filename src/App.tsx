@@ -97,7 +97,6 @@ import { PrinterProfileManagerModal } from './features/settings/PrinterProfileMa
 import { PrinterManagerModal } from './features/printers/PrinterManagerModal';
 import { ShortcutHelpModal } from './features/shortcuts/ShortcutHelpModal';
 import { useUndoHistory } from './features/undo/useUndoHistory';
-import { UndoRedoControls } from './features/undo/UndoRedoControls';
 import type { WorkspaceSnapshot } from './features/undo/undoTypes';
 import type {
   SavedPrinterProfileSummary,
@@ -226,10 +225,7 @@ export function App() {
     commit,
     undo,
     redo,
-    canUndo,
-    canRedo,
     undoLabel,
-    redoLabel,
     clearHistory,
   } = useUndoHistory({
     getCurrentSnapshot: () => currentSnapshotRef.current,
@@ -719,6 +715,9 @@ export function App() {
 
   const handleClearQueue = useCallback(() => {
     if (queueState.items.length === 0 || queueState.isPrinting) return;
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
     const count = queueState.items.length;
     const label = `清空 ${count} 个文件`;
 
@@ -894,6 +893,7 @@ export function App() {
 
   return (
     <ConfigProvider
+      wave={{ disabled: true }}
       theme={{
         token: {
           colorPrimary: '#1557d0',
@@ -979,14 +979,6 @@ export function App() {
             </div>
           </div>
           <Space className="header-actions" size={8}>
-            <UndoRedoControls
-              canUndo={canUndo}
-              canRedo={canRedo}
-              undoLabel={undoLabel}
-              redoLabel={redoLabel}
-              onUndo={handleUndo}
-              onRedo={handleRedo}
-            />
             <Tooltip title="常用模板与任务（B）">
               <Button
                 type="text"
@@ -1072,21 +1064,9 @@ export function App() {
               </div>
             )}
             <div className="queue-heading">
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <Typography.Title level={4} className="queue-main-title">
-                  1. 文件队列
-                </Typography.Title>
-                {queueState.items.length > 0 && (
-                  <Typography.Text type="secondary" style={{ fontSize: 13 }}>
-                    {queueState.items.length} 个文件
-                    {pageStats.allKnown
-                      ? ` · 参考总页数：${pageStats.knownPages} 页`
-                      : pageStats.knownCount > 0
-                        ? ` · 已知参考页数：${pageStats.knownPages} 页（${pageStats.knownCount}/${queueState.items.length} 个已读取）`
-                        : ' · 参考页数：暂无数据'}
-                  </Typography.Text>
-                )}
-              </div>
+              <Typography.Title level={4} className="queue-main-title">
+                1. 文件队列
+              </Typography.Title>
               <Space size={8}>
                 {queueState.items.length > 0 && (
                   <>

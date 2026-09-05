@@ -640,5 +640,32 @@ describe('queueReducer', () => {
       expect(state.items[1].pageCountSource).toBe('docxMetadata');
       expect(state.items[1].pageCountFileVersion).toBe('100:200');
     });
+
+    it('sorts queue items by pageCount ascending and descending with nulls placed at end', () => {
+      let state = queueReducer(createEmptyQueueState(), {
+        type: 'append_files',
+        paths: ['a.docx', 'b.docx', 'c.docx', 'd.txt'],
+      });
+
+      const [idA, idB, idC] = [state.items[0].id, state.items[1].id, state.items[2].id];
+      state = queueReducer(state, {
+        type: 'update_reference_page_counts',
+        updates: {
+          [idA]: { pageCount: 10, status: 'available' },
+          [idB]: { pageCount: 2, status: 'available' },
+          [idC]: { pageCount: 50, status: 'available' },
+        },
+      });
+
+      // Toggle sort on pageCount -> asc: 2 (b.docx), 10 (a.docx), 50 (c.docx), null (d.txt)
+      state = queueReducer(state, { type: 'toggle_sort', field: 'pageCount' });
+      expect(state.order).toEqual({ mode: 'pageCount', direction: 'asc' });
+      expect(state.items.map((i) => i.fileName)).toEqual(['b.docx', 'a.docx', 'c.docx', 'd.txt']);
+
+      // Toggle sort on pageCount -> desc: 50 (c.docx), 10 (a.docx), 2 (b.docx), null (d.txt)
+      state = queueReducer(state, { type: 'toggle_sort', field: 'pageCount' });
+      expect(state.order).toEqual({ mode: 'pageCount', direction: 'desc' });
+      expect(state.items.map((i) => i.fileName)).toEqual(['c.docx', 'a.docx', 'b.docx', 'd.txt']);
+    });
   });
 });

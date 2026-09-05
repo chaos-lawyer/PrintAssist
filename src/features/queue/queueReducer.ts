@@ -190,9 +190,30 @@ export function createCloneItem(source: {
 
 function sortItems(items: QueueItem[], field: QueueSortField, direction: 'asc' | 'desc'): QueueItem[] {
   const sorted = [...items].sort((a, b) => {
-    const cmp = field === 'fileName' || field === 'path'
-      ? String(a[field]).localeCompare(String(b[field]), 'zh-Hans', { numeric: true, sensitivity: 'base' })
-      : (a[field] ?? -1) - (b[field] ?? -1);
+    if (field === 'fileName' || field === 'path') {
+      const cmp = String(a[field]).localeCompare(String(b[field]), 'zh-Hans', {
+        numeric: true,
+        sensitivity: 'base',
+      });
+      return direction === 'desc' ? -cmp : cmp;
+    }
+
+    if (field === 'pageCount') {
+      const valA = a.pageCount;
+      const valB = b.pageCount;
+      if (valA === null && valB === null) {
+        return a.fileName.localeCompare(b.fileName, 'zh-Hans', { numeric: true, sensitivity: 'base' });
+      }
+      if (valA === null) return 1;
+      if (valB === null) return -1;
+      const cmp = valA - valB;
+      if (cmp !== 0) {
+        return direction === 'desc' ? -cmp : cmp;
+      }
+      return a.fileName.localeCompare(b.fileName, 'zh-Hans', { numeric: true, sensitivity: 'base' });
+    }
+
+    const cmp = (a[field] ?? -1) - (b[field] ?? -1);
     return direction === 'desc' ? -cmp : cmp;
   });
   return sorted;

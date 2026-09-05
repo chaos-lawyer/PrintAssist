@@ -77,7 +77,13 @@ export interface PrintJobSummary {
   results: PrintJobResultItem[];
 }
 
-export type QueueSortField = 'fileName' | 'path' | 'createdAt' | 'modifiedAt' | 'fileSize';
+export type QueueSortField =
+  | 'fileName'
+  | 'path'
+  | 'createdAt'
+  | 'modifiedAt'
+  | 'fileSize'
+  | 'pageCount';
 
 export type QueueOrder =
   | { mode: 'manual' }

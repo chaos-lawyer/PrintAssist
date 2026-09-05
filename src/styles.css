@@ -1278,6 +1278,10 @@ button,
   outline: none !important;
 }
 
+.ant-wave {
+  display: none !important;
+}
+
 .queue-empty-card {
   display: flex;
   flex-direction: column;
@@ -1290,7 +1294,6 @@ button,
   border: 1px solid var(--color-border-soft, #e2e8f0);
   border-radius: var(--radius-xl, 12px);
   box-shadow: 0 4px 16px rgba(15, 23, 42, 0.04);
-  transition: all var(--motion-fast);
   user-select: none;
 }
 
@@ -1321,6 +1324,11 @@ button,
 
 .queue-empty-actions {
   margin-bottom: 14px;
+}
+
+.queue-empty-actions .ant-btn:focus,
+.queue-empty-actions .ant-btn:focus-visible {
+  outline: none !important;
 }
 
 .queue-empty-drag-tip {

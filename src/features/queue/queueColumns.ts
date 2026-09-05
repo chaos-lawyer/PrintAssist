@@ -67,6 +67,7 @@ export const SORTABLE_COLUMNS_MAP: Record<string, SortableColumnDefinition> = {
   createdAt: { field: 'createdAt', label: '创建时间' },
   modifiedAt: { field: 'modifiedAt', label: '修改时间' },
   fileSize: { field: 'fileSize', label: '文件大小' },
+  pageCount: { field: 'pageCount', label: '参考页数' },
 };
 
 export interface VisibleSortableColumn {

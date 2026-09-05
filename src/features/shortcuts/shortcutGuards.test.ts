@@ -161,4 +161,20 @@ describe('shouldIgnoreShortcut', () => {
     const plainA = new KeyboardEvent('keydown', { key: 'A' });
     expect(shouldIgnoreShortcut(plainA, { isSingleKey: true })).toBe(false);
   });
+
+  it('ignores single key shortcuts when active element is an InputNumber (copies / n-up)', () => {
+    const input = document.createElement('input');
+    input.className = 'ant-input-number-input';
+    document.body.appendChild(input);
+    input.focus();
+
+    // Typing digits 1-9 in copies/n-up should be ignored as shortcuts
+    for (let d = 1; d <= 9; d++) {
+      const event = new KeyboardEvent('keydown', { key: String(d) });
+      expect(shouldIgnoreShortcut(event, { isSingleKey: true })).toBe(true);
+    }
+
+    input.blur();
+    input.remove();
+  });
 });
