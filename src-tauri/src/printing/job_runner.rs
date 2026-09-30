@@ -762,7 +762,7 @@ fn run_batch_cross_file_nup(
     let mut abort_reason: Option<String> = None;
     let mut cancel_encountered = false;
 
-    while let Some((index, item)) = items_iter.next() {
+    for (index, item) in items_iter.by_ref() {
         let action = batch_control.wait_at_safe_boundary(|| {
             if let Some(app_handle) = app {
                 use tauri::Emitter;

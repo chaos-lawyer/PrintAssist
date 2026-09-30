@@ -38,17 +38,12 @@ use windows::Win32::System::Com::{
 use super::nup_layout::{compute_cell_rects, fit_image_in_cell, group_items_into_sheets, CellRect};
 use crate::contracts::NupLayout;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PageScaleMode {
+    #[default]
     ActualSize,
     ShrinkOversized,
     FitPrintable,
-}
-
-impl Default for PageScaleMode {
-    fn default() -> Self {
-        Self::ActualSize
-    }
 }
 
 impl PageScaleMode {
@@ -323,7 +318,7 @@ fn print_decoded_pages_once(
         _ => query_devmode(printer_handle, &printer_wide)?,
     };
 
-    let is_nup = nup.map_or(false, |l| l.cols * l.rows > 1);
+    let is_nup = nup.is_some_and(|l| l.cols * l.rows > 1);
     if is_nup {
         let layout = nup.unwrap();
         let mut session = NupPrintSession::new(printer_name, devmode, layout)?;
@@ -878,7 +873,7 @@ fn create_dib_bitmap(hdc: HDC, image: &DecodedImage) -> Result<HBITMAP, String> 
         biHeight: -(image.height as i32),
         biPlanes: 1,
         biBitCount: 32,
-        biCompression: BI_RGB.0 as u32,
+        biCompression: BI_RGB.0,
         biSizeImage: 0,
         biXPelsPerMeter: 0,
         biYPelsPerMeter: 0,

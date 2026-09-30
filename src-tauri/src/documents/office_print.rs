@@ -92,27 +92,25 @@ fn print_word(
         )?;
         let document = DispatchObject::from_variant(&document_variant)?;
 
-        let print_result = (|| {
-            // PrintOut(Background, Append, Range, OutputFileName, From, To, Item,
-            //          Copies, Pages, PageType, PrintToFile, Collate)
-            document.call_unit(
-                "PrintOut",
-                vec![
-                    VARIANT::from(false),               // Background
-                    VARIANT::from(false),               // Append
-                    VARIANT::from(range_code),          // Range
-                    VARIANT::from(""),                  // OutputFileName
-                    VARIANT::from(""),                  // From
-                    VARIANT::from(""),                  // To
-                    VARIANT::from(0_i32),               // Item
-                    VARIANT::from(copies as i32),       // Copies
-                    VARIANT::from(pages_text.as_str()), // Pages
-                    VARIANT::from(0_i32),               // PageType
-                    VARIANT::from(false),               // PrintToFile
-                    VARIANT::from(true),                // Collate
-                ],
-            )
-        })();
+        // PrintOut(Background, Append, Range, OutputFileName, From, To, Item,
+        //          Copies, Pages, PageType, PrintToFile, Collate)
+        let print_result = document.call_unit(
+            "PrintOut",
+            vec![
+                VARIANT::from(false),               // Background
+                VARIANT::from(false),               // Append
+                VARIANT::from(range_code),          // Range
+                VARIANT::from(""),                  // OutputFileName
+                VARIANT::from(""),                  // From
+                VARIANT::from(""),                  // To
+                VARIANT::from(0_i32),               // Item
+                VARIANT::from(copies as i32),       // Copies
+                VARIANT::from(pages_text.as_str()), // Pages
+                VARIANT::from(0_i32),               // PageType
+                VARIANT::from(false),               // PrintToFile
+                VARIANT::from(true),                // Collate
+            ],
+        );
 
         // wdDoNotSaveChanges = 0
         let _ = document.call_unit("Close", vec![VARIANT::from(0_i32)]);
@@ -143,13 +141,11 @@ fn print_excel(absolute_input: &str, printer_name: &str, copies: u32) -> Result<
         )?;
         let workbook = DispatchObject::from_variant(&workbook_variant)?;
 
-        let print_result = (|| {
-            // PrintOut(From, To, Copies, ...) — empty optional From/To.
-            workbook.call_unit(
-                "PrintOut",
-                vec![VARIANT::new(), VARIANT::new(), VARIANT::from(copies as i32)],
-            )
-        })();
+        // PrintOut(From, To, Copies, ...) — empty optional From/To.
+        let print_result = workbook.call_unit(
+            "PrintOut",
+            vec![VARIANT::new(), VARIANT::new(), VARIANT::from(copies as i32)],
+        );
 
         let _ = workbook.call_unit("Close", vec![VARIANT::from(false)]);
         print_result

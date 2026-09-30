@@ -186,9 +186,9 @@ mod win_impl {
 
     fn extract_exe_from_command(command: &str) -> Option<String> {
         let trimmed = command.trim();
-        if trimmed.starts_with('"') {
-            if let Some(end_idx) = trimmed[1..].find('"') {
-                return Some(trimmed[1..=end_idx].to_string());
+        if let Some(rest) = trimmed.strip_prefix('"') {
+            if let Some(end_idx) = rest.find('"') {
+                return Some(rest[..end_idx].to_string());
             }
         }
         trimmed.split_whitespace().next().map(|s| s.to_string())

@@ -289,7 +289,7 @@ struct AlignedPrinterBuffer {
 impl AlignedPrinterBuffer {
     fn new(byte_length: usize) -> Self {
         debug_assert!(align_of::<usize>() >= align_of::<PRINTER_INFO_2W>());
-        let word_count = (byte_length + size_of::<usize>() - 1) / size_of::<usize>();
+        let word_count = byte_length.div_ceil(size_of::<usize>());
         Self {
             storage: vec![0; word_count],
             byte_length,
