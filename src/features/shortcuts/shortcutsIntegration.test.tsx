@@ -236,6 +236,43 @@ describe('Shortcuts Integration in PrintQueue', () => {
     expect(handleSelectionChange).toHaveBeenCalledWith(['item-1']);
   });
 
+  it('deletes one selected queue item from the focused list', () => {
+    const onRemove = vi.fn();
+    render(
+      <PrintQueue
+        items={mockItems}
+        globalSettings={mockSettings}
+        isPrinting={false}
+        selectedRowKeys={['item-1']}
+        onSelectionChange={vi.fn()}
+        onRemove={onRemove}
+        onOpenSettings={vi.fn()}
+      />,
+    );
+
+    fireEvent.keyDown(document.querySelector('.queue-table-wrap')!, { key: 'Delete' });
+    expect(onRemove).toHaveBeenCalledExactlyOnceWith('item-1');
+  });
+
+  it('deletes multiple selected queue items as one batch', () => {
+    const onBatchRemove = vi.fn();
+    render(
+      <PrintQueue
+        items={mockItems}
+        globalSettings={mockSettings}
+        isPrinting={false}
+        selectedRowKeys={['item-1', 'item-2']}
+        onSelectionChange={vi.fn()}
+        onRemove={vi.fn()}
+        onBatchRemove={onBatchRemove}
+        onOpenSettings={vi.fn()}
+      />,
+    );
+
+    fireEvent.keyDown(document.querySelector('.queue-table-wrap')!, { key: 'Delete' });
+    expect(onBatchRemove).toHaveBeenCalledOnce();
+  });
+
   it('registers E for file settings, D for sidesMode, and S for colorMode in shortcut definitions', () => {
     const openSettings = SHORTCUT_DEFINITIONS.find((d) => d.id === 'open_settings');
     expect(openSettings?.keys).toEqual(['E']);

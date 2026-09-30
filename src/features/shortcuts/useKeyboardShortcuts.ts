@@ -191,7 +191,7 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions) {
       // 4. 批量删除选中 (Delete / Backspace)
       if (isShortcut('remove_item', ['Delete']) || event.key === 'Backspace') {
         if (!shouldIgnoreShortcut(event, { isSingleKey: true })) {
-          if (selectedRowKeys.length > 0 && !queueState.isPrinting) {
+          if (selectedRowKeys.length > 0 && !queueState.isPrinting && queueState.phase !== 'completed') {
             event.preventDefault();
             handleBatchRemove();
             return;

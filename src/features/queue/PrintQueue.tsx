@@ -688,29 +688,8 @@ export function PrintQueue({
   const isDraggingMarquee = useRef(false);
   const isReordering = useRef(false);
 
-  // Ctrl tracking for copy drag
-  const isCtrlKeyRef = useRef(false);
   const isCopyDraggingRef = useRef(false);
   const [, setIsCopyDraggingState] = useState(false);
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Control' || e.key === 'Meta') {
-        isCtrlKeyRef.current = true;
-      }
-    };
-    const handleKeyUp = (e: KeyboardEvent) => {
-      if (e.key === 'Control' || e.key === 'Meta') {
-        isCtrlKeyRef.current = false;
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('keyup', handleKeyUp);
-    };
-  }, []);
 
   // Configure sensors for drag and drop
   const sensors = useSensors(
@@ -1492,8 +1471,12 @@ export function PrintQueue({
     }
 
     if (event.key === 'Delete' || event.key === 'Backspace') {
-      if (selectedRowKeys.length > 0 && !isLocked) {
+      if (
+        selectedRowKeys.length > 0 &&
+        !shouldIgnoreShortcut(event.nativeEvent, { isSingleKey: true })
+      ) {
         event.preventDefault();
+        removeSelection();
         return;
       }
     }
@@ -1590,17 +1573,15 @@ export function PrintQueue({
   };
 
   // Drag & drop sorting handler
-  const handleDragStart = (_event: DragStartEvent) => {
+  const handleDragStart = (event: DragStartEvent) => {
     isReordering.current = true;
     marqueeStartRef.current = null;
     isDraggingMarquee.current = false;
     setMarqueeBox(null);
 
-    const isCopy = Boolean(
-      isCtrlKeyRef.current ||
-        (window.event as MouseEvent | undefined)?.ctrlKey ||
-        (window.event as MouseEvent | undefined)?.metaKey,
-    );
+    const { activatorEvent } = event;
+    const isCopy = activatorEvent instanceof MouseEvent &&
+      (activatorEvent.ctrlKey || activatorEvent.metaKey);
     isCopyDraggingRef.current = isCopy;
     setIsCopyDraggingState(isCopy);
   };
