@@ -39,7 +39,7 @@ pub fn is_portable() -> bool {
 #[cfg(windows)]
 mod win_impl {
     use super::*;
-    use windows::core::{PCWSTR, HSTRING};
+    use windows::core::{HSTRING, PCWSTR};
     use windows::Win32::Foundation::{ERROR_FILE_NOT_FOUND, ERROR_SUCCESS, WIN32_ERROR};
     use windows::Win32::System::Registry::{
         RegCloseKey, RegCreateKeyExW, RegDeleteTreeW, RegOpenKeyExW, RegQueryValueExW,
@@ -130,7 +130,10 @@ mod win_impl {
                 None,
             );
             if status != ERROR_SUCCESS {
-                return Err(format!("创建注册表项失败 ({}): 错误码 {:?}", sub_key, status));
+                return Err(format!(
+                    "创建注册表项失败 ({}): 错误码 {:?}",
+                    sub_key, status
+                ));
             }
 
             let val_name_w = if value_name.is_empty() {
@@ -173,7 +176,10 @@ mod win_impl {
             if status == ERROR_SUCCESS || status == ERROR_FILE_NOT_FOUND {
                 Ok(())
             } else {
-                Err(format!("删除注册表项失败 ({}): 错误码 {:?}", sub_key, status))
+                Err(format!(
+                    "删除注册表项失败 ({}): 错误码 {:?}",
+                    sub_key, status
+                ))
             }
         }
     }
@@ -253,7 +259,8 @@ mod win_impl {
         let current_status = get_status()?;
         register(&ShellIntegrationOptions {
             enable_files: current_status.file_registered || !current_status.directory_registered,
-            enable_directories: current_status.directory_registered || !current_status.file_registered,
+            enable_directories: current_status.directory_registered
+                || !current_status.file_registered,
         })
     }
 }

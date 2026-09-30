@@ -142,7 +142,9 @@ fn read_docx_reference_pages(path: &Path) -> (Option<u32>, Option<String>) {
 
     let mut archive = match zip::ZipArchive::new(file) {
         Ok(a) => a,
-        Err(zip::result::ZipError::FileNotFound) => return (None, Some("fileNotFound".to_string())),
+        Err(zip::result::ZipError::FileNotFound) => {
+            return (None, Some("fileNotFound".to_string()))
+        }
         Err(_) => return (None, Some("corruptZip".to_string())),
     };
 
@@ -160,7 +162,7 @@ fn read_docx_reference_pages(path: &Path) -> (Option<u32>, Option<String>) {
 
     let mut buffer = Vec::with_capacity(std::cmp::min(app_xml_file.size() as usize, 64 * 1024));
     let mut limited_reader = (&mut app_xml_file).take(MAX_DOCX_APP_XML_BYTES + 1);
-    if let Err(_) = limited_reader.read_to_end(&mut buffer) {
+    if limited_reader.read_to_end(&mut buffer).is_err() {
         return (None, Some("corruptZip".to_string()));
     }
 
@@ -330,7 +332,8 @@ mod tests {
         let file = File::create(&docx_path).unwrap();
         let mut zip = zip::ZipWriter::new(file);
 
-        let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+        let options =
+            SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
         zip.start_file("docProps/app.xml", options).unwrap();
         zip.write_all(br#"<?xml version="1.0"?><Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Pages>17</Pages></Properties>"#).unwrap();
         zip.finish().unwrap();

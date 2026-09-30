@@ -152,9 +152,15 @@ pub fn compute_flatten_transform(
     ];
 
     let min_x = corners.iter().map(|c| c.0).fold(f64::INFINITY, f64::min);
-    let max_x = corners.iter().map(|c| c.0).fold(f64::NEG_INFINITY, f64::max);
+    let max_x = corners
+        .iter()
+        .map(|c| c.0)
+        .fold(f64::NEG_INFINITY, f64::max);
     let min_y = corners.iter().map(|c| c.1).fold(f64::INFINITY, f64::min);
-    let max_y = corners.iter().map(|c| c.1).fold(f64::NEG_INFINITY, f64::max);
+    let max_y = corners
+        .iter()
+        .map(|c| c.1)
+        .fold(f64::NEG_INFINITY, f64::max);
 
     let transformed_w = max_x - min_x;
     let transformed_h = max_y - min_y;
@@ -933,15 +939,13 @@ mod tests {
     #[test]
     fn scan_finds_printable_custom_seal_and_flattens_it() {
         // flags: 4 (Print)
-        let (_dir, pdf_path) =
-            create_test_pdf_with_annotation(4, true, "GoldGrid:AddSeal");
+        let (_dir, pdf_path) = create_test_pdf_with_annotation(4, true, "GoldGrid:AddSeal");
 
         let scan = scan_printable_annotations(&pdf_path).expect("scan succeeds");
         assert_eq!(scan.count, 1);
         assert_eq!(scan.unsupported_count, 0);
 
-        let prepared =
-            prepare_pdf_for_windows_rendering(&pdf_path).expect("prepare succeeds");
+        let prepared = prepare_pdf_for_windows_rendering(&pdf_path).expect("prepare succeeds");
         match prepared {
             PreparedPdf::Temporary(ref temp_path) => {
                 assert!(temp_path.exists());
@@ -973,15 +977,13 @@ mod tests {
     #[test]
     fn scan_ignores_non_printable_annotation() {
         // flags: 0 (Not marked for print)
-        let (_dir, pdf_path) =
-            create_test_pdf_with_annotation(0, true, "Stamp");
+        let (_dir, pdf_path) = create_test_pdf_with_annotation(0, true, "Stamp");
 
         let scan = scan_printable_annotations(&pdf_path).expect("scan succeeds");
         assert_eq!(scan.count, 0);
         assert_eq!(scan.unsupported_count, 0);
 
-        let prepared =
-            prepare_pdf_for_windows_rendering(&pdf_path).expect("prepare succeeds");
+        let prepared = prepare_pdf_for_windows_rendering(&pdf_path).expect("prepare succeeds");
         match prepared {
             PreparedPdf::Original(ref p) => assert_eq!(p, &pdf_path),
             PreparedPdf::Temporary(_) => panic!("Expected Original prepared PDF"),
@@ -991,8 +993,7 @@ mod tests {
     #[test]
     fn scan_reports_unsupported_when_print_flag_has_no_appearance() {
         // flags: 4 (Print), but has_appearance: false
-        let (_dir, pdf_path) =
-            create_test_pdf_with_annotation(4, false, "Stamp");
+        let (_dir, pdf_path) = create_test_pdf_with_annotation(4, false, "Stamp");
 
         let scan = scan_printable_annotations(&pdf_path).expect("scan succeeds");
         assert_eq!(scan.count, 0);
@@ -1006,13 +1007,11 @@ mod tests {
 
     #[test]
     fn prepared_pdf_cleans_up_temporary_file_on_drop() {
-        let (_dir, pdf_path) =
-            create_test_pdf_with_annotation(4, true, "GoldGrid:AddSeal");
+        let (_dir, pdf_path) = create_test_pdf_with_annotation(4, true, "GoldGrid:AddSeal");
 
         let temp_file_path;
         {
-            let prepared =
-                prepare_pdf_for_windows_rendering(&pdf_path).expect("prepare succeeds");
+            let prepared = prepare_pdf_for_windows_rendering(&pdf_path).expect("prepare succeeds");
             match prepared {
                 PreparedPdf::Temporary(ref p) => {
                     temp_file_path = p.clone();

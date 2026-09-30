@@ -332,7 +332,11 @@ fn print_single_item(
     }
 
     if item.settings.printer_name.trim().is_empty() {
-        return failed_item(item, "未指定打印机", Some(PrintItemErrorKind::PrinterUnavailable));
+        return failed_item(
+            item,
+            "未指定打印机",
+            Some(PrintItemErrorKind::PrinterUnavailable),
+        );
     }
 
     if let Err(error) = validate_printer_capabilities(&item, cached_printers) {
@@ -341,13 +345,21 @@ fn print_single_item(
 
     let kind = detect_document_kind(path);
     if kind == DocumentKind::Unknown {
-        return failed_item(item, "不支持的文件类型", Some(PrintItemErrorKind::Unsupported));
+        return failed_item(
+            item,
+            "不支持的文件类型",
+            Some(PrintItemErrorKind::Unsupported),
+        );
     }
 
     if item.settings.page_range_mode == "custom"
         && item.settings.page_range_expression.trim().is_empty()
     {
-        return failed_item(item, "自定义页码表达式为空", Some(PrintItemErrorKind::General));
+        return failed_item(
+            item,
+            "自定义页码表达式为空",
+            Some(PrintItemErrorKind::General),
+        );
     }
 
     let custom_range = item.settings.page_range_mode == "custom";
@@ -1192,7 +1204,10 @@ mod tests {
 
         // Terminate sets state
         terminate_current_batch();
-        assert_eq!(control.current_state(), BatchControlState::TerminateRequested);
+        assert_eq!(
+            control.current_state(),
+            BatchControlState::TerminateRequested
+        );
 
         // Dropping guard1 releases the lock
         drop(guard1);
@@ -1225,7 +1240,10 @@ mod tests {
         // Give thread a moment to reach safe boundary and enter paused state
         let deadline = std::time::Instant::now() + Duration::from_secs(5);
         while !paused_notified.load(Ordering::SeqCst) {
-            assert!(std::time::Instant::now() < deadline, "timeout waiting for paused state");
+            assert!(
+                std::time::Instant::now() < deadline,
+                "timeout waiting for paused state"
+            );
             thread::sleep(Duration::from_millis(10));
         }
         assert_eq!(control.current_state(), BatchControlState::Paused);
@@ -1239,7 +1257,10 @@ mod tests {
 
         // 3. Terminate while running
         control.request_terminate();
-        assert_eq!(control.current_state(), BatchControlState::TerminateRequested);
+        assert_eq!(
+            control.current_state(),
+            BatchControlState::TerminateRequested
+        );
 
         let term_action = control.wait_at_safe_boundary(|| {});
         assert_eq!(term_action, SafeBoundaryAction::Terminate);
@@ -1331,10 +1352,6 @@ mod tests {
             classify_error("未找到指定的打印机"),
             PrintItemErrorKind::PrinterUnavailable
         );
-        assert_eq!(
-            classify_error("未知内部错误"),
-            PrintItemErrorKind::General
-        );
+        assert_eq!(classify_error("未知内部错误"), PrintItemErrorKind::General);
     }
 }
-

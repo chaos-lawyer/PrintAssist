@@ -685,19 +685,28 @@ pub async fn show_in_folder(path: String) -> Result<(), String> {
 #[tauri::command]
 pub async fn get_file_metadata(paths: Vec<String>) -> Result<Vec<FileMetadata>, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        Ok::<Vec<FileMetadata>, String>(paths.into_iter().filter_map(|path| {
-            let metadata = std::fs::metadata(&path).ok()?;
-            let to_timestamp = |time: std::io::Result<std::time::SystemTime>| {
-                time.ok().and_then(|value| value.duration_since(UNIX_EPOCH).ok()).map(|duration| duration.as_millis() as i64)
-            };
-            Some(FileMetadata {
-                path,
-                file_size: metadata.len(),
-                created_at: to_timestamp(metadata.created()),
-                modified_at: to_timestamp(metadata.modified()),
-            })
-        }).collect())
-    }).await.map_err(|error| format!("读取文件属性失败：{error}"))?
+        Ok::<Vec<FileMetadata>, String>(
+            paths
+                .into_iter()
+                .filter_map(|path| {
+                    let metadata = std::fs::metadata(&path).ok()?;
+                    let to_timestamp = |time: std::io::Result<std::time::SystemTime>| {
+                        time.ok()
+                            .and_then(|value| value.duration_since(UNIX_EPOCH).ok())
+                            .map(|duration| duration.as_millis() as i64)
+                    };
+                    Some(FileMetadata {
+                        path,
+                        file_size: metadata.len(),
+                        created_at: to_timestamp(metadata.created()),
+                        modified_at: to_timestamp(metadata.modified()),
+                    })
+                })
+                .collect(),
+        )
+    })
+    .await
+    .map_err(|error| format!("读取文件属性失败：{error}"))?
 }
 
 #[tauri::command]
@@ -706,7 +715,8 @@ pub async fn open_file(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn get_shell_integration_status() -> Result<crate::shell_integration::ShellIntegrationStatus, String> {
+pub fn get_shell_integration_status(
+) -> Result<crate::shell_integration::ShellIntegrationStatus, String> {
     crate::shell_integration::get_status()
 }
 
@@ -718,12 +728,14 @@ pub fn register_shell_integration(
 }
 
 #[tauri::command]
-pub fn unregister_shell_integration() -> Result<crate::shell_integration::ShellIntegrationStatus, String> {
+pub fn unregister_shell_integration(
+) -> Result<crate::shell_integration::ShellIntegrationStatus, String> {
     crate::shell_integration::unregister()
 }
 
 #[tauri::command]
-pub fn repair_shell_integration() -> Result<crate::shell_integration::ShellIntegrationStatus, String> {
+pub fn repair_shell_integration() -> Result<crate::shell_integration::ShellIntegrationStatus, String>
+{
     crate::shell_integration::repair()
 }
 
@@ -740,8 +752,7 @@ pub async fn write_external_request_result(
     tauri::async_runtime::spawn_blocking(move || {
         let json_str = serde_json::to_string_pretty(&result)
             .map_err(|e| format!("序列化结果 JSON 失败: {}", e))?;
-        std::fs::write(&result_file, json_str)
-            .map_err(|e| format!("写入结果文件失败: {}", e))?;
+        std::fs::write(&result_file, json_str).map_err(|e| format!("写入结果文件失败: {}", e))?;
         Ok::<(), String>(())
     })
     .await
@@ -753,9 +764,11 @@ pub async fn get_reference_page_count(
     path: String,
 ) -> Result<crate::documents::reference_pages::ReferencePageCountResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        Ok(crate::documents::reference_pages::read_reference_page_count(
-            std::path::Path::new(&path),
-        ))
+        Ok(
+            crate::documents::reference_pages::read_reference_page_count(std::path::Path::new(
+                &path,
+            )),
+        )
     })
     .await
     .map_err(|error| format!("读取参考页数任务异常：{error}"))?

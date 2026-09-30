@@ -1,6 +1,6 @@
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
-use serde::{Deserialize, Serialize};
 
 pub use crate::documents::{is_supported_file, SUPPORTED_EXTENSIONS};
 
@@ -100,15 +100,17 @@ pub fn expand_path_argument(argument: &str, paths: &mut Vec<String>) {
 
 /// Parses a request JSON file from disk into `ExternalRequestV1`.
 pub fn parse_request_file(file_path: &Path) -> Result<ExternalRequestV1, String> {
-    let metadata = fs::metadata(file_path)
-        .map_err(|e| format!("无法读取请求文件元数据: {}", e))?;
+    let metadata = fs::metadata(file_path).map_err(|e| format!("无法读取请求文件元数据: {}", e))?;
     if metadata.len() > MAX_REQUEST_FILE_BYTES {
-        return Err(format!("请求文件超过最大限制 ({} MB)", MAX_REQUEST_FILE_BYTES / (1024 * 1024)));
+        return Err(format!(
+            "请求文件超过最大限制 ({} MB)",
+            MAX_REQUEST_FILE_BYTES / (1024 * 1024)
+        ));
     }
-    let content = fs::read_to_string(file_path)
-        .map_err(|e| format!("无法读取请求文件内容: {}", e))?;
-    let mut req: ExternalRequestV1 = serde_json::from_str(&content)
-        .map_err(|e| format!("请求文件 JSON 解析失败: {}", e))?;
+    let content =
+        fs::read_to_string(file_path).map_err(|e| format!("无法读取请求文件内容: {}", e))?;
+    let mut req: ExternalRequestV1 =
+        serde_json::from_str(&content).map_err(|e| format!("请求文件 JSON 解析失败: {}", e))?;
 
     if req.version != 1 {
         return Err(format!("不支持的请求协议版本: {}", req.version));
@@ -193,7 +195,12 @@ pub fn parse_external_request(arguments: &[String]) -> Result<Option<ExternalReq
             match args[i].to_lowercase().as_str() {
                 "add" => action = Some(ExternalAction::Add),
                 "print" => action = Some(ExternalAction::Print),
-                other => return Err(format!("未知的 --action 参数值: '{}' (支持 add | print)", other)),
+                other => {
+                    return Err(format!(
+                        "未知的 --action 参数值: '{}' (支持 add | print)",
+                        other
+                    ))
+                }
             }
             i += 1;
             continue;
@@ -258,7 +265,12 @@ pub fn parse_external_request(arguments: &[String]) -> Result<Option<ExternalReq
                 "ask" => duplicate_policy = Some(DuplicatePolicy::Ask),
                 "skip" => duplicate_policy = Some(DuplicatePolicy::Skip),
                 "include" => duplicate_policy = Some(DuplicatePolicy::Include),
-                other => return Err(format!("未知的 --duplicate 参数值: '{}' (支持 ask | skip | include)", other)),
+                other => {
+                    return Err(format!(
+                        "未知的 --duplicate 参数值: '{}' (支持 ask | skip | include)",
+                        other
+                    ))
+                }
             }
             i += 1;
             continue;
@@ -272,7 +284,12 @@ pub fn parse_external_request(arguments: &[String]) -> Result<Option<ExternalReq
             match args[i].to_lowercase().as_str() {
                 "reject" => busy_policy = Some(BusyPolicy::Reject),
                 "enqueue" => busy_policy = Some(BusyPolicy::Enqueue),
-                other => return Err(format!("未知的 --busy 参数值: '{}' (支持 reject | enqueue)", other)),
+                other => {
+                    return Err(format!(
+                        "未知的 --busy 参数值: '{}' (支持 reject | enqueue)",
+                        other
+                    ))
+                }
             }
             i += 1;
             continue;
