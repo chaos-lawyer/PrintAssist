@@ -19,11 +19,11 @@ pub fn activate_window_to_foreground(window: &tauri::WebviewWindow) {
     let _ = window.set_focus();
 
     if let Ok(handle) = window.hwnd() {
-        use windows::Win32::Foundation::{BOOL, HWND};
-        use windows::Win32::System::Threading::GetCurrentThreadId;
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
         use windows::Win32::UI::WindowsAndMessaging::{
-            AttachThreadInput, BringWindowToTop, GetForegroundWindow, GetWindowThreadProcessId,
-            IsIconic, SetForegroundWindow, SetWindowPos, ShowWindow, HWND_NOTOPMOST, HWND_TOPMOST,
+            BringWindowToTop, GetForegroundWindow, GetWindowThreadProcessId, IsIconic,
+            SetForegroundWindow, SetWindowPos, ShowWindow, HWND_NOTOPMOST, HWND_TOPMOST,
             SWP_NOMOVE, SWP_NOSIZE, SW_RESTORE, SW_SHOW,
         };
 
@@ -41,10 +41,10 @@ pub fn activate_window_to_foreground(window: &tauri::WebviewWindow) {
                 let current_thread = GetCurrentThreadId();
 
                 if foreground_thread != 0 && foreground_thread != current_thread {
-                    let _ = AttachThreadInput(current_thread, foreground_thread, BOOL::from(true));
+                    let _ = AttachThreadInput(current_thread, foreground_thread, true);
                     let _ = SetForegroundWindow(hwnd);
                     let _ = BringWindowToTop(hwnd);
-                    let _ = AttachThreadInput(current_thread, foreground_thread, BOOL::from(false));
+                    let _ = AttachThreadInput(current_thread, foreground_thread, false);
                 } else {
                     let _ = SetForegroundWindow(hwnd);
                     let _ = BringWindowToTop(hwnd);
