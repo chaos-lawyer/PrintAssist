@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { message, Modal } from 'antd';
 import {
+  activateAppWindow,
   loadPrinterProfile,
   subscribeExternalRequests,
   validateSupportedPaths,
@@ -63,6 +64,10 @@ export function useExternalRequest(options: UseExternalRequestOptions) {
         return;
       }
       recordRequestIdProcessed(request.requestId);
+
+      if (request.activateWindow !== false) {
+        void activateAppWindow();
+      }
 
       const currentQueue = queueStateRef.current;
 

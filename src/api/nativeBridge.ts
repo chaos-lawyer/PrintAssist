@@ -640,4 +640,9 @@ export async function getReferencePageCount(path: string): Promise<ReferencePage
   return invokeCommand<ReferencePageCountResult>('get_reference_page_count', { path });
 }
 
+export async function activateAppWindow(): Promise<void> {
+  if (!isTauriRuntime()) return;
+  return invokeCommand<void>('activate_app_window');
+}
+
 export { isTauriRuntime };

@@ -773,3 +773,9 @@ pub async fn get_reference_page_count(
     .await
     .map_err(|error| format!("读取参考页数任务异常：{error}"))?
 }
+
+#[tauri::command]
+pub async fn activate_app_window(window: tauri::WebviewWindow) -> Result<(), String> {
+    crate::activate_window_to_foreground(&window);
+    Ok(())
+}

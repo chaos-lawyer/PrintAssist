@@ -8,6 +8,63 @@ pub mod shell_integration;
 
 use tauri::{Emitter, Manager};
 
+#[cfg(windows)]
+pub fn activate_window_to_foreground(window: &tauri::WebviewWindow) {
+    let _ = window.unminimize();
+    let _ = window.show();
+    let _ = window.set_focus();
+
+    let _ = window.set_always_on_top(true);
+    let _ = window.set_always_on_top(false);
+    let _ = window.set_focus();
+
+    if let Ok(handle) = window.hwnd() {
+        use windows::Win32::Foundation::{BOOL, HWND};
+        use windows::Win32::System::Threading::GetCurrentThreadId;
+        use windows::Win32::UI::WindowsAndMessaging::{
+            AttachThreadInput, BringWindowToTop, GetForegroundWindow, GetWindowThreadProcessId,
+            IsIconic, SetForegroundWindow, SetWindowPos, ShowWindow, HWND_NOTOPMOST, HWND_TOPMOST,
+            SWP_NOMOVE, SWP_NOSIZE, SW_RESTORE, SW_SHOW,
+        };
+
+        let hwnd = HWND(handle.0 as *mut std::ffi::c_void);
+        unsafe {
+            if IsIconic(hwnd).as_bool() {
+                let _ = ShowWindow(hwnd, SW_RESTORE);
+            } else {
+                let _ = ShowWindow(hwnd, SW_SHOW);
+            }
+
+            let foreground_hwnd = GetForegroundWindow();
+            if foreground_hwnd != hwnd {
+                let foreground_thread = GetWindowThreadProcessId(foreground_hwnd, None);
+                let current_thread = GetCurrentThreadId();
+
+                if foreground_thread != 0 && foreground_thread != current_thread {
+                    let _ = AttachThreadInput(current_thread, foreground_thread, BOOL::from(true));
+                    let _ = SetForegroundWindow(hwnd);
+                    let _ = BringWindowToTop(hwnd);
+                    let _ = AttachThreadInput(current_thread, foreground_thread, BOOL::from(false));
+                } else {
+                    let _ = SetForegroundWindow(hwnd);
+                    let _ = BringWindowToTop(hwnd);
+                }
+            }
+
+            let _ = SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+            let _ = SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+            let _ = SetForegroundWindow(hwnd);
+        }
+    }
+}
+
+#[cfg(not(windows))]
+pub fn activate_window_to_foreground(window: &tauri::WebviewWindow) {
+    let _ = window.unminimize();
+    let _ = window.show();
+    let _ = window.set_focus();
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let mut builder = tauri::Builder::default();
@@ -18,12 +75,12 @@ pub fn run() {
             if let Ok(Some(req)) = ingress::parse_external_request(&args) {
                 if req.activate_window.unwrap_or(true) {
                     if let Some(window) = app.get_webview_window("main") {
-                        let _ = window.set_focus();
+                        activate_window_to_foreground(&window);
                     }
                 }
                 let _ = app.emit("external-request", &req);
             } else if let Some(window) = app.get_webview_window("main") {
-                let _ = window.set_focus();
+                activate_window_to_foreground(&window);
             }
         }));
     }
@@ -38,7 +95,7 @@ pub fn run() {
                     tauri::image::Image::from_bytes(include_bytes!("../icons/icon.ico"))
                         .expect("Failed to load icon"),
                 )?;
-                let _ = window.set_focus();
+                activate_window_to_foreground(&window);
 
                 // WebView2 在窗口创建后仍会继续导航；过早聚焦只会落在原生窗口，
                 // 页面尚未获得键盘输入。导航稳定后再聚焦一次，保证首个快捷键可用。
@@ -46,7 +103,7 @@ pub fn run() {
                 std::thread::spawn(move || {
                     std::thread::sleep(std::time::Duration::from_millis(800));
                     if let Some(window) = startup_handle.get_webview_window("main") {
-                        let _ = window.set_focus();
+                        activate_window_to_foreground(&window);
                     }
                 });
             }
@@ -111,6 +168,7 @@ pub fn run() {
             commands::get_app_executable_path,
             commands::write_external_request_result,
             commands::get_reference_page_count,
+            commands::activate_app_window,
         ])
         .run(tauri::generate_context!())
         .expect("error while running PrintAssist");
