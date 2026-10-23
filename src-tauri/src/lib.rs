@@ -22,9 +22,6 @@ pub fn run() {
                     }
                 }
                 let _ = app.emit("external-request", &req);
-                if !req.paths.is_empty() {
-                    let _ = app.emit("files-added", &req.paths);
-                }
             } else if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_focus();
             }
@@ -69,9 +66,6 @@ pub fn run() {
                 std::thread::spawn(move || {
                     std::thread::sleep(std::time::Duration::from_millis(400));
                     let _ = handle.emit("external-request", &req);
-                    if !req.paths.is_empty() {
-                        let _ = handle.emit("files-added", &req.paths);
-                    }
                 });
             }
             Ok(())

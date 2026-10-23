@@ -277,6 +277,9 @@ export async function cancelPrintBatch(): Promise<void> {
   return invokeCommand<void>('cancel_print_batch');
 }
 
+/**
+ * @deprecated 已由 subscribeExternalRequests 替代，外部请求统一走 ExternalRequestV1 协议。
+ */
 export function subscribeIncomingFiles(
   onFiles: (paths: string[]) => void,
 ): () => void {

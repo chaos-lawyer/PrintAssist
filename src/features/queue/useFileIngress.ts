@@ -4,7 +4,6 @@ import {
   expandFilePaths,
   pickFiles,
   pickFolderFiles,
-  subscribeIncomingFiles,
   subscribeNativeDragDrop,
 } from '../../api/nativeBridge';
 import type { QueueState } from '../../domain/queueTypes';
@@ -115,14 +114,6 @@ export function useFileIngress(options: UseFileIngressOptions) {
     pendingAppendResolverRef.current?.(decision);
     pendingAppendResolverRef.current = null;
   };
-
-  useEffect(() => {
-    return subscribeIncomingFiles((paths) => {
-      if (paths.length > 0) {
-        void requestAppendPaths(paths);
-      }
-    });
-  }, [requestAppendPaths]);
 
   useEffect(() => {
     // Tauri 2: 桌面拖放路径只能从原生 DragDrop 事件拿到，不能依赖 HTML5 File.path
