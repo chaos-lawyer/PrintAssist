@@ -886,7 +886,7 @@ export function GlobalSettingsPanel({
                   <Input
                     id="page-expr-input"
                     size="small"
-                    placeholder="例如 1,3,5-8"
+                    placeholder="如 1,3,5-8 或 1-L, !2"
                     value={settings.pageRange?.expression}
                     onChange={(e) =>
                       onChange(

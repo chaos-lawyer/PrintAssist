@@ -535,7 +535,7 @@ export function FileSettingsDrawer({
             draftOverride.pageRange?.expression ??
             (effective.pageRange.mode === 'custom' ? effective.pageRange.expression : '')
           }
-          placeholder="留空打印全部页，或输入如 1,3,5-8"
+          placeholder="留空打印全部页，或输入如 1-L, !1, 3-5"
           onChange={(event) => {
             const val = event.target.value;
             if (!val.trim()) {
