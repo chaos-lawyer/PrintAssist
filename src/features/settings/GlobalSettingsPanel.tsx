@@ -729,25 +729,54 @@ export function GlobalSettingsPanel({
               </div>
 
               {showFlipOptions && (
-                <div className="setting-submenu setting-submenu-compact">
-                  <span className="setting-row-label" id="flip-mode-label">
-                    翻转
-                  </span>
-                  <Segmented
-                    className="setting-segmented"
-                    size="small"
-                    block
-                    aria-labelledby="flip-mode-label"
-                    value={settings.flipMode}
-                    options={[
-                      { label: '长边', value: 'longEdge' },
-                      { label: '短边', value: 'shortEdge' },
-                    ]}
-                    onChange={(value) =>
-                      onChange({ ...settings, flipMode: value as FlipMode })
-                    }
-                  />
-                </div>
+                <>
+                  <div className="setting-submenu setting-submenu-compact">
+                    <span className="setting-row-label" id="flip-mode-label">
+                      翻转
+                    </span>
+                    <Segmented
+                      className="setting-segmented"
+                      size="small"
+                      block
+                      aria-labelledby="flip-mode-label"
+                      value={settings.flipMode}
+                      options={[
+                        { label: '长边', value: 'longEdge' },
+                        { label: '短边', value: 'shortEdge' },
+                      ]}
+                      onChange={(value) =>
+                        onChange({ ...settings, flipMode: value as FlipMode })
+                      }
+                    />
+                  </div>
+                  <div className="setting-submenu setting-submenu-compact">
+                    <Tooltip
+                      title="跨文件双面：当上一文件为奇数页时，下一文件将紧接在反面打印以节约纸张；默认为否（每个文件独立从新纸张开始打印）"
+                      mouseEnterDelay={0.5}
+                    >
+                      <span className="setting-row-label" id="cross-file-duplex-label">
+                        跨文件双面
+                      </span>
+                    </Tooltip>
+                    <Segmented
+                      className="setting-segmented"
+                      size="small"
+                      block
+                      aria-labelledby="cross-file-duplex-label"
+                      value={settings.crossFileDuplex ? 'true' : 'false'}
+                      options={[
+                        { label: '否', value: 'false' },
+                        { label: '是', value: 'true' },
+                      ]}
+                      onChange={(value) =>
+                        onChange({
+                          ...settings,
+                          crossFileDuplex: value === 'true',
+                        })
+                      }
+                    />
+                  </div>
+                </>
               )}
             </div>
             {showDuplexHint && (

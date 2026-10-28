@@ -168,6 +168,10 @@ export function usePrintExecution(options: UsePrintExecutionOptions) {
         items: payloads.map((item) => ({ ...item, allowAssociationFallback: true })),
         nupLayout: isNup ? globalSettings.nupLayout : undefined,
         nupScope: isNup ? globalSettings.nupScope : undefined,
+        crossFileDuplex:
+          globalSettings.sidesMode === 'duplex'
+            ? Boolean(globalSettings.crossFileDuplex)
+            : false,
       });
       dispatch({ type: 'finish_print', summary: createPrintSummary(batchResult.results) });
 

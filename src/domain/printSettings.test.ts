@@ -188,6 +188,19 @@ describe('printSettings domain', () => {
   });
 
   describe('single-file override and inheritance', () => {
+    it('defaults crossFileDuplex to false in default settings', () => {
+      const def = createDefaultGlobalSettings();
+      expect(def.crossFileDuplex).toBe(false);
+      expect(def.sidesMode).toBe('duplex');
+    });
+
+    it('inherits crossFileDuplex from global settings', () => {
+      const global = createDefaultGlobalSettings('HP LaserJet');
+      global.crossFileDuplex = true;
+      const merged = mergePrintSettings(global, {});
+      expect(merged.crossFileDuplex).toBe(true);
+    });
+
     it('inherits global settings when override has no custom values', () => {
       const global = createDefaultGlobalSettings('HP LaserJet');
       global.colorMode = 'color';

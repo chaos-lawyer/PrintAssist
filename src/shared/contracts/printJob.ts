@@ -24,6 +24,7 @@ export interface ResolvedPrintSettingsPayload {
   pageRangeExpression: string;
   collate?: boolean;
   driverProfileId?: string;
+  crossFileDuplex?: boolean;
 }
 
 export interface PrintQueueItemPayload {
@@ -38,6 +39,7 @@ export interface PrintBatchRequest {
   items: PrintQueueItemPayload[];
   nupLayout?: NupLayout;
   nupScope?: NupScope;
+  crossFileDuplex?: boolean;
 }
 
 export interface PrintBatchResultItem {

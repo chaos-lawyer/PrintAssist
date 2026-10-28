@@ -311,8 +311,13 @@ export function App() {
         ? globalSettings.nupLayout.cols * globalSettings.nupLayout.rows
         : 1;
     const isCrossFile = nupSlots > 1 && globalSettings.nupScope === 'crossFile';
+    const isCrossFileDuplex =
+      !isCrossFile &&
+      globalSettings.sidesMode === 'duplex' &&
+      Boolean(globalSettings.crossFileDuplex);
 
     let totalCrossPages = 0;
+    let totalCrossDuplexSides = 0;
 
     for (const item of queueState.items) {
       if (typeof item.pageCount === 'number' && item.pageCount > 0) {
@@ -332,6 +337,9 @@ export function App() {
 
         if (isCrossFile) {
           totalCrossPages += pagesToPrint;
+        } else if (isCrossFileDuplex && resolved.sidesMode === 'duplex') {
+          const logicalSides = Math.ceil(pagesToPrint / nupSlots);
+          totalCrossDuplexSides += logicalSides * (resolved.copies || 1);
         } else {
           const logicalSides = Math.ceil(pagesToPrint / nupSlots);
           const sheetsPerCopy =
@@ -348,6 +356,8 @@ export function App() {
       const sheetsPerCopy =
         globalSettings.sidesMode === 'duplex' ? Math.ceil(logicalSides / 2) : logicalSides;
       estimatedSheets = sheetsPerCopy * (globalSettings.copies || 1);
+    } else if (isCrossFileDuplex && !hasUncalculableItem) {
+      estimatedSheets += Math.ceil(totalCrossDuplexSides / 2);
     }
 
     const allKnown = queueState.items.length > 0 && knownCount === queueState.items.length;

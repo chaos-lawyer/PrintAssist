@@ -172,13 +172,26 @@ pub fn run_print_batch_sync(
 
     let nup = request.nup_layout;
     let scope = request.nup_scope.as_deref().unwrap_or("perFile");
-    let is_cross_file = nup.is_some_and(|l| l.cols * l.rows > 1) && scope == "crossFile";
+    let is_cross_file_nup = nup.is_some_and(|l| l.cols * l.rows > 1) && scope == "crossFile";
+    let is_cross_file_duplex = request.cross_file_duplex.unwrap_or(false)
+        && request
+            .items
+            .first()
+            .is_some_and(|it| it.settings.sides_mode == "duplex");
+    let is_cross_file = is_cross_file_nup || is_cross_file_duplex;
+
+    #[cfg(windows)]
+    let effective_layout = if is_cross_file_nup {
+        nup.unwrap()
+    } else {
+        crate::contracts::NupLayout { cols: 1, rows: 1 }
+    };
 
     #[cfg(windows)]
     if is_cross_file {
         return Ok(run_batch_cross_file_nup(
             request,
-            nup.unwrap(),
+            effective_layout,
             profile_store,
             app,
             &batch_control,
@@ -187,6 +200,11 @@ pub fn run_print_batch_sync(
 
     #[cfg(not(windows))]
     if is_cross_file {
+        let msg = if is_cross_file_nup {
+            "当前平台不支持跨文件拼接打印"
+        } else {
+            "当前平台不支持跨文件双面打印"
+        };
         return Ok(PrintBatchResult {
             succeeded: 0,
             failed: request.items.len() as u32,
@@ -199,7 +217,7 @@ pub fn run_print_batch_sync(
                     path: item.path,
                     file_name: item.file_name,
                     status: "failed".to_string(),
-                    message: Some("当前平台不支持跨文件拼接打印".to_string()),
+                    message: Some(msg.to_string()),
                     error_kind: Some(PrintItemErrorKind::Unsupported),
                 })
                 .collect(),
@@ -1187,6 +1205,7 @@ mod tests {
                 driver_profile_id: None,
                 nup_layout: None,
                 nup_scope: None,
+                cross_file_duplex: None,
             },
             allow_association_fallback: false,
         }
@@ -1272,6 +1291,7 @@ mod tests {
             items: vec![],
             nup_layout: None,
             nup_scope: None,
+            cross_file_duplex: None,
         };
         assert!(req.validate().is_err());
     }
@@ -1283,6 +1303,7 @@ mod tests {
             items: vec![item],
             nup_layout: None,
             nup_scope: None,
+            cross_file_duplex: None,
         };
         assert!(req.validate().is_err());
     }
@@ -1299,6 +1320,7 @@ mod tests {
             items: vec![item],
             nup_layout: Some(NupLayout { cols: 2, rows: 2 }),
             nup_scope: Some("crossFile".to_string()),
+            cross_file_duplex: None,
         };
         let res = req.validate();
         let _ = fs::remove_file(temp_txt);
@@ -1320,6 +1342,7 @@ mod tests {
             items: vec![item1, item2],
             nup_layout: Some(NupLayout { cols: 2, rows: 1 }),
             nup_scope: Some("crossFile".to_string()),
+            cross_file_duplex: None,
         };
         let res = req.validate();
         let _ = fs::remove_file(temp_pdf);
@@ -1328,6 +1351,32 @@ mod tests {
         assert!(res
             .unwrap_err()
             .contains("跨文件多页拼接要求队列中所有文件使用同一台打印机"));
+    }
+
+    #[test]
+    fn batch_validation_rejects_mismatched_printers_in_cross_file_duplex() {
+        let temp_pdf = std::env::temp_dir().join(format!("test-{}.pdf", uuid::Uuid::new_v4()));
+        let _ = fs::write(&temp_pdf, b"%PDF-1.4 dummy");
+
+        let mut item1 = make_test_item(temp_pdf.to_str().unwrap(), "Printer1", 1);
+        item1.settings.sides_mode = "duplex".to_string();
+        let mut item2 = make_test_item(temp_pdf.to_str().unwrap(), "Printer2", 1);
+        item2.queue_item_id = "item-2".to_string();
+        item2.settings.sides_mode = "duplex".to_string();
+
+        let req = PrintBatchRequest {
+            items: vec![item1, item2],
+            nup_layout: None,
+            nup_scope: None,
+            cross_file_duplex: Some(true),
+        };
+        let res = req.validate();
+        let _ = fs::remove_file(temp_pdf);
+
+        assert!(res.is_err());
+        assert!(res
+            .unwrap_err()
+            .contains("跨文件双面打印要求队列中所有文件使用同一台打印机"));
     }
 
     #[test]

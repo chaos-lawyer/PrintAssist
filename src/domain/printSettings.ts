@@ -120,6 +120,7 @@ export interface PrintSettings {
   colorMode: ColorMode;
   sidesMode: SidesMode;
   flipMode: FlipMode;
+  crossFileDuplex?: boolean;
   copies: number;
   collateMode: CollateMode;
   collate: boolean;
@@ -155,6 +156,7 @@ export function createDefaultGlobalSettings(printerName = ''): PrintSettings {
     colorMode: 'monochrome',
     sidesMode: 'duplex',
     flipMode: 'longEdge',
+    crossFileDuplex: false,
     copies: 1,
     collateMode: 'byDocument',
     collate: true,
@@ -297,6 +299,7 @@ export function mergePrintSettings(
     colorMode: fileOverride.colorMode ?? globalSettings.colorMode,
     sidesMode: fileOverride.sidesMode ?? globalSettings.sidesMode,
     flipMode: fileOverride.flipMode ?? globalSettings.flipMode,
+    crossFileDuplex: globalSettings.crossFileDuplex ?? false,
     copies: fileOverride.copies ?? globalSettings.copies,
     collateMode,
     collate,

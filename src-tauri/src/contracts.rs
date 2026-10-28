@@ -162,6 +162,8 @@ pub struct ResolvedPrintSettingsPayload {
     pub nup_layout: Option<NupLayout>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub nup_scope: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cross_file_duplex: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -182,6 +184,8 @@ pub struct PrintBatchRequest {
     pub nup_layout: Option<NupLayout>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub nup_scope: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cross_file_duplex: Option<bool>,
 }
 
 impl PrintBatchRequest {
@@ -206,8 +210,14 @@ impl PrintBatchRequest {
             }
         }
 
-        let is_cross_file = self.nup_layout.is_some_and(|l| l.cols * l.rows > 1)
+        let is_cross_file_nup = self.nup_layout.is_some_and(|l| l.cols * l.rows > 1)
             && self.nup_scope.as_deref() == Some("crossFile");
+        let is_cross_file_duplex = self.cross_file_duplex.unwrap_or(false)
+            && self
+                .items
+                .first()
+                .is_some_and(|it| it.settings.sides_mode == "duplex");
+        let is_cross_file = is_cross_file_nup || is_cross_file_duplex;
 
         let first_printer = &self.items[0].settings.printer_name;
 
@@ -244,7 +254,11 @@ impl PrintBatchRequest {
                     .printer_name
                     .eq_ignore_ascii_case(first_printer)
                 {
-                    return Err("跨文件多页拼接要求队列中所有文件使用同一台打印机".to_string());
+                    if is_cross_file_nup {
+                        return Err("跨文件多页拼接要求队列中所有文件使用同一台打印机".to_string());
+                    } else {
+                        return Err("跨文件双面打印要求队列中所有文件使用同一台打印机".to_string());
+                    }
                 }
                 let ext = path
                     .extension()
@@ -252,10 +266,17 @@ impl PrintBatchRequest {
                     .unwrap_or("")
                     .to_ascii_lowercase();
                 if matches!(ext.as_str(), "txt" | "log" | "md") {
-                    return Err(format!(
-                        "跨文件多页拼接不支持纯文本文件“{}”，请转换为 PDF 或单文件独立打印",
-                        item.file_name
-                    ));
+                    if is_cross_file_nup {
+                        return Err(format!(
+                            "跨文件多页拼接不支持纯文本文件“{}”，请转换为 PDF 或单文件独立打印",
+                            item.file_name
+                        ));
+                    } else {
+                        return Err(format!(
+                            "跨文件双面打印不支持纯文本文件“{}”，请转换为 PDF 或单文件独立打印",
+                            item.file_name
+                        ));
+                    }
                 }
             }
         }
