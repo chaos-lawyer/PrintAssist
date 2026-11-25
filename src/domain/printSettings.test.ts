@@ -3,10 +3,15 @@ import type { PrinterDriverSettings } from '../shared/contracts/printer';
 import {
   applyDriverSettings,
   applyLoadedPersistentProfile,
+  clampCustomPaperMm,
   createDefaultGlobalSettings,
   formatDriverSettingsSummary,
+  formatOriginalSizeLabel,
+  formatPaperSizeLabel,
   isProfileDirty,
   mergePrintSettings,
+  resolveEffectivePaperSize,
+  resolveOriginalSizeDimensionsMm,
 } from './printSettings';
 
 describe('printSettings domain', () => {
@@ -295,6 +300,83 @@ describe('printSettings domain', () => {
       const mergedReset = mergePrintSettings(global, override);
       expect(mergedReset.collateMode).toBe('byDocument');
       expect(mergedReset.collate).toBe(true);
+    });
+  });
+
+  describe('originalSize and paperSize', () => {
+    it('defaults originalSize to A4 and paperSize to sameAsOriginal', () => {
+      const def = createDefaultGlobalSettings('Office Printer');
+      expect(def.originalSize).toEqual({ preset: 'a4' });
+      expect(def.paperSize).toEqual({ preset: 'sameAsOriginal' });
+    });
+
+    it('resolves sameAsOriginal from originalSize presets and custom dimensions', () => {
+      expect(
+        resolveEffectivePaperSize({ preset: 'a4' }, { preset: 'sameAsOriginal' }),
+      ).toEqual({ preset: 'a4', widthMm: 210, heightMm: 297 });
+
+      expect(
+        resolveEffectivePaperSize({ preset: 'a3' }, { preset: 'sameAsOriginal' }),
+      ).toEqual({ preset: 'a3', widthMm: 297, heightMm: 420 });
+
+      expect(
+        resolveEffectivePaperSize(
+          { preset: 'custom', custom: { widthMm: 180, heightMm: 260 } },
+          { preset: 'sameAsOriginal' },
+        ),
+      ).toEqual({ preset: 'custom', widthMm: 180, heightMm: 260 });
+    });
+
+    it('resolves explicit paperSize independently from originalSize', () => {
+      expect(
+        resolveEffectivePaperSize({ preset: 'a4' }, { preset: 'a3' }),
+      ).toEqual({ preset: 'a3', widthMm: 297, heightMm: 420 });
+
+      expect(
+        resolveEffectivePaperSize(
+          { preset: 'a3' },
+          { preset: 'custom', custom: { widthMm: 150, heightMm: 220 } },
+        ),
+      ).toEqual({ preset: 'custom', widthMm: 150, heightMm: 220 });
+    });
+
+    it('clamps custom dimensions within valid mm bounds', () => {
+      expect(clampCustomPaperMm(10, 210)).toBe(50);
+      expect(clampCustomPaperMm(9999, 297)).toBe(1200);
+      expect(clampCustomPaperMm(Number.NaN, 210)).toBe(210);
+      expect(
+        resolveOriginalSizeDimensionsMm({
+          preset: 'custom',
+          custom: { widthMm: 20, heightMm: 2500 },
+        }),
+      ).toEqual({ widthMm: 50, heightMm: 1200 });
+    });
+
+    it('formats readable labels for originalSize and paperSize', () => {
+      expect(formatOriginalSizeLabel({ preset: 'a4' })).toBe('A4');
+      expect(formatOriginalSizeLabel({ preset: 'a3' })).toBe('A3');
+      expect(
+        formatOriginalSizeLabel({ preset: 'custom', custom: { widthMm: 180, heightMm: 260 } }),
+      ).toBe('180×260mm');
+      expect(formatPaperSizeLabel({ preset: 'sameAsOriginal' }, { preset: 'a3' })).toBe(
+        '与原稿相同 (A3)',
+      );
+      expect(
+        formatPaperSizeLabel(
+          { preset: 'custom', custom: { widthMm: 160, heightMm: 240 } },
+          { preset: 'a4' },
+        ),
+      ).toBe('160×240mm');
+    });
+
+    it('merges file-level originalSize and paperSize overrides cleanly', () => {
+      const global = createDefaultGlobalSettings('Office Printer');
+      const merged = mergePrintSettings(global, {
+        originalSize: { preset: 'a3' },
+        paperSize: { preset: 'a4' },
+      });
+      expect(merged.originalSize).toEqual({ preset: 'a3' });
+      expect(merged.paperSize).toEqual({ preset: 'a4' });
     });
   });
 });

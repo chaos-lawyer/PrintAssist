@@ -171,6 +171,8 @@ export function AddFavoriteModal({
         collate: currentSettings.collate,
         sourceCode: currentSettings.sourceCode,
         sourceName: currentSettings.sourceName,
+        originalSize: currentSettings.originalSize,
+        paperSize: currentSettings.paperSize,
         scaleMode: currentSettings.scaleMode,
         nupLayout: currentSettings.nupLayout,
         nupScope: currentSettings.nupScope,

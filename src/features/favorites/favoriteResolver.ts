@@ -232,6 +232,8 @@ export async function resolveFavorite(options: ResolveFavoriteOptions): Promise<
           collate: std.collate ?? nextSettings.collate,
           sourceCode: std.sourceCode ?? nextSettings.sourceCode,
           sourceName: std.sourceName ?? nextSettings.sourceName,
+          originalSize: std.originalSize ?? nextSettings.originalSize,
+          paperSize: std.paperSize ?? nextSettings.paperSize,
           scaleMode: std.scaleMode ?? nextSettings.scaleMode,
           nupLayout: std.nupLayout ?? nextSettings.nupLayout,
           nupScope: std.nupScope ?? nextSettings.nupScope,

@@ -64,6 +64,7 @@ pub fn print_image_to_printer(
     devmode: Option<&[u8]>,
     scale_mode: Option<&str>,
     nup: Option<NupLayout>,
+    paper_scale_ratio: f64,
 ) -> Result<(), String> {
     if !file_path.exists() {
         return Err(format!("文件不存在：{}", file_path.display()));
@@ -80,6 +81,7 @@ pub fn print_image_to_printer(
         devmode,
         scale_mode,
         nup,
+        paper_scale_ratio,
     )
 }
 
@@ -125,6 +127,7 @@ pub fn print_decoded_pages(
     devmode: Option<&[u8]>,
     scale_mode: Option<&str>,
     nup: Option<NupLayout>,
+    paper_scale_ratio: f64,
 ) -> Result<(), String> {
     if pages.is_empty() {
         return Err("没有可打印的页面".to_string());
@@ -135,7 +138,14 @@ pub fn print_decoded_pages(
 
     let copy_count = copies.max(1);
     for _ in 0..copy_count {
-        print_decoded_pages_once(pages, printer_name, devmode, scale_mode, nup)?;
+        print_decoded_pages_once(
+            pages,
+            printer_name,
+            devmode,
+            scale_mode,
+            nup,
+            paper_scale_ratio,
+        )?;
     }
     Ok(())
 }
@@ -302,6 +312,7 @@ fn print_decoded_pages_once(
     devmode: Option<&[u8]>,
     scale_mode: Option<&str>,
     nup: Option<NupLayout>,
+    paper_scale_ratio: f64,
 ) -> Result<(), String> {
     let printer_wide = os_str_to_wide(OsStr::new(printer_name));
     let mut printer_handle = HANDLE::default();
@@ -389,7 +400,7 @@ fn print_decoded_pages_once(
             if unsafe { StartPage(hdc) } <= 0 {
                 return Err("StartPage 失败".to_string());
             }
-            draw_image_on_page(hdc, page, mode)?;
+            draw_image_on_page(hdc, page, mode, paper_scale_ratio)?;
             if unsafe { EndPage(hdc) } <= 0 {
                 return Err("EndPage 失败".to_string());
             }
@@ -733,8 +744,13 @@ pub fn draw_nup_physical_page(
     result
 }
 
-fn draw_image_on_page(hdc: HDC, image: &DecodedImage, mode: PageScaleMode) -> Result<(), String> {
-    let dest = compute_page_destination_rect(hdc, image, mode);
+fn draw_image_on_page(
+    hdc: HDC,
+    image: &DecodedImage,
+    mode: PageScaleMode,
+    paper_scale_ratio: f64,
+) -> Result<(), String> {
+    let dest = compute_page_destination_rect(hdc, image, mode, paper_scale_ratio);
     draw_image_to_rect(
         hdc,
         image,
@@ -746,10 +762,15 @@ fn draw_image_on_page(hdc: HDC, image: &DecodedImage, mode: PageScaleMode) -> Re
 }
 
 /// Computes the destination rectangle according to the specified scale mode:
-/// - ActualSize: 100% physical mapping, content placed at paper center/margins without shrinking
+/// - ActualSize: 100% physical mapping (adjusted by original-to-paper ratio if sizes differ)
 /// - ShrinkOversized: scales down if content exceeds printable area, keeps 1:1 if it fits
 /// - FitPrintable: stretches/fits proportionally to fill printable area
-pub fn compute_page_destination_rect(hdc: HDC, image: &DecodedImage, mode: PageScaleMode) -> RECT {
+pub fn compute_page_destination_rect(
+    hdc: HDC,
+    image: &DecodedImage,
+    mode: PageScaleMode,
+    paper_scale_ratio: f64,
+) -> RECT {
     let printable_w = unsafe { GetDeviceCaps(hdc, HORZRES) }.max(1) as f64;
     let printable_h = unsafe { GetDeviceCaps(hdc, VERTRES) }.max(1) as f64;
     let phys_w = unsafe { GetDeviceCaps(hdc, PHYSICALWIDTH) };
@@ -761,16 +782,22 @@ pub fn compute_page_destination_rect(hdc: HDC, image: &DecodedImage, mode: PageS
 
     let image_w = image.width.max(1) as f64;
     let image_h = image.height.max(1) as f64;
+    let ratio = if paper_scale_ratio.is_finite() && paper_scale_ratio > 0.0 {
+        paper_scale_ratio
+    } else {
+        1.0
+    };
 
     // Nominal physical size in printer device units:
     // If image has a known rasterization DPI (e.g. PDF rendered at 300 DPI),
-    // scale to match the printer's DC resolution (e.g. 600 DPI = 2.0x device units).
+    // scale to match the printer's DC resolution (e.g. 600 DPI = 2.0x device units),
+    // then apply any original-size -> output-paper-size scale ratio.
     let (nominal_device_w, nominal_device_h) = if let Some(dpi) = image.dpi {
         let factor_x = log_pixels_x / (dpi.max(1) as f64);
         let factor_y = log_pixels_y / (dpi.max(1) as f64);
-        (image_w * factor_x, image_h * factor_y)
+        (image_w * factor_x * ratio, image_h * factor_y * ratio)
     } else {
-        (image_w, image_h)
+        (image_w * ratio, image_h * ratio)
     };
 
     match mode {
@@ -1004,6 +1031,7 @@ mod tests {
             None,
             None,
             None,
+            1.0,
         );
         assert!(result.is_err());
     }

@@ -141,7 +141,14 @@ export function validateFavoriteTemplate(candidate: unknown): FavoriteTemplateV1
           orientation: stdObj.orientation === 'landscape' ? 'landscape' : 'portrait',
           pageRange: typeof stdObj.pageRange === 'string' ? stdObj.pageRange : undefined,
           paperSource: typeof stdObj.paperSource === 'string' ? stdObj.paperSource : undefined,
-          paperSize: typeof stdObj.paperSize === 'string' ? stdObj.paperSize : undefined,
+          originalSize:
+            stdObj.originalSize && typeof stdObj.originalSize === 'object'
+              ? (stdObj.originalSize as any)
+              : undefined,
+          paperSize:
+            stdObj.paperSize && (typeof stdObj.paperSize === 'string' || typeof stdObj.paperSize === 'object')
+              ? (stdObj.paperSize as any)
+              : undefined,
           nupMode: ['1', '2', '4', '6', '8', '9', '16'].includes(String(stdObj.nupMode)) ? (stdObj.nupMode as any) : undefined,
           nupOrder: stdObj.nupOrder === 'vertical' ? 'vertical' : 'horizontal',
           scaleMode: ['fit', 'fill', 'none'].includes(String(stdObj.scaleMode)) ? (stdObj.scaleMode as any) : undefined,

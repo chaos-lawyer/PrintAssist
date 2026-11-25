@@ -4,8 +4,29 @@ import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from
 import { createPortal } from 'react-dom';
 import type { PaperSourceCapability, SavedPrinterProfileSummary, SystemPrinter } from '../../shared/contracts/printer';
 import { listPrinterPaperSources } from '../../api/nativeBridge';
-import type { CollateMode, ColorMode, FlipMode, NupLayout, NupScope, PageScaleMode, PrintSettings, SidesMode } from '../../domain/printSettings';
-import { evaluateSettingAvailability, isNupActive } from '../../domain/printSettings';
+import type {
+  CollateMode,
+  ColorMode,
+  FlipMode,
+  NupLayout,
+  NupScope,
+  OriginalPaperSizePreset,
+  OutputPaperSizePreset,
+  PageScaleMode,
+  PrintSettings,
+  SidesMode,
+} from '../../domain/printSettings';
+import {
+  clampCustomPaperMm,
+  createDefaultOriginalSize,
+  createDefaultPaperSize,
+  DEFAULT_CUSTOM_PAPER_DIMENSIONS,
+  evaluateSettingAvailability,
+  formatOriginalSizeLabel,
+  isNupActive,
+  MAX_CUSTOM_PAPER_MM,
+  MIN_CUSTOM_PAPER_MM,
+} from '../../domain/printSettings';
 import { SettingSelect } from '../../components/SettingSelect';
 import { NupSettings } from './NupSettings';
 
@@ -80,6 +101,8 @@ export function GlobalSettingsPanel({
   const [loadingPaperSources, setLoadingPaperSources] = useState(false);
 
   const isNup = isNupActive(settings.nupLayout);
+  const originalSize = settings.originalSize ?? createDefaultOriginalSize();
+  const paperSize = settings.paperSize ?? createDefaultPaperSize();
 
   useEffect(() => {
     if (!settings.printerName) {
@@ -935,6 +958,212 @@ export function GlobalSettingsPanel({
             </div>
 
             <div className="settings-expanded-options">
+              <div className="setting-group">
+                <div className="setting-row">
+                  <span className="setting-row-label" id="original-size-label">
+                    原稿尺寸
+                  </span>
+                  <SettingSelect
+                    ariaLabelledBy="original-size-label"
+                    value={originalSize.preset}
+                    options={[
+                      { value: 'a4', label: 'A4 (210 × 297 mm)' },
+                      { value: 'a3', label: 'A3 (297 × 420 mm)' },
+                      { value: 'custom', label: '用户自定义' },
+                    ]}
+                    onChange={(val) => {
+                      const preset = val as OriginalPaperSizePreset;
+                      onChange({
+                        ...settings,
+                        originalSize:
+                          preset === 'custom'
+                            ? {
+                                preset: 'custom',
+                                custom: originalSize.custom ?? { ...DEFAULT_CUSTOM_PAPER_DIMENSIONS },
+                              }
+                            : { preset },
+                      });
+                    }}
+                  />
+                </div>
+                {originalSize.preset === 'custom' && (
+                  <div
+                    className="setting-submenu setting-submenu-wide paper-custom-size-panel"
+                    role="group"
+                    aria-label="原稿自定义尺寸"
+                  >
+                    <div className="paper-custom-size-inputs">
+                      <div className="paper-custom-size-col">
+                        <label className="paper-custom-size-label" htmlFor="original-custom-width">
+                          宽 (mm)
+                        </label>
+                        <InputNumber
+                          id="original-custom-width"
+                          size="small"
+                          min={MIN_CUSTOM_PAPER_MM}
+                          max={MAX_CUSTOM_PAPER_MM}
+                          precision={0}
+                          value={originalSize.custom?.widthMm ?? DEFAULT_CUSTOM_PAPER_DIMENSIONS.widthMm}
+                          onChange={(val) => {
+                            if (typeof val !== 'number') return;
+                            onChange({
+                              ...settings,
+                              originalSize: {
+                                preset: 'custom',
+                                custom: {
+                                  widthMm: clampCustomPaperMm(val, DEFAULT_CUSTOM_PAPER_DIMENSIONS.widthMm),
+                                  heightMm:
+                                    originalSize.custom?.heightMm ?? DEFAULT_CUSTOM_PAPER_DIMENSIONS.heightMm,
+                                },
+                              },
+                            });
+                          }}
+                          aria-label="原稿自定义宽度（毫米）"
+                          style={{ width: '100%' }}
+                        />
+                      </div>
+                      <span className="paper-custom-size-times" aria-hidden="true">
+                        ×
+                      </span>
+                      <div className="paper-custom-size-col">
+                        <label className="paper-custom-size-label" htmlFor="original-custom-height">
+                          高 (mm)
+                        </label>
+                        <InputNumber
+                          id="original-custom-height"
+                          size="small"
+                          min={MIN_CUSTOM_PAPER_MM}
+                          max={MAX_CUSTOM_PAPER_MM}
+                          precision={0}
+                          value={originalSize.custom?.heightMm ?? DEFAULT_CUSTOM_PAPER_DIMENSIONS.heightMm}
+                          onChange={(val) => {
+                            if (typeof val !== 'number') return;
+                            onChange({
+                              ...settings,
+                              originalSize: {
+                                preset: 'custom',
+                                custom: {
+                                  widthMm:
+                                    originalSize.custom?.widthMm ?? DEFAULT_CUSTOM_PAPER_DIMENSIONS.widthMm,
+                                  heightMm: clampCustomPaperMm(val, DEFAULT_CUSTOM_PAPER_DIMENSIONS.heightMm),
+                                },
+                              },
+                            });
+                          }}
+                          aria-label="原稿自定义高度（毫米）"
+                          style={{ width: '100%' }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="setting-group">
+                <div className="setting-row">
+                  <span className="setting-row-label" id="paper-size-label">
+                    纸张尺寸
+                  </span>
+                  <SettingSelect
+                    ariaLabelledBy="paper-size-label"
+                    value={paperSize.preset}
+                    options={[
+                      {
+                        value: 'sameAsOriginal',
+                        label: `与原稿尺寸相同 (${formatOriginalSizeLabel(originalSize)})`,
+                      },
+                      { value: 'a4', label: 'A4 (210 × 297 mm)' },
+                      { value: 'a3', label: 'A3 (297 × 420 mm)' },
+                      { value: 'custom', label: '用户自定义' },
+                    ]}
+                    onChange={(val) => {
+                      const preset = val as OutputPaperSizePreset;
+                      onChange({
+                        ...settings,
+                        paperSize:
+                          preset === 'custom'
+                            ? {
+                                preset: 'custom',
+                                custom: paperSize.custom ?? { ...DEFAULT_CUSTOM_PAPER_DIMENSIONS },
+                              }
+                            : { preset },
+                      });
+                    }}
+                  />
+                </div>
+                {paperSize.preset === 'custom' && (
+                  <div
+                    className="setting-submenu setting-submenu-wide paper-custom-size-panel"
+                    role="group"
+                    aria-label="纸张自定义尺寸"
+                  >
+                    <div className="paper-custom-size-inputs">
+                      <div className="paper-custom-size-col">
+                        <label className="paper-custom-size-label" htmlFor="paper-custom-width">
+                          宽 (mm)
+                        </label>
+                        <InputNumber
+                          id="paper-custom-width"
+                          size="small"
+                          min={MIN_CUSTOM_PAPER_MM}
+                          max={MAX_CUSTOM_PAPER_MM}
+                          precision={0}
+                          value={paperSize.custom?.widthMm ?? DEFAULT_CUSTOM_PAPER_DIMENSIONS.widthMm}
+                          onChange={(val) => {
+                            if (typeof val !== 'number') return;
+                            onChange({
+                              ...settings,
+                              paperSize: {
+                                preset: 'custom',
+                                custom: {
+                                  widthMm: clampCustomPaperMm(val, DEFAULT_CUSTOM_PAPER_DIMENSIONS.widthMm),
+                                  heightMm:
+                                    paperSize.custom?.heightMm ?? DEFAULT_CUSTOM_PAPER_DIMENSIONS.heightMm,
+                                },
+                              },
+                            });
+                          }}
+                          aria-label="纸张自定义宽度（毫米）"
+                          style={{ width: '100%' }}
+                        />
+                      </div>
+                      <span className="paper-custom-size-times" aria-hidden="true">
+                        ×
+                      </span>
+                      <div className="paper-custom-size-col">
+                        <label className="paper-custom-size-label" htmlFor="paper-custom-height">
+                          高 (mm)
+                        </label>
+                        <InputNumber
+                          id="paper-custom-height"
+                          size="small"
+                          min={MIN_CUSTOM_PAPER_MM}
+                          max={MAX_CUSTOM_PAPER_MM}
+                          precision={0}
+                          value={paperSize.custom?.heightMm ?? DEFAULT_CUSTOM_PAPER_DIMENSIONS.heightMm}
+                          onChange={(val) => {
+                            if (typeof val !== 'number') return;
+                            onChange({
+                              ...settings,
+                              paperSize: {
+                                preset: 'custom',
+                                custom: {
+                                  widthMm:
+                                    paperSize.custom?.widthMm ?? DEFAULT_CUSTOM_PAPER_DIMENSIONS.widthMm,
+                                  heightMm: clampCustomPaperMm(val, DEFAULT_CUSTOM_PAPER_DIMENSIONS.heightMm),
+                                },
+                              },
+                            });
+                          }}
+                          aria-label="纸张自定义高度（毫米）"
+                          style={{ width: '100%' }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {paperCapability?.status === 'available' && paperCapability.sources.length >= 1 && (
                 <div className="setting-row">
                   <span className="setting-row-label" id="paper-tray-label">

@@ -21,11 +21,22 @@ import type {
   ColorMode,
   FileSettingsOverride,
   FlipMode,
+  OriginalPaperSizePreset,
+  OutputPaperSizePreset,
   PageScaleMode,
   PrintSettings,
   SidesMode,
 } from '../../domain/printSettings';
-import { mergePrintSettings } from '../../domain/printSettings';
+import {
+  clampCustomPaperMm,
+  createDefaultOriginalSize,
+  createDefaultPaperSize,
+  DEFAULT_CUSTOM_PAPER_DIMENSIONS,
+  formatOriginalSizeLabel,
+  MAX_CUSTOM_PAPER_MM,
+  mergePrintSettings,
+  MIN_CUSTOM_PAPER_MM,
+} from '../../domain/printSettings';
 import { parsePageRangeExpression } from '../../domain/pageRange';
 
 interface FileSettingsDrawerProps {
@@ -128,8 +139,13 @@ export function FileSettingsDrawer({
     draftOverride.collateMode !== undefined || draftOverride.collate !== undefined;
   const isSourceOverridden =
     draftOverride.sourceCode !== undefined || draftOverride.sourceName !== undefined;
+  const isOriginalSizeOverridden = draftOverride.originalSize !== undefined;
+  const isPaperSizeOverridden = draftOverride.paperSize !== undefined;
   const isScaleOverridden = draftOverride.scaleMode !== undefined;
   const isPageRangeOverridden = draftOverride.pageRange !== undefined;
+
+  const effectiveOriginalSize = effective.originalSize ?? createDefaultOriginalSize();
+  const effectivePaperSize = effective.paperSize ?? createDefaultPaperSize();
 
   const totalOverriddenCount = [
     isColorOverridden,
@@ -137,12 +153,23 @@ export function FileSettingsDrawer({
     isCopiesOverridden,
     isCollateOverridden,
     isSourceOverridden,
+    isOriginalSizeOverridden,
+    isPaperSizeOverridden,
     isScaleOverridden,
     isPageRangeOverridden,
   ].filter(Boolean).length;
 
   const handleResetField = (
-    field: 'color' | 'sides' | 'copies' | 'collate' | 'source' | 'scale' | 'pageRange',
+    field:
+      | 'color'
+      | 'sides'
+      | 'copies'
+      | 'collate'
+      | 'source'
+      | 'originalSize'
+      | 'paperSize'
+      | 'scale'
+      | 'pageRange',
   ) => {
     setDraftOverride((prev) => {
       const next = { ...prev };
@@ -159,6 +186,10 @@ export function FileSettingsDrawer({
       } else if (field === 'source') {
         delete next.sourceCode;
         delete next.sourceName;
+      } else if (field === 'originalSize') {
+        delete next.originalSize;
+      } else if (field === 'paperSize') {
+        delete next.paperSize;
       } else if (field === 'scale') {
         delete next.scaleMode;
       } else if (field === 'pageRange') {
@@ -470,6 +501,198 @@ export function FileSettingsDrawer({
           <Typography.Text type="secondary" className="field-hint" style={{ color: '#1890ff' }}>
             跨文件拼接模式下所有文件连续排版，禁止单独修改分发配置
           </Typography.Text>
+        )}
+      </div>
+
+      <div className="drawer-field">
+        <div className="drawer-field-head">
+          <Typography.Text strong>原稿尺寸</Typography.Text>
+          {renderStatus(isOriginalSizeOverridden, () => handleResetField('originalSize'))}
+        </div>
+        <SettingSelect
+          disabled={isDevmodeLocked}
+          value={effectiveOriginalSize.preset}
+          options={[
+            { value: 'a4', label: 'A4 (210 × 297 mm)' },
+            { value: 'a3', label: 'A3 (297 × 420 mm)' },
+            { value: 'custom', label: '用户自定义' },
+          ]}
+          onChange={(val) => {
+            const preset = val as OriginalPaperSizePreset;
+            setDraftOverride((prev) => ({
+              ...prev,
+              originalSize:
+                preset === 'custom'
+                  ? {
+                      preset: 'custom',
+                      custom: effectiveOriginalSize.custom ?? { ...DEFAULT_CUSTOM_PAPER_DIMENSIONS },
+                    }
+                  : { preset },
+            }));
+          }}
+        />
+        {effectiveOriginalSize.preset === 'custom' && (
+          <div className="paper-custom-size-inputs drawer-custom-size-inputs">
+            <div className="paper-custom-size-col">
+              <label className="paper-custom-size-label" htmlFor="drawer-original-custom-width">
+                宽 (mm)
+              </label>
+              <InputNumber
+                id="drawer-original-custom-width"
+                disabled={isDevmodeLocked}
+                size="small"
+                min={MIN_CUSTOM_PAPER_MM}
+                max={MAX_CUSTOM_PAPER_MM}
+                precision={0}
+                value={effectiveOriginalSize.custom?.widthMm ?? DEFAULT_CUSTOM_PAPER_DIMENSIONS.widthMm}
+                onChange={(val) => {
+                  if (typeof val !== 'number') return;
+                  setDraftOverride((prev) => ({
+                    ...prev,
+                    originalSize: {
+                      preset: 'custom',
+                      custom: {
+                        widthMm: clampCustomPaperMm(val, DEFAULT_CUSTOM_PAPER_DIMENSIONS.widthMm),
+                        heightMm:
+                          effectiveOriginalSize.custom?.heightMm ?? DEFAULT_CUSTOM_PAPER_DIMENSIONS.heightMm,
+                      },
+                    },
+                  }));
+                }}
+                style={{ width: '100%' }}
+              />
+            </div>
+            <span className="paper-custom-size-times" aria-hidden="true">
+              ×
+            </span>
+            <div className="paper-custom-size-col">
+              <label className="paper-custom-size-label" htmlFor="drawer-original-custom-height">
+                高 (mm)
+              </label>
+              <InputNumber
+                id="drawer-original-custom-height"
+                disabled={isDevmodeLocked}
+                size="small"
+                min={MIN_CUSTOM_PAPER_MM}
+                max={MAX_CUSTOM_PAPER_MM}
+                precision={0}
+                value={effectiveOriginalSize.custom?.heightMm ?? DEFAULT_CUSTOM_PAPER_DIMENSIONS.heightMm}
+                onChange={(val) => {
+                  if (typeof val !== 'number') return;
+                  setDraftOverride((prev) => ({
+                    ...prev,
+                    originalSize: {
+                      preset: 'custom',
+                      custom: {
+                        widthMm:
+                          effectiveOriginalSize.custom?.widthMm ?? DEFAULT_CUSTOM_PAPER_DIMENSIONS.widthMm,
+                        heightMm: clampCustomPaperMm(val, DEFAULT_CUSTOM_PAPER_DIMENSIONS.heightMm),
+                      },
+                    },
+                  }));
+                }}
+                style={{ width: '100%' }}
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="drawer-field">
+        <div className="drawer-field-head">
+          <Typography.Text strong>纸张尺寸</Typography.Text>
+          {renderStatus(isPaperSizeOverridden, () => handleResetField('paperSize'))}
+        </div>
+        <SettingSelect
+          disabled={isDevmodeLocked}
+          value={effectivePaperSize.preset}
+          options={[
+            {
+              value: 'sameAsOriginal',
+              label: `与原稿尺寸相同 (${formatOriginalSizeLabel(effectiveOriginalSize)})`,
+            },
+            { value: 'a4', label: 'A4 (210 × 297 mm)' },
+            { value: 'a3', label: 'A3 (297 × 420 mm)' },
+            { value: 'custom', label: '用户自定义' },
+          ]}
+          onChange={(val) => {
+            const preset = val as OutputPaperSizePreset;
+            setDraftOverride((prev) => ({
+              ...prev,
+              paperSize:
+                preset === 'custom'
+                  ? {
+                      preset: 'custom',
+                      custom: effectivePaperSize.custom ?? { ...DEFAULT_CUSTOM_PAPER_DIMENSIONS },
+                    }
+                  : { preset },
+            }));
+          }}
+        />
+        {effectivePaperSize.preset === 'custom' && (
+          <div className="paper-custom-size-inputs drawer-custom-size-inputs">
+            <div className="paper-custom-size-col">
+              <label className="paper-custom-size-label" htmlFor="drawer-paper-custom-width">
+                宽 (mm)
+              </label>
+              <InputNumber
+                id="drawer-paper-custom-width"
+                disabled={isDevmodeLocked}
+                size="small"
+                min={MIN_CUSTOM_PAPER_MM}
+                max={MAX_CUSTOM_PAPER_MM}
+                precision={0}
+                value={effectivePaperSize.custom?.widthMm ?? DEFAULT_CUSTOM_PAPER_DIMENSIONS.widthMm}
+                onChange={(val) => {
+                  if (typeof val !== 'number') return;
+                  setDraftOverride((prev) => ({
+                    ...prev,
+                    paperSize: {
+                      preset: 'custom',
+                      custom: {
+                        widthMm: clampCustomPaperMm(val, DEFAULT_CUSTOM_PAPER_DIMENSIONS.widthMm),
+                        heightMm:
+                          effectivePaperSize.custom?.heightMm ?? DEFAULT_CUSTOM_PAPER_DIMENSIONS.heightMm,
+                      },
+                    },
+                  }));
+                }}
+                style={{ width: '100%' }}
+              />
+            </div>
+            <span className="paper-custom-size-times" aria-hidden="true">
+              ×
+            </span>
+            <div className="paper-custom-size-col">
+              <label className="paper-custom-size-label" htmlFor="drawer-paper-custom-height">
+                高 (mm)
+              </label>
+              <InputNumber
+                id="drawer-paper-custom-height"
+                disabled={isDevmodeLocked}
+                size="small"
+                min={MIN_CUSTOM_PAPER_MM}
+                max={MAX_CUSTOM_PAPER_MM}
+                precision={0}
+                value={effectivePaperSize.custom?.heightMm ?? DEFAULT_CUSTOM_PAPER_DIMENSIONS.heightMm}
+                onChange={(val) => {
+                  if (typeof val !== 'number') return;
+                  setDraftOverride((prev) => ({
+                    ...prev,
+                    paperSize: {
+                      preset: 'custom',
+                      custom: {
+                        widthMm:
+                          effectivePaperSize.custom?.widthMm ?? DEFAULT_CUSTOM_PAPER_DIMENSIONS.widthMm,
+                        heightMm: clampCustomPaperMm(val, DEFAULT_CUSTOM_PAPER_DIMENSIONS.heightMm),
+                      },
+                    },
+                  }));
+                }}
+                style={{ width: '100%' }}
+              />
+            </div>
+          </div>
         )}
       </div>
 

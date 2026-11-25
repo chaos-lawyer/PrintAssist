@@ -466,6 +466,13 @@ fn print_item_windows(
             item.settings.collate,
         )
         .map_err(|err| format!("应用打印机驱动配置失败：{err}"))?;
+        if let Some(effective_paper) = crate::contracts::EffectivePaperSize::resolve(
+            item.settings.original_size,
+            item.settings.paper_size,
+        ) {
+            crate::printers::devmode::apply_paper_size_to_devmode(&mut devmode, effective_paper)
+                .map_err(|err| format!("应用纸张尺寸配置失败：{err}"))?;
+        }
         Some(devmode)
     } else {
         None
@@ -473,6 +480,10 @@ fn print_item_windows(
 
     let scale_mode = item.settings.scale_mode.as_deref();
     let nup = item.settings.nup_layout;
+    let paper_scale_ratio = crate::contracts::compute_original_to_paper_scale(
+        item.settings.original_size,
+        item.settings.paper_size,
+    );
 
     match kind {
         DocumentKind::Image => crate::documents::image_print::print_image_to_printer(
@@ -482,6 +493,7 @@ fn print_item_windows(
             active_devmode.as_deref(),
             scale_mode,
             nup,
+            paper_scale_ratio,
         ),
 
         DocumentKind::Pdf => {
@@ -499,6 +511,7 @@ fn print_item_windows(
                 active_devmode.as_deref(),
                 scale_mode,
                 nup,
+                paper_scale_ratio,
             )
         }
 
@@ -525,6 +538,7 @@ fn print_item_windows(
                         active_devmode.as_deref(),
                         scale_mode,
                         nup,
+                        paper_scale_ratio,
                     )
                 }
                 Err(convert_error) => {
@@ -580,9 +594,16 @@ fn print_pdf_preserving_orientation(
     devmode: Option<&[u8]>,
     scale_mode: Option<&str>,
     nup: Option<crate::contracts::NupLayout>,
+    paper_scale_ratio: f64,
 ) -> Result<(), String> {
     crate::documents::pdf_print::print_pdf_to_printer(
-        pdf_path, printer, copies, devmode, scale_mode, nup,
+        pdf_path,
+        printer,
+        copies,
+        devmode,
+        scale_mode,
+        nup,
+        paper_scale_ratio,
     )
 }
 
@@ -595,6 +616,7 @@ fn print_pdf_preserving_orientation(
     _devmode: Option<&[u8]>,
     _scale_mode: Option<&str>,
     _nup: Option<crate::contracts::NupLayout>,
+    _paper_scale_ratio: f64,
 ) -> Result<(), String> {
     Err("非 Windows 平台不支持原生打印".to_string())
 }
@@ -713,14 +735,25 @@ fn run_batch_cross_file_nup(
     }
 
     let active_devmode: Option<Vec<u8>> = if let Some(mut devmode) = devmode_buf {
-        if let Err(err) = crate::printers::devmode::apply_settings_to_devmode(
+        let apply_res = crate::printers::devmode::apply_settings_to_devmode(
             &mut devmode,
             Some(&first_item.settings.color_mode),
             Some(&first_item.settings.sides_mode),
             Some(&first_item.settings.flip_mode),
             first_item.settings.source_code,
             first_item.settings.collate,
-        ) {
+        )
+        .and_then(|()| {
+            if let Some(effective_paper) = crate::contracts::EffectivePaperSize::resolve(
+                first_item.settings.original_size,
+                first_item.settings.paper_size,
+            ) {
+                crate::printers::devmode::apply_paper_size_to_devmode(&mut devmode, effective_paper)
+            } else {
+                Ok(())
+            }
+        });
+        if let Err(err) = apply_res {
             return PrintBatchResult {
                 succeeded: 0,
                 failed: total as u32,
@@ -1200,6 +1233,8 @@ mod tests {
                 page_range_expression: "".to_string(),
                 source_code: None,
                 source_name: None,
+                original_size: None,
+                paper_size: None,
                 scale_mode: None,
                 collate: None,
                 driver_profile_id: None,

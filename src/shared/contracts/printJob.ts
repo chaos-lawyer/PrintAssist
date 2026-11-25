@@ -3,11 +3,13 @@ import type {
   FlipMode,
   NupLayout,
   NupScope,
+  OriginalSizeSetting,
   PageScaleMode,
+  PaperSizeSetting,
   SidesMode,
 } from '../../domain/printSettings';
 
-export type { NupLayout, NupScope, PageScaleMode };
+export type { NupLayout, NupScope, OriginalSizeSetting, PageScaleMode, PaperSizeSetting };
 
 export interface ResolvedPrintSettingsPayload {
   printerName: string;
@@ -17,6 +19,8 @@ export interface ResolvedPrintSettingsPayload {
   copies: number;
   sourceCode?: number;
   sourceName?: string;
+  originalSize?: OriginalSizeSetting;
+  paperSize?: PaperSizeSetting;
   scaleMode?: PageScaleMode;
   nupLayout?: NupLayout;
   nupScope?: NupScope;

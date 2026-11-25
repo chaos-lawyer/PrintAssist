@@ -286,6 +286,53 @@ pub fn apply_settings_to_devmode(
     }
 }
 
+/// Applies paper size (A4 / A3 / custom width & height in mm) onto an existing DEVMODE buffer.
+pub fn apply_paper_size_to_devmode(
+    devmode_bytes: &mut [u8],
+    paper_size: crate::contracts::EffectivePaperSize,
+) -> Result<(), String> {
+    validate_devmode_buffer(devmode_bytes)?;
+
+    #[cfg(windows)]
+    {
+        const DMPAPER_A3: i16 = 8;
+        const DMPAPER_A4: i16 = 9;
+        const DMPAPER_USER: i16 = 256;
+
+        let devmode = unsafe { &mut *(devmode_bytes.as_mut_ptr() as *mut DEVMODEW) };
+        match paper_size {
+            crate::contracts::EffectivePaperSize::A4 => {
+                devmode.dmFields |= DM_PAPERSIZE;
+                devmode.dmFields.0 &= !(DM_PAPERWIDTH.0 | DM_PAPERLENGTH.0);
+                devmode.Anonymous1.Anonymous1.dmPaperSize = DMPAPER_A4;
+            }
+            crate::contracts::EffectivePaperSize::A3 => {
+                devmode.dmFields |= DM_PAPERSIZE;
+                devmode.dmFields.0 &= !(DM_PAPERWIDTH.0 | DM_PAPERLENGTH.0);
+                devmode.Anonymous1.Anonymous1.dmPaperSize = DMPAPER_A3;
+            }
+            crate::contracts::EffectivePaperSize::Custom {
+                width_mm,
+                height_mm,
+            } => {
+                let w_tenth_mm = (width_mm.clamp(50, 1200) * 10) as i16;
+                let h_tenth_mm = (height_mm.clamp(50, 1200) * 10) as i16;
+                devmode.dmFields |= DM_PAPERSIZE | DM_PAPERWIDTH | DM_PAPERLENGTH;
+                devmode.Anonymous1.Anonymous1.dmPaperSize = DMPAPER_USER;
+                devmode.Anonymous1.Anonymous1.dmPaperWidth = w_tenth_mm;
+                devmode.Anonymous1.Anonymous1.dmPaperLength = h_tenth_mm;
+            }
+        }
+        Ok(())
+    }
+
+    #[cfg(not(windows))]
+    {
+        let _ = paper_size;
+        Err("非 Windows 平台不支持 DEVMODE 纸张尺寸修改".to_string())
+    }
+}
+
 /// Applies page orientation to DEVMODE based on rendered image aspect ratio.
 pub fn set_orientation_from_content(
     devmode_bytes: &mut [u8],

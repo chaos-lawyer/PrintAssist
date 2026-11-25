@@ -2476,6 +2476,47 @@ button,
   user-select: none;
 }
 
+/* ── Custom paper size inputs (Original Size & Paper Size) ── */
+.paper-custom-size-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.paper-custom-size-inputs {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.drawer-custom-size-inputs {
+  margin-top: 8px;
+}
+
+.paper-custom-size-col {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.paper-custom-size-label {
+  font-size: 11px;
+  color: var(--color-text-secondary);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.paper-custom-size-times {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-faint);
+  padding-top: 16px;
+  user-select: none;
+}
+
 .nup-summary-banner {
   display: flex;
   flex-direction: column;

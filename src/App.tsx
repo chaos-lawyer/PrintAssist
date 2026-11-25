@@ -592,6 +592,8 @@ export function App() {
         collate: currentGlobal.collate,
         sourceCode: currentGlobal.sourceCode,
         sourceName: currentGlobal.sourceName,
+        originalSize: currentGlobal.originalSize,
+        paperSize: currentGlobal.paperSize,
         scaleMode: currentGlobal.scaleMode,
         nupLayout: currentGlobal.nupLayout,
         nupScope: currentGlobal.nupScope,

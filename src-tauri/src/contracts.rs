@@ -138,6 +138,141 @@ pub struct NupLayout {
     pub rows: u32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CustomPaperDimensions {
+    pub width_mm: u32,
+    pub height_mm: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PaperSizeSpec {
+    pub preset: PaperSizePreset,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom: Option<CustomPaperDimensions>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PaperSizePreset {
+    SameAsOriginal,
+    A4,
+    A3,
+    Custom,
+}
+
+impl PaperSizeSpec {
+    pub fn validate(&self, label: &str, allow_same_as_original: bool) -> Result<(), String> {
+        if !allow_same_as_original && self.preset == PaperSizePreset::SameAsOriginal {
+            return Err(format!("{label}不支持“与原稿相同”选项"));
+        }
+        if self.preset == PaperSizePreset::Custom {
+            let dims = self
+                .custom
+                .ok_or_else(|| format!("{label}选择自定义时必须指定宽高"))?;
+            if dims.width_mm < 50
+                || dims.width_mm > 1200
+                || dims.height_mm < 50
+                || dims.height_mm > 1200
+            {
+                return Err(format!("{label}自定义宽高必须在 50mm 到 1200mm 之间"));
+            }
+        }
+        Ok(())
+    }
+
+    pub fn dimensions_mm(&self) -> (u32, u32) {
+        match self.preset {
+            PaperSizePreset::A3 => (297, 420),
+            PaperSizePreset::Custom => self
+                .custom
+                .map(|c| (c.width_mm.clamp(50, 1200), c.height_mm.clamp(50, 1200)))
+                .unwrap_or((210, 297)),
+            PaperSizePreset::A4 | PaperSizePreset::SameAsOriginal => (210, 297),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EffectivePaperSize {
+    A4,
+    A3,
+    Custom { width_mm: u32, height_mm: u32 },
+}
+
+impl EffectivePaperSize {
+    pub fn resolve(
+        original_size: Option<PaperSizeSpec>,
+        paper_size: Option<PaperSizeSpec>,
+    ) -> Option<Self> {
+        let output = paper_size?;
+        match output.preset {
+            PaperSizePreset::SameAsOriginal => {
+                let orig = original_size.unwrap_or(PaperSizeSpec {
+                    preset: PaperSizePreset::A4,
+                    custom: None,
+                });
+                Some(Self::from_non_same_spec(orig))
+            }
+            _ => Some(Self::from_non_same_spec(output)),
+        }
+    }
+
+    fn from_non_same_spec(spec: PaperSizeSpec) -> Self {
+        match spec.preset {
+            PaperSizePreset::A3 => Self::A3,
+            PaperSizePreset::Custom => {
+                let (width_mm, height_mm) = spec.dimensions_mm();
+                Self::Custom {
+                    width_mm,
+                    height_mm,
+                }
+            }
+            PaperSizePreset::A4 | PaperSizePreset::SameAsOriginal => Self::A4,
+        }
+    }
+
+    pub fn dimensions_mm(&self) -> (u32, u32) {
+        match *self {
+            Self::A4 => (210, 297),
+            Self::A3 => (297, 420),
+            Self::Custom {
+                width_mm,
+                height_mm,
+            } => (width_mm, height_mm),
+        }
+    }
+}
+
+/// Computes the proportional scale factor from original paper size to output paper size.
+/// Returns 1.0 when both are identical, unspecified, or `paper_size` is `SameAsOriginal`.
+pub fn compute_original_to_paper_scale(
+    original_size: Option<PaperSizeSpec>,
+    paper_size: Option<PaperSizeSpec>,
+) -> f64 {
+    let Some(output) = paper_size else {
+        return 1.0;
+    };
+    if output.preset == PaperSizePreset::SameAsOriginal {
+        return 1.0;
+    }
+    let orig = original_size.unwrap_or(PaperSizeSpec {
+        preset: PaperSizePreset::A4,
+        custom: None,
+    });
+    let (ow, oh) = orig.dimensions_mm();
+    let (pw, ph) = output.dimensions_mm();
+    let orig_short = ow.min(oh).max(1) as f64;
+    let orig_long = ow.max(oh).max(1) as f64;
+    let paper_short = pw.min(ph).max(1) as f64;
+    let paper_long = pw.max(ph).max(1) as f64;
+    if (orig_short - paper_short).abs() < 0.5 && (orig_long - paper_long).abs() < 0.5 {
+        return 1.0;
+    }
+    (paper_short / orig_short).min(paper_long / orig_long)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ResolvedPrintSettingsPayload {
@@ -152,6 +287,10 @@ pub struct ResolvedPrintSettingsPayload {
     pub source_code: Option<i16>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub original_size: Option<PaperSizeSpec>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub paper_size: Option<PaperSizeSpec>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scale_mode: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -234,6 +373,13 @@ impl PrintBatchRequest {
                     "文件“{}”的页码表达式长度不能超过 500 字符",
                     item.file_name
                 ));
+            }
+
+            if let Some(ref original_size) = item.settings.original_size {
+                original_size.validate("原稿尺寸", false)?;
+            }
+            if let Some(ref paper_size) = item.settings.paper_size {
+                paper_size.validate("纸张尺寸", true)?;
             }
 
             let path = std::path::Path::new(&item.path);
@@ -491,5 +637,95 @@ mod tests {
         assert_eq!(cancelled_value["status"], "cancelled");
         assert!(cancelled_value.get("profileId").is_none());
         assert!(cancelled_value.get("settings").is_none());
+    }
+
+    #[test]
+    fn resolves_effective_paper_size_and_scale_ratio() {
+        let orig_a4 = Some(PaperSizeSpec {
+            preset: PaperSizePreset::A4,
+            custom: None,
+        });
+        let orig_a3 = Some(PaperSizeSpec {
+            preset: PaperSizePreset::A3,
+            custom: None,
+        });
+        let paper_same = Some(PaperSizeSpec {
+            preset: PaperSizePreset::SameAsOriginal,
+            custom: None,
+        });
+        let paper_a3 = Some(PaperSizeSpec {
+            preset: PaperSizePreset::A3,
+            custom: None,
+        });
+        let paper_a4 = Some(PaperSizeSpec {
+            preset: PaperSizePreset::A4,
+            custom: None,
+        });
+        let orig_custom = Some(PaperSizeSpec {
+            preset: PaperSizePreset::Custom,
+            custom: Some(CustomPaperDimensions {
+                width_mm: 180,
+                height_mm: 260,
+            }),
+        });
+
+        assert_eq!(
+            EffectivePaperSize::resolve(orig_a3, paper_same),
+            Some(EffectivePaperSize::A3)
+        );
+        assert_eq!(
+            EffectivePaperSize::resolve(orig_custom, paper_same),
+            Some(EffectivePaperSize::Custom {
+                width_mm: 180,
+                height_mm: 260,
+            })
+        );
+        assert_eq!(
+            EffectivePaperSize::resolve(orig_a4, paper_a3),
+            Some(EffectivePaperSize::A3)
+        );
+
+        assert!((compute_original_to_paper_scale(orig_a3, paper_same) - 1.0).abs() < 1e-6);
+        assert!((compute_original_to_paper_scale(orig_a4, paper_a4) - 1.0).abs() < 1e-6);
+
+        let a4_to_a3 = compute_original_to_paper_scale(orig_a4, paper_a3);
+        assert!(
+            (a4_to_a3 - (297.0 / 210.0)).abs() < 0.01,
+            "a4_to_a3={a4_to_a3}"
+        );
+
+        let a3_to_a4 = compute_original_to_paper_scale(orig_a3, paper_a4);
+        assert!(
+            (a3_to_a4 - (210.0 / 297.0)).abs() < 0.01,
+            "a3_to_a4={a3_to_a4}"
+        );
+    }
+
+    #[test]
+    fn validates_paper_size_spec_constraints() {
+        let same_as_orig = PaperSizeSpec {
+            preset: PaperSizePreset::SameAsOriginal,
+            custom: None,
+        };
+        assert!(same_as_orig.validate("原稿尺寸", false).is_err());
+        assert!(same_as_orig.validate("纸张尺寸", true).is_ok());
+
+        let invalid_custom = PaperSizeSpec {
+            preset: PaperSizePreset::Custom,
+            custom: Some(CustomPaperDimensions {
+                width_mm: 10,
+                height_mm: 297,
+            }),
+        };
+        assert!(invalid_custom.validate("纸张尺寸", true).is_err());
+
+        let valid_custom = PaperSizeSpec {
+            preset: PaperSizePreset::Custom,
+            custom: Some(CustomPaperDimensions {
+                width_mm: 180,
+                height_mm: 260,
+            }),
+        };
+        assert!(valid_custom.validate("原稿尺寸", false).is_ok());
     }
 }

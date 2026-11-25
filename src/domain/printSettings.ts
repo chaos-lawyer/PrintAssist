@@ -11,6 +11,145 @@ export type FlipMode = 'longEdge' | 'shortEdge';
 export type PageScaleMode = 'actualSize' | 'shrinkOversized' | 'fitPrintable';
 export type CollateMode = 'byPage' | 'byDocument' | 'bySet';
 
+export type OriginalPaperSizePreset = 'a4' | 'a3' | 'custom';
+export type OutputPaperSizePreset = 'sameAsOriginal' | 'a4' | 'a3' | 'custom';
+
+export interface CustomPaperDimensions {
+  widthMm: number;
+  heightMm: number;
+}
+
+export interface OriginalSizeSetting {
+  preset: OriginalPaperSizePreset;
+  custom?: CustomPaperDimensions;
+}
+
+export interface PaperSizeSetting {
+  preset: OutputPaperSizePreset;
+  custom?: CustomPaperDimensions;
+}
+
+export const MIN_CUSTOM_PAPER_MM = 50;
+export const MAX_CUSTOM_PAPER_MM = 1200;
+
+export const STANDARD_PAPER_DIMENSIONS_MM: Record<'a4' | 'a3', CustomPaperDimensions> = {
+  a4: { widthMm: 210, heightMm: 297 },
+  a3: { widthMm: 297, heightMm: 420 },
+};
+
+export const DEFAULT_CUSTOM_PAPER_DIMENSIONS: CustomPaperDimensions = {
+  widthMm: 210,
+  heightMm: 297,
+};
+
+export function createDefaultOriginalSize(): OriginalSizeSetting {
+  return { preset: 'a4' };
+}
+
+export function createDefaultPaperSize(): PaperSizeSetting {
+  return { preset: 'sameAsOriginal' };
+}
+
+export function clampCustomPaperMm(val: number, fallback: number): number {
+  if (typeof val !== 'number' || Number.isNaN(val) || !Number.isFinite(val)) {
+    return fallback;
+  }
+  return Math.max(MIN_CUSTOM_PAPER_MM, Math.min(MAX_CUSTOM_PAPER_MM, Math.round(val)));
+}
+
+export function resolveOriginalSizeDimensionsMm(
+  originalSize?: OriginalSizeSetting,
+): CustomPaperDimensions {
+  const preset = originalSize?.preset ?? 'a4';
+  if (preset === 'a3') {
+    return { ...STANDARD_PAPER_DIMENSIONS_MM.a3 };
+  }
+  if (preset === 'custom') {
+    return {
+      widthMm: clampCustomPaperMm(
+        originalSize?.custom?.widthMm ?? DEFAULT_CUSTOM_PAPER_DIMENSIONS.widthMm,
+        DEFAULT_CUSTOM_PAPER_DIMENSIONS.widthMm,
+      ),
+      heightMm: clampCustomPaperMm(
+        originalSize?.custom?.heightMm ?? DEFAULT_CUSTOM_PAPER_DIMENSIONS.heightMm,
+        DEFAULT_CUSTOM_PAPER_DIMENSIONS.heightMm,
+      ),
+    };
+  }
+  return { ...STANDARD_PAPER_DIMENSIONS_MM.a4 };
+}
+
+export interface EffectivePaperSize {
+  preset: 'a4' | 'a3' | 'custom';
+  widthMm: number;
+  heightMm: number;
+}
+
+export function resolveEffectivePaperSize(
+  originalSize?: OriginalSizeSetting,
+  paperSize?: PaperSizeSetting,
+): EffectivePaperSize {
+  const outputPreset = paperSize?.preset ?? 'sameAsOriginal';
+  if (outputPreset === 'sameAsOriginal') {
+    const origPreset = originalSize?.preset ?? 'a4';
+    const dims = resolveOriginalSizeDimensionsMm(originalSize);
+    return {
+      preset: origPreset,
+      widthMm: dims.widthMm,
+      heightMm: dims.heightMm,
+    };
+  }
+  if (outputPreset === 'a3') {
+    return {
+      preset: 'a3',
+      ...STANDARD_PAPER_DIMENSIONS_MM.a3,
+    };
+  }
+  if (outputPreset === 'custom') {
+    return {
+      preset: 'custom',
+      widthMm: clampCustomPaperMm(
+        paperSize?.custom?.widthMm ?? DEFAULT_CUSTOM_PAPER_DIMENSIONS.widthMm,
+        DEFAULT_CUSTOM_PAPER_DIMENSIONS.widthMm,
+      ),
+      heightMm: clampCustomPaperMm(
+        paperSize?.custom?.heightMm ?? DEFAULT_CUSTOM_PAPER_DIMENSIONS.heightMm,
+        DEFAULT_CUSTOM_PAPER_DIMENSIONS.heightMm,
+      ),
+    };
+  }
+  return {
+    preset: 'a4',
+    ...STANDARD_PAPER_DIMENSIONS_MM.a4,
+  };
+}
+
+export function formatOriginalSizeLabel(originalSize?: OriginalSizeSetting): string {
+  const preset = originalSize?.preset ?? 'a4';
+  if (preset === 'a3') return 'A3';
+  if (preset === 'custom') {
+    const dims = resolveOriginalSizeDimensionsMm(originalSize);
+    return `${dims.widthMm}×${dims.heightMm}mm`;
+  }
+  return 'A4';
+}
+
+export function formatPaperSizeLabel(
+  paperSize?: PaperSizeSetting,
+  originalSize?: OriginalSizeSetting,
+): string {
+  const preset = paperSize?.preset ?? 'sameAsOriginal';
+  if (preset === 'sameAsOriginal') {
+    return `与原稿相同 (${formatOriginalSizeLabel(originalSize)})`;
+  }
+  if (preset === 'a3') return 'A3';
+  if (preset === 'custom') {
+    const dims = resolveEffectivePaperSize(originalSize, paperSize);
+    return `${dims.widthMm}×${dims.heightMm}mm`;
+  }
+  return 'A4';
+}
+
 export interface NupLayout {
   cols: number;
   rows: number;
@@ -126,6 +265,8 @@ export interface PrintSettings {
   collate: boolean;
   sourceCode?: number;
   sourceName?: string;
+  originalSize?: OriginalSizeSetting;
+  paperSize?: PaperSizeSetting;
   scaleMode?: PageScaleMode;
   nupLayout: NupLayout;
   nupScope: NupScope;
@@ -146,6 +287,8 @@ export interface FileSettingsOverride {
   collate?: boolean;
   sourceCode?: number;
   sourceName?: string;
+  originalSize?: OriginalSizeSetting;
+  paperSize?: PaperSizeSetting;
   scaleMode?: PageScaleMode;
   pageRange?: PageRangeInput;
 }
@@ -160,6 +303,8 @@ export function createDefaultGlobalSettings(printerName = ''): PrintSettings {
     copies: 1,
     collateMode: 'byDocument',
     collate: true,
+    originalSize: createDefaultOriginalSize(),
+    paperSize: createDefaultPaperSize(),
     scaleMode: 'actualSize',
     nupLayout: { cols: 1, rows: 1 },
     nupScope: 'perFile',
@@ -305,6 +450,14 @@ export function mergePrintSettings(
     collate,
     sourceCode: fileOverride.sourceCode !== undefined ? fileOverride.sourceCode : globalSettings.sourceCode,
     sourceName: fileOverride.sourceName !== undefined ? fileOverride.sourceName : globalSettings.sourceName,
+    originalSize:
+      fileOverride.originalSize ??
+      globalSettings.originalSize ??
+      createDefaultOriginalSize(),
+    paperSize:
+      fileOverride.paperSize ??
+      globalSettings.paperSize ??
+      createDefaultPaperSize(),
     scaleMode: fileOverride.scaleMode ?? globalSettings.scaleMode,
     nupLayout: globalSettings.nupLayout,
     nupScope: globalSettings.nupScope,

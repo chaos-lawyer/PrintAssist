@@ -143,4 +143,91 @@ describe('GlobalSettingsPanel', () => {
 
     expect(container.querySelector('#cross-file-duplex-label')).toBeNull();
   });
+
+  it('renders original size and paper size selects with default A4 and sameAsOriginal', () => {
+    const settings: PrintSettings = createDefaultGlobalSettings(mockPrinter.name);
+
+    const { container } = render(
+      <GlobalSettingsPanel
+        printers={[mockPrinter]}
+        settings={settings}
+        loadingPrinters={false}
+        onChange={vi.fn()}
+      />,
+    );
+
+    const origLabel = container.querySelector('#original-size-label');
+    const paperLabel = container.querySelector('#paper-size-label');
+    expect(origLabel?.textContent).toBe('原稿尺寸');
+    expect(paperLabel?.textContent).toBe('纸张尺寸');
+
+    const origTrigger = container.querySelector('[aria-labelledby="original-size-label"]');
+    const paperTrigger = container.querySelector('[aria-labelledby="paper-size-label"]');
+    expect(origTrigger?.textContent).toContain('A4');
+    expect(paperTrigger?.textContent).toContain('与原稿尺寸相同 (A4)');
+  });
+
+  it('shows custom width/height inputs when originalSize or paperSize is custom', () => {
+    const onChange = vi.fn();
+    const settings: PrintSettings = {
+      ...createDefaultGlobalSettings(mockPrinter.name),
+      originalSize: { preset: 'custom', custom: { widthMm: 180, heightMm: 260 } },
+      paperSize: { preset: 'custom', custom: { widthMm: 200, heightMm: 300 } },
+    };
+
+    const { container } = render(
+      <GlobalSettingsPanel
+        printers={[mockPrinter]}
+        settings={settings}
+        loadingPrinters={false}
+        onChange={onChange}
+      />,
+    );
+
+    const origWidth = container.querySelector('#original-custom-width') as HTMLInputElement | null;
+    const origHeight = container.querySelector('#original-custom-height') as HTMLInputElement | null;
+    const paperWidth = container.querySelector('#paper-custom-width') as HTMLInputElement | null;
+    const paperHeight = container.querySelector('#paper-custom-height') as HTMLInputElement | null;
+
+    expect(origWidth?.value).toBe('180');
+    expect(origHeight?.value).toBe('260');
+    expect(paperWidth?.value).toBe('200');
+    expect(paperHeight?.value).toBe('300');
+  });
+
+  it('allows switching originalSize to A3 and paperSize to custom via dropdown', () => {
+    const onChange = vi.fn();
+    const settings: PrintSettings = createDefaultGlobalSettings(mockPrinter.name);
+
+    const { container } = render(
+      <GlobalSettingsPanel
+        printers={[mockPrinter]}
+        settings={settings}
+        loadingPrinters={false}
+        onChange={onChange}
+      />,
+    );
+
+    const origTrigger = container.querySelector('[aria-labelledby="original-size-label"]') as HTMLButtonElement;
+    fireEvent.click(origTrigger);
+    const a3Option = screen.getByRole('option', { name: /A3/ });
+    fireEvent.click(a3Option);
+
+    expect(onChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        originalSize: { preset: 'a3' },
+      }),
+    );
+
+    const paperTrigger = container.querySelector('[aria-labelledby="paper-size-label"]') as HTMLButtonElement;
+    fireEvent.click(paperTrigger);
+    const customOption = screen.getByRole('option', { name: '用户自定义' });
+    fireEvent.click(customOption);
+
+    expect(onChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        paperSize: { preset: 'custom', custom: { widthMm: 210, heightMm: 297 } },
+      }),
+    );
+  });
 });
