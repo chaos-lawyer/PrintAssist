@@ -197,6 +197,8 @@ pub fn parse_devmode_standard_fields(
             paper_name,
             paper_width_tenth_mm,
             paper_length_tenth_mm,
+            original_size: None,
+            paper_size: None,
             source_code,
             source_name,
             color_mode,

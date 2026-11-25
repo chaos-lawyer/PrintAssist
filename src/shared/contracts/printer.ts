@@ -1,3 +1,5 @@
+import type { OriginalSizeSetting, PaperSizeSetting } from '../../domain/printSettings';
+
 export type CapabilitySupport = 'supported' | 'unsupported' | 'unknown';
 
 export type PrinterOperationalState = 'ready' | 'offline' | 'error' | 'unknown';
@@ -39,6 +41,8 @@ export interface PrinterDriverSettings {
   paperName?: string;
   paperWidthTenthMm?: number;
   paperLengthTenthMm?: number;
+  originalSize?: OriginalSizeSetting;
+  paperSize?: PaperSizeSetting;
   sourceCode?: number;
   sourceName?: string;
   colorMode?: string;
@@ -80,9 +84,16 @@ export interface SavedPrinterProfileSummary {
 export interface SavePrinterProfileRequest {
   name: string;
   printerName: string;
-  runtimeProfileId: string;
+  runtimeProfileId?: string;
   overwritePersistentProfileId?: string;
   note?: string;
+  colorMode?: string;
+  sidesMode?: string;
+  flipMode?: string;
+  sourceCode?: number;
+  collate?: boolean;
+  originalSize?: OriginalSizeSetting;
+  paperSize?: PaperSizeSetting;
 }
 
 export interface LoadedPrinterProfileResult {

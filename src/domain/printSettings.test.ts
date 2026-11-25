@@ -378,5 +378,58 @@ describe('printSettings domain', () => {
       expect(merged.originalSize).toEqual({ preset: 'a3' });
       expect(merged.paperSize).toEqual({ preset: 'a4' });
     });
+
+    it('restores originalSize and paperSize when loading a saved persistent profile', () => {
+      const current = createDefaultGlobalSettings('HP LaserJet');
+      const loadedResult = {
+        persistentProfile: {
+          id: 'persisted-size-1',
+          name: 'A3 缩印 A4',
+          printerName: 'HP LaserJet',
+          settings: {
+            printerName: 'HP LaserJet',
+            originalSize: { preset: 'a3' as const },
+            paperSize: { preset: 'a4' as const },
+            sidesMode: 'duplex',
+            flipMode: 'longEdge',
+            colorMode: 'monochrome',
+            driverExtraBytes: 256,
+          },
+          summary: '原稿 A3 · 纸张 A4 · 双面（长边） · 黑白',
+          isDefault: false,
+          compatibility: 'compatible' as const,
+          createdAt: '123',
+          updatedAt: '123',
+        },
+        runtimeProfileId: 'runtime-prof-size',
+        settings: {
+          printerName: 'HP LaserJet',
+          originalSize: { preset: 'a3' as const },
+          paperSize: { preset: 'a4' as const },
+          sidesMode: 'duplex',
+          flipMode: 'longEdge',
+          colorMode: 'monochrome',
+          driverExtraBytes: 256,
+        },
+        compatibility: 'compatible' as const,
+      };
+
+      const applied = applyLoadedPersistentProfile(current, loadedResult);
+      expect(applied.originalSize).toEqual({ preset: 'a3' });
+      expect(applied.paperSize).toEqual({ preset: 'a4' });
+      expect(applied.driverSummary).toBe('原稿 A3 · 纸张 A4 · 双面（长边） · 黑白');
+      expect(isProfileDirty(applied, loadedResult.settings)).toBe(false);
+
+      // Modifying originalSize or paperSize marks profile as dirty
+      expect(
+        isProfileDirty({ ...applied, originalSize: { preset: 'a4' } }, loadedResult.settings),
+      ).toBe(true);
+      expect(
+        isProfileDirty(
+          { ...applied, paperSize: { preset: 'custom', custom: { widthMm: 200, heightMm: 300 } } },
+          loadedResult.settings,
+        ),
+      ).toBe(true);
+    });
   });
 });

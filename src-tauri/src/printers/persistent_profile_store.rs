@@ -76,9 +76,42 @@ impl PersistedPrinterProfile {
     }
 }
 
+fn format_paper_spec_label(spec: crate::contracts::PaperSizeSpec) -> String {
+    match spec.preset {
+        crate::contracts::PaperSizePreset::A4 => "A4".to_string(),
+        crate::contracts::PaperSizePreset::A3 => "A3".to_string(),
+        crate::contracts::PaperSizePreset::Custom => {
+            let (w, h) = spec.dimensions_mm();
+            format!("{w}×{h}mm")
+        }
+        crate::contracts::PaperSizePreset::SameAsOriginal => "与原稿相同".to_string(),
+    }
+}
+
 fn format_settings_summary(settings: &PrinterDriverSettings) -> String {
     let mut parts = Vec::new();
-    if let Some(ref paper) = settings.paper_name {
+    if settings.original_size.is_some() || settings.paper_size.is_some() {
+        let orig = settings
+            .original_size
+            .unwrap_or(crate::contracts::PaperSizeSpec {
+                preset: crate::contracts::PaperSizePreset::A4,
+                custom: None,
+            });
+        let orig_label = format_paper_spec_label(orig);
+        match settings.paper_size {
+            None
+            | Some(crate::contracts::PaperSizeSpec {
+                preset: crate::contracts::PaperSizePreset::SameAsOriginal,
+                ..
+            }) => {
+                parts.push(format!("原稿/纸张 {orig_label}"));
+            }
+            Some(paper) => {
+                parts.push(format!("原稿 {orig_label}"));
+                parts.push(format!("纸张 {}", format_paper_spec_label(paper)));
+            }
+        }
+    } else if let Some(ref paper) = settings.paper_name {
         parts.push(paper.clone());
     } else if let Some(code) = settings.paper_code {
         parts.push(format!("纸张 #{code}"));
@@ -1051,6 +1084,8 @@ mod tests {
             paper_name: Some("A4".to_string()),
             paper_width_tenth_mm: Some(2100),
             paper_length_tenth_mm: Some(2970),
+            original_size: None,
+            paper_size: None,
             source_code: Some(15),
             source_name: Some("自动纸盒".to_string()),
             color_mode: Some("monochrome".to_string()),
@@ -1085,6 +1120,57 @@ mod tests {
             .load_devmode_bytes(&saved.id)
             .expect("load devmode bytes");
         assert_eq!(retrieved_bytes, dummy_devmode);
+    }
+
+    #[test]
+    fn saves_and_loads_profile_with_original_and_paper_size() {
+        let (store, dir) = make_test_store();
+        let dummy_devmode = vec![1, 2, 3, 4, 5, 6, 7, 8];
+
+        let mut settings = sample_settings("HP LaserJet");
+        settings.original_size = Some(crate::contracts::PaperSizeSpec {
+            preset: crate::contracts::PaperSizePreset::A3,
+            custom: None,
+        });
+        settings.paper_size = Some(crate::contracts::PaperSizeSpec {
+            preset: crate::contracts::PaperSizePreset::Custom,
+            custom: Some(crate::contracts::CustomPaperDimensions {
+                width_mm: 180,
+                height_mm: 260,
+            }),
+        });
+
+        let saved = store
+            .save_profile(SaveProfileParams::new(
+                "A3自定义纸张",
+                "HP LaserJet",
+                &dummy_devmode,
+                settings.clone(),
+                sample_fingerprint("HP LaserJet"),
+            ))
+            .expect("save profile with paper sizes");
+
+        let summary = saved.to_summary(false, PrinterProfileCompatibility::Compatible);
+        assert!(
+            summary.summary.contains("原稿 A3"),
+            "summary={}",
+            summary.summary
+        );
+        assert!(
+            summary.summary.contains("纸张 180×260mm"),
+            "summary={}",
+            summary.summary
+        );
+
+        let reloaded_store = PersistentPrinterProfileStore::new(&dir.0);
+        let reloaded = reloaded_store
+            .get_profile(&saved.id)
+            .expect("reloaded profile");
+        assert_eq!(
+            reloaded.settings_snapshot.original_size,
+            settings.original_size
+        );
+        assert_eq!(reloaded.settings_snapshot.paper_size, settings.paper_size);
     }
 
     #[test]

@@ -318,7 +318,15 @@ export function createDefaultGlobalSettings(printerName = ''): PrintSettings {
 export function formatDriverSettingsSummary(settings: PrinterDriverSettings): string {
   const parts: string[] = [];
 
-  if (settings.paperName) {
+  if (settings.originalSize || settings.paperSize) {
+    const origLabel = formatOriginalSizeLabel(settings.originalSize);
+    if (!settings.paperSize || settings.paperSize.preset === 'sameAsOriginal') {
+      parts.push(`原稿/纸张 ${origLabel}`);
+    } else {
+      parts.push(`原稿 ${origLabel}`);
+      parts.push(`纸张 ${formatPaperSizeLabel(settings.paperSize, settings.originalSize)}`);
+    }
+  } else if (settings.paperName) {
     parts.push(settings.paperName);
   } else if (settings.paperCode) {
     parts.push(`纸张代码 ${settings.paperCode}`);
@@ -378,6 +386,24 @@ export function applyDriverSettings(
     next.collateMode = driverSettings.collate ? 'byDocument' : 'byPage';
   }
 
+  if (driverSettings.originalSize) {
+    next.originalSize = {
+      preset: driverSettings.originalSize.preset,
+      ...(driverSettings.originalSize.custom
+        ? { custom: { ...driverSettings.originalSize.custom } }
+        : {}),
+    };
+  }
+
+  if (driverSettings.paperSize) {
+    next.paperSize = {
+      preset: driverSettings.paperSize.preset,
+      ...(driverSettings.paperSize.custom
+        ? { custom: { ...driverSettings.paperSize.custom } }
+        : {}),
+    };
+  }
+
   return next;
 }
 
@@ -392,6 +418,21 @@ export function applyLoadedPersistentProfile(
     persistentProfileName: result.persistentProfile.name,
     profileDirty: false,
   };
+}
+
+function isPaperSizeEqual(
+  a?: { preset: string; custom?: CustomPaperDimensions },
+  b?: { preset: string; custom?: CustomPaperDimensions },
+): boolean {
+  if (!a && !b) return true;
+  if (!a || !b) return false;
+  if (a.preset !== b.preset) return false;
+  if (a.preset === 'custom') {
+    const aDims = a.custom ?? DEFAULT_CUSTOM_PAPER_DIMENSIONS;
+    const bDims = b.custom ?? DEFAULT_CUSTOM_PAPER_DIMENSIONS;
+    return aDims.widthMm === bDims.widthMm && aDims.heightMm === bDims.heightMm;
+  }
+  return true;
 }
 
 export function isProfileDirty(
@@ -411,6 +452,24 @@ export function isProfileDirty(
     current.sidesMode === 'duplex' &&
     profileSettingsSnapshot.flipMode &&
     current.flipMode !== profileSettingsSnapshot.flipMode
+  ) {
+    return true;
+  }
+  if (
+    profileSettingsSnapshot.originalSize &&
+    !isPaperSizeEqual(
+      current.originalSize ?? createDefaultOriginalSize(),
+      profileSettingsSnapshot.originalSize,
+    )
+  ) {
+    return true;
+  }
+  if (
+    profileSettingsSnapshot.paperSize &&
+    !isPaperSizeEqual(
+      current.paperSize ?? createDefaultPaperSize(),
+      profileSettingsSnapshot.paperSize,
+    )
   ) {
     return true;
   }

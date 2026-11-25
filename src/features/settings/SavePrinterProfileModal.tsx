@@ -2,6 +2,7 @@ import { Alert, Form, Input, Modal, Radio, Space } from 'antd';
 import { useEffect, useState } from 'react';
 import { savePrinterProfile } from '../../api/nativeBridge';
 import type { PrintSettings } from '../../domain/printSettings';
+import { formatOriginalSizeLabel, formatPaperSizeLabel } from '../../domain/printSettings';
 import type { SavedPrinterProfileSummary } from '../../shared/contracts/printer';
 
 interface SavePrinterProfileModalProps {
@@ -73,11 +74,6 @@ export function SavePrinterProfileModal({
   };
 
   const handleOk = async () => {
-    if (!runtimeProfileId) {
-      setErrorMessage('未检测到驱动运行时配置数据，请先点击“打印机属性”调整并确认');
-      return;
-    }
-
     try {
       const values = await form.validateFields();
       setSaving(true);
@@ -94,6 +90,13 @@ export function SavePrinterProfileModal({
         runtimeProfileId,
         overwritePersistentProfileId: overwriteId,
         note: values.note ? values.note.trim() : undefined,
+        colorMode: currentSettings.colorMode,
+        sidesMode: currentSettings.sidesMode,
+        flipMode: currentSettings.flipMode,
+        sourceCode: currentSettings.sourceCode,
+        collate: currentSettings.collate,
+        originalSize: currentSettings.originalSize,
+        paperSize: currentSettings.paperSize,
       });
 
       onSaved(result);
@@ -173,7 +176,9 @@ export function SavePrinterProfileModal({
         </Form.Item>
 
         <div style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>
-          当前参数：{currentSettings.driverSummary || '默认设置'}
+          当前参数：原稿 {formatOriginalSizeLabel(currentSettings.originalSize)} · 纸张{' '}
+          {formatPaperSizeLabel(currentSettings.paperSize, currentSettings.originalSize)}
+          {currentSettings.driverSummary ? ` · ${currentSettings.driverSummary}` : ''}
         </div>
       </Form>
     </Modal>

@@ -76,6 +76,10 @@ pub struct PrinterDriverSettings {
     pub paper_width_tenth_mm: Option<i16>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub paper_length_tenth_mm: Option<i16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub original_size: Option<PaperSizeSpec>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub paper_size: Option<PaperSizeSpec>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_code: Option<i16>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -521,11 +525,26 @@ pub struct SavedPrinterProfileSummary {
 pub struct SavePrinterProfileRequest {
     pub name: String,
     pub printer_name: String,
-    pub runtime_profile_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime_profile_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub overwrite_persistent_profile_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sides_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub flip_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_code: Option<i16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub collate: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub original_size: Option<PaperSizeSpec>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub paper_size: Option<PaperSizeSpec>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -610,6 +629,8 @@ mod tests {
                 paper_name: Some("A4".to_string()),
                 paper_width_tenth_mm: Some(2100),
                 paper_length_tenth_mm: Some(2970),
+                original_size: None,
+                paper_size: None,
                 source_code: Some(7),
                 source_name: Some("Auto".to_string()),
                 color_mode: Some("monochrome".to_string()),

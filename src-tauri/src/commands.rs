@@ -142,18 +142,69 @@ pub async fn save_printer_profile(
     persistent_store: tauri::State<'_, PersistentPrinterProfileStore>,
     profile_store: tauri::State<'_, PrinterProfileStore>,
 ) -> Result<SavedPrinterProfileSummary, String> {
-    let devmode_bytes = profile_store
-        .get_profile(&request.runtime_profile_id, &request.printer_name)
-        .ok_or_else(|| "当前未找到该运行时的驱动配置数据，请重新打开打印机属性".to_string())?;
+    if let Some(ref original_size) = request.original_size {
+        original_size.validate("原稿尺寸", false)?;
+    }
+    if let Some(ref paper_size) = request.paper_size {
+        paper_size.validate("纸张尺寸", true)?;
+    }
+
+    #[allow(unused_mut)]
+    let mut devmode_bytes = match request.runtime_profile_id.as_deref() {
+        Some(id) if !id.trim().is_empty() => profile_store
+            .get_profile(id, &request.printer_name)
+            .ok_or_else(|| {
+            "当前未找到该运行时的驱动配置数据，请重新打开打印机属性".to_string()
+        })?,
+        _ => {
+            #[cfg(windows)]
+            {
+                printers::devmode::get_printer_default_devmode(&request.printer_name)?
+            }
+            #[cfg(not(windows))]
+            {
+                return Err(
+                    "当前未找到驱动运行时配置数据，且非 Windows 平台无法读取默认驱动配置"
+                        .to_string(),
+                );
+            }
+        }
+    };
+
+    #[cfg(windows)]
+    {
+        if request.color_mode.is_some()
+            || request.sides_mode.is_some()
+            || request.flip_mode.is_some()
+            || request.source_code.is_some()
+            || request.collate.is_some()
+        {
+            printers::devmode::apply_settings_to_devmode(
+                &mut devmode_bytes,
+                request.color_mode.as_deref(),
+                request.sides_mode.as_deref(),
+                request.flip_mode.as_deref(),
+                request.source_code,
+                request.collate,
+            )?;
+        }
+        if let Some(effective_paper) =
+            crate::contracts::EffectivePaperSize::resolve(request.original_size, request.paper_size)
+        {
+            printers::devmode::apply_paper_size_to_devmode(&mut devmode_bytes, effective_paper)?;
+        }
+    }
 
     let paper_names = printers::query_paper_names_map(&request.printer_name, None);
     let bin_names = printers::query_bin_names_map(&request.printer_name, None);
-    let settings = printers::devmode::parse_devmode_standard_fields(
+    let mut settings = printers::devmode::parse_devmode_standard_fields(
         &request.printer_name,
         &devmode_bytes,
         Some(&paper_names),
         Some(&bin_names),
     )?;
+    settings.original_size = request.original_size;
+    settings.paper_size = request.paper_size;
 
     let fingerprint = query_printer_fingerprint(&request.printer_name)?;
 
@@ -306,24 +357,34 @@ pub async fn rebuild_printer_profile(
     let printer_name = &old_profile.printer.printer_name;
 
     #[cfg(windows)]
-    let new_devmode = printers::devmode::rebuild_devmode_from_settings(
+    let mut new_devmode = printers::devmode::rebuild_devmode_from_settings(
         printer_name,
         old_profile.settings_snapshot.color_mode.as_deref(),
         old_profile.settings_snapshot.sides_mode.as_deref(),
         old_profile.settings_snapshot.flip_mode.as_deref(),
     )?;
 
+    #[cfg(windows)]
+    if let Some(effective_paper) = crate::contracts::EffectivePaperSize::resolve(
+        old_profile.settings_snapshot.original_size,
+        old_profile.settings_snapshot.paper_size,
+    ) {
+        let _ = printers::devmode::apply_paper_size_to_devmode(&mut new_devmode, effective_paper);
+    }
+
     #[cfg(not(windows))]
     let new_devmode = vec![0_u8; 128];
 
     let paper_names = printers::query_paper_names_map(printer_name, None);
     let bin_names = printers::query_bin_names_map(printer_name, None);
-    let new_settings = printers::devmode::parse_devmode_standard_fields(
+    let mut new_settings = printers::devmode::parse_devmode_standard_fields(
         printer_name,
         &new_devmode,
         Some(&paper_names),
         Some(&bin_names),
     )?;
+    new_settings.original_size = old_profile.settings_snapshot.original_size;
+    new_settings.paper_size = old_profile.settings_snapshot.paper_size;
 
     let fingerprint = query_printer_fingerprint(printer_name)?;
     let target_name = new_name.as_deref().unwrap_or(&old_profile.name);
